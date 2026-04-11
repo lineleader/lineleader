@@ -166,6 +166,21 @@ func TestExtractResortCode(t *testing.T) {
 	}
 }
 
+func TestParseIntsAfterKeyword(t *testing.T) {
+	// A FRI-SAT line with a date prefix must not include the date numbers.
+	line := "Jan 1 - Jan 31                          FRI—SAT               20             24            29             20              24              44             51              58              68                    138"
+	got := parseIntsAfterKeyword(line, "SAT")
+	want := []int{20, 24, 29, 20, 24, 44, 51, 58, 68, 138}
+	if len(got) != len(want) {
+		t.Fatalf("parseIntsAfterKeyword: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d]: got %d, want %d", i, got[i], want[i])
+		}
+	}
+}
+
 func TestParseInts(t *testing.T) {
 	cases := []struct {
 		s    string

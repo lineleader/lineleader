@@ -53,6 +53,17 @@ func parseInts(s string) []int {
 	return result
 }
 
+// parseIntsAfterKeyword extracts integers from s that appear AFTER the first
+// occurrence of keyword. This prevents date numbers on the same line (e.g.,
+// "Jan 1 - Jan 31  FRI—SAT  20  24...") from contaminating point values.
+func parseIntsAfterKeyword(s, keyword string) []int {
+	idx := strings.Index(strings.ToUpper(s), strings.ToUpper(keyword))
+	if idx < 0 {
+		return parseInts(s)
+	}
+	return parseInts(s[idx+len(keyword):])
+}
+
 // knownRoomTypes lists DVC room types with distinguishing keywords and metadata.
 // THREE-BEDROOM must appear before TWO-BEDROOM and ONE-BEDROOM to avoid substring matches.
 var knownRoomTypes = []struct {
@@ -318,10 +329,10 @@ func parseSeasons(dataLines []string, year int) ([]Season, error) {
 		switch {
 		case isSunThu:
 			flush()
-			pending.sunThu = parseInts(line)
+			pending.sunThu = parseIntsAfterKeyword(line, "THU")
 			pending.dates = append(pending.dates, dates...)
 		case isFriSat:
-			pending.friSat = parseInts(line)
+			pending.friSat = parseIntsAfterKeyword(line, "SAT")
 			pending.dates = append(pending.dates, dates...)
 		case isWeekly:
 			pending.dates = append(pending.dates, dates...)
