@@ -6,6 +6,31 @@ import (
 	"testing"
 )
 
+func TestCollectPDFs(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Create some PDF and non-PDF files.
+	for _, name := range []string{"a.pdf", "b.PDF", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(sub, "d.pdf"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := CollectPDFs(root)
+	if err != nil {
+		t.Fatalf("CollectPDFs: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("got %d paths, want 3: %v", len(got), got)
+	}
+}
+
 func TestSaveAndLoadChart(t *testing.T) {
 	dir := t.TempDir()
 

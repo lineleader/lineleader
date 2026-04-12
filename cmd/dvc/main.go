@@ -34,7 +34,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `dvc — Disney Vacation Club stay search
 
 Usage:
-  dvc import [--data-dir PATH] <pdf-file> [pdf-files...]
+  dvc import [--data-dir PATH] [--dir SCAN_DIR] [pdf-file...]
   dvc search --from DATE --to DATE --budget N [--min-nights N] [--data-dir PATH]
   dvc list   [--data-dir PATH]`)
 }
@@ -43,14 +43,25 @@ Usage:
 func runImport(args []string) {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	dataDir := fs.String("data-dir", defaultDataDir, "directory for JSON chart files")
+	scanDir := fs.String("dir", "", "walk this directory and import all PDFs found")
 	fs.Parse(args)
 
-	if fs.NArg() == 0 {
+	files := fs.Args()
+	if *scanDir != "" {
+		found, err := dvc.CollectPDFs(*scanDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "import: scanning %s: %v\n", *scanDir, err)
+			os.Exit(1)
+		}
+		files = append(files, found...)
+	}
+
+	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "import: no PDF files specified")
 		os.Exit(1)
 	}
 
-	for _, path := range fs.Args() {
+	for _, path := range files {
 		chart, err := dvc.ParsePDF(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "skipping %s: %v\n", path, err)

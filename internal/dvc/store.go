@@ -5,7 +5,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// CollectPDFs walks root recursively and returns paths of all .pdf files
+// (case-insensitive).
+func CollectPDFs(root string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.EqualFold(filepath.Ext(d.Name()), ".pdf") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	return paths, err
+}
 
 // SaveChart writes chart to dataDir/<year>_<ResortCode>.json.
 func SaveChart(dataDir string, chart *ResortChart) error {
