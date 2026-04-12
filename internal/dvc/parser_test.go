@@ -181,6 +181,127 @@ func TestParseIntsAfterKeyword(t *testing.T) {
 	}
 }
 
+// blt2026Layout is a trimmed excerpt for Bay Lake Tower 2026, which has the view-code
+// column header on a separate line between the P and TP legend lines.
+const blt2026Layout = `Bay Lake Tower at Disney's Contemporary Resort
+At Walt Disney World® Resort
+
+
+2026 VACATION POINTS PER NIGHT
+                                         NIGHTS             DELUXE STUDIO                   ONE-BEDROOM                      TWO-BEDROOM                   THREE-BEDROOM
+                                                                 (Sleeps up to 4)               VILLA                            VILLA                       GRAND VILLA
+                                                                                                  (Sleeps up to 5)                (Sleeps up to 9)             (Sleeps up to 12)
+   R - Resort View
+   P - Preferred View
+                                                             R          P         TP          R          P        TP          R          P        TP           P              TP
+   TP - Theme Park View
+TRAVEL PERIODS
+                                        SUN—THU              13         16        18         24         29         35        35         38         48           82              101
+                                         FRI—SAT             16         19        23         32         36         44        42         47         59           98              120
+Sept 1 - Sept 30
+                                          WEEKLY             97        118        136       184         217       263       259         284       358          606              745
+`
+
+func TestParseLayoutText_BLT2026(t *testing.T) {
+	chart, err := parseLayoutText(blt2026Layout, "BLT")
+	if err != nil {
+		t.Fatalf("parseLayoutText error: %v", err)
+	}
+	if len(chart.Columns) != 11 {
+		t.Fatalf("len(Columns) = %d, want 11", len(chart.Columns))
+	}
+	// First three columns belong to DELUXE STUDIO
+	if chart.Columns[0].RoomType != "DELUXE STUDIO" || chart.Columns[0].View != "R" {
+		t.Errorf("Columns[0] = %+v, want DELUXE STUDIO/R", chart.Columns[0])
+	}
+	if chart.Columns[2].View != "TP" {
+		t.Errorf("Columns[2].View = %q, want TP", chart.Columns[2].View)
+	}
+	if len(chart.Seasons) != 1 {
+		t.Fatalf("len(Seasons) = %d, want 1", len(chart.Seasons))
+	}
+	if chart.Seasons[0].SunThu[0] != 13 {
+		t.Errorf("Season[0].SunThu[0] = %d, want 13", chart.Seasons[0].SunThu[0])
+	}
+}
+
+// bcvLayout tests a resort with no view codes (one column per room type).
+const bcvLayout = `Disney's Beach Club Villas
+AT WALT DISNEY WORLD® RESORT
+
+
+2026 VACATION POINTS PER NIGHT
+                                           NIGHTS               DELUXE STUDIO                  ONE-BEDROOM                      TWO-BEDROOM
+                                                                   (Sleeps up to 5)                VILLA                            VILLA
+                                                                                                  (Sleeps up to 4)                  (Sleeps up to 8)
+
+
+
+TRAVEL PERIODS
+                                          SUN—THU                          14                             26                              36
+                                          FRI—SAT                          15                             31                              43
+Sept 1 - Sept 30
+                                           WEEKLY                         100                             192                             266
+`
+
+func TestParseLayoutText_BCVNoViewCodes(t *testing.T) {
+	chart, err := parseLayoutText(bcvLayout, "BCV")
+	if err != nil {
+		t.Fatalf("parseLayoutText error: %v", err)
+	}
+	if len(chart.Columns) != 3 {
+		t.Fatalf("len(Columns) = %d, want 3", len(chart.Columns))
+	}
+	wantTypes := []string{"DELUXE STUDIO", "ONE-BEDROOM VILLA", "TWO-BEDROOM VILLA"}
+	for i, want := range wantTypes {
+		if chart.Columns[i].RoomType != want {
+			t.Errorf("Columns[%d].RoomType = %q, want %q", i, chart.Columns[i].RoomType, want)
+		}
+		if chart.Columns[i].View != "" {
+			t.Errorf("Columns[%d].View = %q, want empty", i, chart.Columns[i].View)
+		}
+	}
+	if chart.Seasons[0].SunThu[0] != 14 || chart.Seasons[0].FriSat[0] != 15 {
+		t.Errorf("Season[0] SunThu[0]=%d FriSat[0]=%d, want 14/15",
+			chart.Seasons[0].SunThu[0], chart.Seasons[0].FriSat[0])
+	}
+}
+
+// sunSatLayout tests AULANI-style SUN—SAT uniform nightly rate.
+const sunSatLayout = `AULANI, Disney Vacation Club Villas
+ON THE ISLAND OF OAHU
+
+
+2026 VACATION POINTS PER NIGHT
+                                          NIGHTS              HOTEL ROOM                DELUXE STUDIO
+                                                               (Sleeps up to 4)              (Sleeps up to 4)
+ S - Standard View
+ O - Ocean View
+                                                                        S                S       O
+TRAVEL PERIODS
+                                          SUN—SAT                      16               17      25
+Jan 4 - Feb 28
+                                           WEEKLY                     112              119     175
+`
+
+func TestParseLayoutText_SunSat(t *testing.T) {
+	chart, err := parseLayoutText(sunSatLayout, "AULV")
+	if err != nil {
+		t.Fatalf("parseLayoutText error: %v", err)
+	}
+	if len(chart.Columns) != 3 {
+		t.Fatalf("len(Columns) = %d, want 3", len(chart.Columns))
+	}
+	if len(chart.Seasons) != 1 {
+		t.Fatalf("len(Seasons) = %d, want 1", len(chart.Seasons))
+	}
+	// SUN—SAT: both SunThu and FriSat should equal the same values
+	s := chart.Seasons[0]
+	if s.SunThu[0] != 16 || s.FriSat[0] != 16 {
+		t.Errorf("SunThu[0]=%d FriSat[0]=%d, want both 16", s.SunThu[0], s.FriSat[0])
+	}
+}
+
 func TestParseInts(t *testing.T) {
 	cases := []struct {
 		s    string

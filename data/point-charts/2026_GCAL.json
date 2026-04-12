@@ -1,0 +1,133 @@
+{
+  "resort_name": "The Villas at Disney's Grand Californian Hotel® \u0026 Spa",
+  "resort_code": "GCAL",
+  "year": 2026,
+  "columns": [
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "",
+      "sleeps": 5
+    },
+    {
+      "room_type": "ONE-BEDROOM VILLA",
+      "view": "",
+      "sleeps": 5
+    },
+    {
+      "room_type": "TWO-BEDROOM VILLA",
+      "view": "",
+      "sleeps": 9
+    },
+    {
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "",
+      "sleeps": 12
+    }
+  ],
+  "seasons": [
+    {
+      "periods": [
+        {
+          "start": "2026-01-04",
+          "end": "2026-02-21"
+        },
+        {
+          "start": "2026-09-06",
+          "end": "2026-10-01"
+        }
+      ],
+      "sun_thu": [
+        17,
+        31,
+        46,
+        94
+      ],
+      "fri_sat": [
+        22,
+        40,
+        56,
+        119
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2026-04-12",
+          "end": "2026-06-28"
+        },
+        {
+          "start": "2026-10-02",
+          "end": "2026-11-23"
+        },
+        {
+          "start": "2026-11-29",
+          "end": "2026-12-17"
+        }
+      ],
+      "sun_thu": [
+        20,
+        39,
+        52,
+        106
+      ],
+      "fri_sat": [
+        24,
+        48,
+        65,
+        133
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2026-02-22",
+          "end": "2026-03-26"
+        },
+        {
+          "start": "2026-06-29",
+          "end": "2026-09-05"
+        }
+      ],
+      "sun_thu": [
+        26,
+        52,
+        70,
+        152
+      ],
+      "fri_sat": [
+        32,
+        64,
+        88,
+        188
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2026-01-01",
+          "end": "2026-01-03"
+        },
+        {
+          "start": "2026-03-27",
+          "end": "2026-04-11"
+        },
+        {
+          "start": "2026-11-24",
+          "end": "2026-11-28"
+        }
+      ],
+      "sun_thu": [
+        30,
+        62,
+        86,
+        182
+      ],
+      "fri_sat": [
+        37,
+        76,
+        108,
+        224
+      ]
+    }
+  ]
+}

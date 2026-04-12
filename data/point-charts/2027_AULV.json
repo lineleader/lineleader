@@ -1,0 +1,260 @@
+{
+  "resort_name": "AULANI, Disney Vacation Club® Villas, Ko Olina, Hawai‛i",
+  "resort_code": "AULV",
+  "year": 2027,
+  "columns": [
+    {
+      "room_type": "HOTEL ROOM",
+      "view": "S",
+      "sleeps": 4
+    },
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "S",
+      "sleeps": 5
+    },
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "I",
+      "sleeps": 5
+    },
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "P",
+      "sleeps": 5
+    },
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "O",
+      "sleeps": 5
+    },
+    {
+      "room_type": "ONE-BEDROOM VILLA",
+      "view": "S",
+      "sleeps": 5
+    },
+    {
+      "room_type": "ONE-BEDROOM VILLA",
+      "view": "I",
+      "sleeps": 5
+    },
+    {
+      "room_type": "ONE-BEDROOM VILLA",
+      "view": "P",
+      "sleeps": 5
+    },
+    {
+      "room_type": "ONE-BEDROOM VILLA",
+      "view": "O",
+      "sleeps": 5
+    },
+    {
+      "room_type": "TWO-BEDROOM VILLA",
+      "view": "S",
+      "sleeps": 9
+    },
+    {
+      "room_type": "TWO-BEDROOM VILLA",
+      "view": "I",
+      "sleeps": 9
+    },
+    {
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "P",
+      "sleeps": 12
+    },
+    {
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "O",
+      "sleeps": 12
+    },
+    {
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "S",
+      "sleeps": 12
+    },
+    {
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "O",
+      "sleeps": 12
+    }
+  ],
+  "seasons": [
+    {
+      "periods": [
+        {
+          "start": "2027-01-03",
+          "end": "2027-02-27"
+        }
+      ],
+      "sun_thu": [
+        16,
+        17,
+        19,
+        23,
+        25,
+        34,
+        35,
+        44,
+        46,
+        47,
+        49,
+        59,
+        62,
+        95,
+        122
+      ],
+      "fri_sat": [
+        16,
+        17,
+        19,
+        23,
+        25,
+        34,
+        35,
+        44,
+        46,
+        47,
+        49,
+        59,
+        62,
+        95,
+        122
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-04-04",
+          "end": "2027-04-28"
+        }
+      ],
+      "sun_thu": [
+        17,
+        19,
+        21,
+        24,
+        26,
+        37,
+        44,
+        46,
+        50,
+        51,
+        59,
+        62,
+        69,
+        103,
+        134
+      ],
+      "fri_sat": [
+        17,
+        19,
+        21,
+        24,
+        26,
+        37,
+        44,
+        46,
+        50,
+        51,
+        59,
+        62,
+        69,
+        103,
+        134
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-02-28",
+          "end": "2027-03-18"
+        },
+        {
+          "start": "2027-04-29",
+          "end": "2027-05-05"
+        }
+      ],
+      "sun_thu": [
+        18,
+        22,
+        25,
+        26,
+        29,
+        44,
+        46,
+        50,
+        58,
+        60,
+        62,
+        70,
+        79,
+        121,
+        157
+      ],
+      "fri_sat": [
+        18,
+        22,
+        25,
+        26,
+        29,
+        44,
+        46,
+        50,
+        58,
+        60,
+        62,
+        70,
+        79,
+        121,
+        157
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-01-01",
+          "end": "2027-01-02"
+        },
+        {
+          "start": "2027-03-19",
+          "end": "2027-04-03"
+        }
+      ],
+      "sun_thu": [
+        21,
+        24,
+        27,
+        29,
+        31,
+        46,
+        50,
+        58,
+        62,
+        64,
+        71,
+        79,
+        84,
+        140,
+        184
+      ],
+      "fri_sat": [
+        21,
+        24,
+        27,
+        29,
+        31,
+        46,
+        50,
+        58,
+        62,
+        64,
+        71,
+        79,
+        84,
+        140,
+        184
+      ]
+    }
+  ]
+}

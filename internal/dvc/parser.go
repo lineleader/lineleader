@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,17 +66,27 @@ func parseIntsAfterKeyword(s, keyword string) []int {
 }
 
 // knownRoomTypes lists DVC room types with distinguishing keywords and metadata.
-// THREE-BEDROOM must appear before TWO-BEDROOM and ONE-BEDROOM to avoid substring matches.
+// Longer/more-specific keywords must appear before shorter ones to avoid substring matches.
 var knownRoomTypes = []struct {
 	keyword string
 	name    string
 	sleeps  int
 }{
+	{"THREE-BEDROOM TREEHOUSE", "THREE-BEDROOM TREEHOUSE VILLA", 9},
+	{"THREE-BEDROOM BEACH COTTAGE", "THREE-BEDROOM BEACH COTTAGE", 12},
 	{"THREE-BEDROOM", "THREE-BEDROOM GRAND VILLA", 12},
+	{"TWO-BEDROOM BEACH COTTAGE", "TWO-BEDROOM BEACH COTTAGE", 12},
+	{"TWO-BEDROOM CABIN", "TWO-BEDROOM CABIN", 8},
+	{"TWO-BEDROOM BUNGALOW", "TWO-BEDROOM BUNGALOW", 8},
+	{"TWO-BEDROOM PENTHOUSE", "TWO-BEDROOM PENTHOUSE VILLA", 8},
 	{"TWO-BEDROOM", "TWO-BEDROOM VILLA", 9},
 	{"ONE-BEDROOM", "ONE-BEDROOM VILLA", 5},
+	{"DELUXE INN ROOM", "DELUXE INN ROOM", 4},
 	{"DELUXE STUDIO", "DELUXE STUDIO", 5},
 	{"RESORT STUDIO", "RESORT STUDIO", 5},
+	{"DUO STUDIO", "DUO STUDIO", 2},
+	{"HOTEL ROOM", "HOTEL ROOM", 4},
+	{"CABIN", "CABIN", 6},
 }
 
 // dateRangeRE matches "Month D - Month D" patterns.
@@ -109,46 +120,16 @@ func parseDateRangesFromLine(line string, year int) []DateRange {
 
 func mustAtoi(s string) int { n, _ := strconv.Atoi(s); return n }
 
-// viewCodeRE matches isolated view codes: TP, R, or P.
-// TP must come before R and P to avoid partial matches.
-var viewCodeRE = regexp.MustCompile(`\b(TP|R|P)\b`)
+// viewCodeRE matches isolated DVC view codes. TP/SV/PM must appear before single-letter
+// alternatives to prevent partial matches. B/P uses a literal slash (no word boundary needed).
+var viewCodeRE = regexp.MustCompile(`\b(TP|SV|PM|R|P|S|V|C|I|O)\b|B/P`)
+
+// legendCodeRE matches a line that starts with a view code definition: "CODE - description"
+var legendCodeRE = regexp.MustCompile(`^\s*[A-Z]{1,3}(?:/[A-Z]{1,2})?\s*-\s*\S`)
 
 // parseColumns extracts the ordered []Column from the header block (lines before TRAVEL PERIODS).
 func parseColumns(headerLines []string) ([]Column, error) {
-	// Step 1: Find the view-code line — the last header line containing "view" and view codes.
-	viewLine := ""
-	for _, line := range headerLines {
-		if regexp.MustCompile(`(?i)(resort|preferred|theme park) view`).MatchString(line) {
-			viewLine = line
-		}
-	}
-	if viewLine == "" {
-		return nil, fmt.Errorf("could not find view-code column header line")
-	}
-
-	// Step 2: Find where the legend ends (after the last "View" text).
-	// Only view codes AFTER this point are actual column headers.
-	legendEnd := 0
-	if m := regexp.MustCompile(`(?i).*\bview\b`).FindStringIndex(viewLine); m != nil {
-		legendEnd = m[1]
-	}
-
-	// Collect positions of view codes that appear after the legend.
-	allViewPositions := viewCodeRE.FindAllStringIndex(viewLine, -1)
-	var viewCodePositions [][]int
-	var rawCodes []string
-	for _, pos := range allViewPositions {
-		if pos[0] >= legendEnd {
-			viewCodePositions = append(viewCodePositions, pos)
-			rawCodes = append(rawCodes, viewLine[pos[0]:pos[1]])
-		}
-	}
-	if len(rawCodes) == 0 {
-		return nil, fmt.Errorf("no view codes found after legend in: %q", viewLine)
-	}
-
-	// Step 3: Find the NIGHTS header line — contains "NIGHTS" and room type names.
-	// This line is in the same horizontal coordinate space as viewLine.
+	// Step 1: Find the NIGHTS header line and room-type spans within it.
 	nightsLine := ""
 	for _, hl := range headerLines {
 		upper := strings.ToUpper(hl)
@@ -168,41 +149,86 @@ func parseColumns(headerLines []string) ([]Column, error) {
 		return nil, fmt.Errorf("could not find NIGHTS header line")
 	}
 
-	// Step 4: Find character-position spans of each room type in the NIGHTS line.
 	type roomSpan struct {
 		name   string
 		sleeps int
 		startX int
-		endX   int
 	}
 	var roomSpans []roomSpan
 	upperNights := strings.ToUpper(nightsLine)
 	for _, rt := range knownRoomTypes {
-		if idx := strings.Index(upperNights, rt.keyword); idx >= 0 {
-			roomSpans = append(roomSpans, roomSpan{rt.name, rt.sleeps, idx, idx + len(rt.keyword)})
+		// Find all occurrences so duplicate room-type keywords (e.g. two TWO-BEDROOM
+		// columns with different views) all get their own span.
+		for start := 0; ; {
+			idx := strings.Index(upperNights[start:], rt.keyword)
+			if idx < 0 {
+				break
+			}
+			abs := start + idx
+			roomSpans = append(roomSpans, roomSpan{rt.name, rt.sleeps, abs})
+			start = abs + 1
 		}
 	}
-	// Sort by startX ascending.
-	for i := 1; i < len(roomSpans); i++ {
-		for j := i; j > 0 && roomSpans[j].startX < roomSpans[j-1].startX; j-- {
-			roomSpans[j], roomSpans[j-1] = roomSpans[j-1], roomSpans[j]
-		}
-	}
+	sort.Slice(roomSpans, func(i, j int) bool { return roomSpans[i].startX < roomSpans[j].startX })
 	if len(roomSpans) == 0 {
 		return nil, fmt.Errorf("no room types found in NIGHTS line")
 	}
 
-	// Step 5: Assign each view code to its room type.
-	// Room type labels are LEFT-ALIGNED within their column group, so we use a
-	// boundary approach: a view code belongs to the room type whose startX is the
-	// largest startX that is still ≤ the view code's position.
-	// roomSpans is already sorted by startX ascending.
-	var columns []Column
-	for i, pos := range viewCodePositions {
-		codeX := pos[0]
-		code := rawCodes[i]
+	// Step 2: Find the column-code line — the header line with the most view-code matches.
+	// A legend line has only 1 match; the actual column header has N×M matches (rooms × views).
+	// Require at least 2 matches to distinguish a real column-code line from a legend line.
+	codeLine := ""
+	bestCount := 1
+	for _, line := range headerLines {
+		n := len(viewCodeRE.FindAllString(line, -1))
+		if n > bestCount {
+			bestCount = n
+			codeLine = line
+		}
+	}
 
-		// Find the rightmost room span that starts at or before this view code.
+	if codeLine == "" {
+		// No view-code columns: one Column per room-type span.
+		var cols []Column
+		for _, rs := range roomSpans {
+			cols = append(cols, Column{RoomType: rs.name, View: "", Sleeps: rs.sleeps})
+		}
+		return cols, nil
+	}
+
+	// Step 3: On the column-code line some matches may be part of the legend prefix
+	// (e.g. "TP - Theme Park View   R P TP …" or "C - Kilimanjaro …   V R SV C …").
+	// Compute legendEnd as the byte offset after the last "CODE -" legend prefix.
+	legendEnd := 0
+	for _, m := range legendCodeRE.FindAllStringIndex(codeLine, -1) {
+		if m[1] > legendEnd {
+			legendEnd = m[1]
+		}
+	}
+
+	var rawCodes []string
+	var codePositions []int
+	for _, pos := range viewCodeRE.FindAllStringIndex(codeLine, -1) {
+		if pos[0] >= legendEnd {
+			rawCodes = append(rawCodes, codeLine[pos[0]:pos[1]])
+			codePositions = append(codePositions, pos[0])
+		}
+	}
+
+	if len(rawCodes) == 0 {
+		// All matches were inside the legend prefix — treat as no-view-code.
+		var cols []Column
+		for _, rs := range roomSpans {
+			cols = append(cols, Column{RoomType: rs.name, View: "", Sleeps: rs.sleeps})
+		}
+		return cols, nil
+	}
+
+	// Step 4: Assign each view code to the room-type whose startX is the largest
+	// value still ≤ the code's position (left-anchored column groups).
+	var columns []Column
+	for i, code := range rawCodes {
+		codeX := codePositions[i]
 		best := roomSpans[0]
 		for _, rs := range roomSpans[1:] {
 			if rs.startX <= codeX {
@@ -211,15 +237,7 @@ func parseColumns(headerLines []string) ([]Column, error) {
 		}
 		columns = append(columns, Column{RoomType: best.name, View: code, Sleeps: best.sleeps})
 	}
-
 	return columns, nil
-}
-
-func iabs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 type pendingSeason struct {
@@ -322,6 +340,9 @@ func parseSeasons(dataLines []string, year int) ([]Season, error) {
 		upper := strings.ToUpper(line)
 		isSunThu := strings.Contains(upper, "SUN") && strings.Contains(upper, "THU")
 		isFriSat := strings.Contains(upper, "FRI") && strings.Contains(upper, "SAT")
+		// SUN—SAT: uniform nightly rate (e.g. AULANI) — same value for both Sun-Thu and Fri-Sat.
+		isSunSat := strings.Contains(upper, "SUN") && strings.Contains(upper, "SAT") &&
+			!strings.Contains(upper, "THU") && !strings.Contains(upper, "FRI")
 		isWeekly := strings.Contains(upper, "WEEKLY")
 
 		dates := parseDateRangesFromLine(line, year)
@@ -330,6 +351,12 @@ func parseSeasons(dataLines []string, year int) ([]Season, error) {
 		case isSunThu:
 			flush()
 			pending.sunThu = parseIntsAfterKeyword(line, "THU")
+			pending.dates = append(pending.dates, dates...)
+		case isSunSat:
+			flush()
+			vals := parseIntsAfterKeyword(line, "SAT")
+			pending.sunThu = vals
+			pending.friSat = vals
 			pending.dates = append(pending.dates, dates...)
 		case isFriSat:
 			pending.friSat = parseIntsAfterKeyword(line, "SAT")

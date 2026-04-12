@@ -1,0 +1,179 @@
+{
+  "resort_name": "Disney's Vero Beach Resort",
+  "resort_code": "VERO",
+  "year": 2026,
+  "columns": [
+    {
+      "room_type": "DELUXE INN ROOM",
+      "view": "",
+      "sleeps": 4
+    },
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "",
+      "sleeps": 5
+    },
+    {
+      "room_type": "DELUXE INN ROOM",
+      "view": "",
+      "sleeps": 4
+    },
+    {
+      "room_type": "ONE-BEDROOM VILLA",
+      "view": "",
+      "sleeps": 5
+    },
+    {
+      "room_type": "TWO-BEDROOM VILLA",
+      "view": "",
+      "sleeps": 9
+    },
+    {
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "",
+      "sleeps": 12
+    }
+  ],
+  "seasons": [
+    {
+      "periods": [
+        {
+          "start": "2026-09-01",
+          "end": "2026-11-24"
+        }
+      ],
+      "sun_thu": [
+        10,
+        12,
+        14,
+        21,
+        30,
+        60
+      ],
+      "fri_sat": [
+        16,
+        17,
+        17,
+        29,
+        39,
+        72
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2026-05-01",
+          "end": "2026-05-31"
+        },
+        {
+          "start": "2026-11-28",
+          "end": "2026-12-23"
+        }
+      ],
+      "sun_thu": [
+        10,
+        13,
+        15,
+        24,
+        33,
+        61
+      ],
+      "fri_sat": [
+        17,
+        18,
+        19,
+        31,
+        42,
+        74
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        },
+        {
+          "start": "2026-06-01",
+          "end": "2026-08-31"
+        },
+        {
+          "start": "2026-11-25",
+          "end": "2026-11-27"
+        }
+      ],
+      "sun_thu": [
+        14,
+        16,
+        18,
+        29,
+        36,
+        73
+      ],
+      "fri_sat": [
+        17,
+        19,
+        21,
+        37,
+        47,
+        88
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2026-02-01",
+          "end": "2026-02-21"
+        },
+        {
+          "start": "2026-04-12",
+          "end": "2026-04-30"
+        }
+      ],
+      "sun_thu": [
+        15,
+        17,
+        19,
+        31,
+        44,
+        81
+      ],
+      "fri_sat": [
+        20,
+        21,
+        23,
+        40,
+        52,
+        99
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2026-02-22",
+          "end": "2026-04-11"
+        },
+        {
+          "start": "2026-12-24",
+          "end": "2026-12-31"
+        }
+      ],
+      "sun_thu": [
+        21,
+        23,
+        26,
+        43,
+        61,
+        105
+      ],
+      "fri_sat": [
+        27,
+        29,
+        31,
+        53,
+        72,
+        126
+      ]
+    }
+  ]
+}

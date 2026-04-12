@@ -1,0 +1,140 @@
+{
+  "resort_name": "The Cabins at Disney's Fort Wilderness Resort - A Disney Vacation Club ® Resort",
+  "resort_code": "CFW",
+  "year": 2027,
+  "columns": [
+    {
+      "room_type": "CABIN",
+      "view": "",
+      "sleeps": 6
+    }
+  ],
+  "seasons": [
+    {
+      "periods": [
+        {
+          "start": "2027-09-01",
+          "end": "2027-09-30"
+        }
+      ],
+      "sun_thu": [
+        15
+      ],
+      "fri_sat": [
+        18
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-01-01",
+          "end": "2027-01-31"
+        },
+        {
+          "start": "2027-05-01",
+          "end": "2027-05-14"
+        }
+      ],
+      "sun_thu": [
+        16
+      ],
+      "fri_sat": [
+        19
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-05-15",
+          "end": "2027-06-10"
+        },
+        {
+          "start": "2027-12-01",
+          "end": "2027-12-23"
+        }
+      ],
+      "sun_thu": [
+        18
+      ],
+      "fri_sat": [
+        21
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-02-01",
+          "end": "2027-02-15"
+        },
+        {
+          "start": "2027-06-11",
+          "end": "2027-08-31"
+        }
+      ],
+      "sun_thu": [
+        20
+      ],
+      "fri_sat": [
+        24
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-10-01",
+          "end": "2027-11-23"
+        },
+        {
+          "start": "2027-11-27",
+          "end": "2027-11-30"
+        }
+      ],
+      "sun_thu": [
+        22
+      ],
+      "fri_sat": [
+        25
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-02-16",
+          "end": "2027-03-20"
+        },
+        {
+          "start": "2027-03-29",
+          "end": "2027-04-30"
+        },
+        {
+          "start": "2027-11-24",
+          "end": "2027-11-26"
+        }
+      ],
+      "sun_thu": [
+        24
+      ],
+      "fri_sat": [
+        28
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-03-21",
+          "end": "2027-03-28"
+        },
+        {
+          "start": "2027-12-24",
+          "end": "2027-12-31"
+        }
+      ],
+      "sun_thu": [
+        32
+      ],
+      "fri_sat": [
+        36
+      ]
+    }
+  ]
+}

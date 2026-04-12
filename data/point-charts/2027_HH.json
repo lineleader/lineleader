@@ -1,0 +1,121 @@
+{
+  "resort_name": "Disney's Hilton Head Island Resort",
+  "resort_code": "HH",
+  "year": 2027,
+  "columns": [
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "",
+      "sleeps": 5
+    },
+    {
+      "room_type": "ONE-BEDROOM VILLA",
+      "view": "",
+      "sleeps": 5
+    },
+    {
+      "room_type": "TWO-BEDROOM VILLA",
+      "view": "",
+      "sleeps": 9
+    },
+    {
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "",
+      "sleeps": 12
+    }
+  ],
+  "seasons": [
+    {
+      "periods": [
+        {
+          "start": "2027-01-01",
+          "end": "2027-01-31"
+        },
+        {
+          "start": "2027-12-01",
+          "end": "2027-12-17"
+        }
+      ],
+      "sun_thu": [
+        6,
+        14,
+        20,
+        27
+      ],
+      "fri_sat": [
+        12,
+        19,
+        23,
+        39
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-02-01",
+          "end": "2027-03-31"
+        },
+        {
+          "start": "2027-11-01",
+          "end": "2027-11-30"
+        }
+      ],
+      "sun_thu": [
+        10,
+        20,
+        24,
+        47
+      ],
+      "fri_sat": [
+        15,
+        29,
+        36,
+        60
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-04-01",
+          "end": "2027-06-10"
+        },
+        {
+          "start": "2027-08-28",
+          "end": "2027-10-31"
+        }
+      ],
+      "sun_thu": [
+        14,
+        27,
+        33,
+        59
+      ],
+      "fri_sat": [
+        23,
+        44,
+        56,
+        95
+      ]
+    },
+    {
+      "periods": [
+        {
+          "start": "2027-06-11",
+          "end": "2027-08-27"
+        }
+      ],
+      "sun_thu": [
+        15,
+        31,
+        41,
+        71
+      ],
+      "fri_sat": [
+        27,
+        52,
+        66,
+        111
+      ]
+    }
+  ]
+}
