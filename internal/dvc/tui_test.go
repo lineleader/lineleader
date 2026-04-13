@@ -96,6 +96,25 @@ func TestTUIUpdate_QuitFromTable(t *testing.T) {
 	}
 }
 
+func TestTUIUpdate_EscMovesToTableFocus(t *testing.T) {
+	m := newTestTUIModel()
+	m.focused = 2
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(tuiModel)
+	if m.focused != 4 {
+		t.Errorf("after esc, focused = %d, want 4 (table)", m.focused)
+	}
+}
+
+func TestTUIUpdate_QDoesNotQuitFromInputField(t *testing.T) {
+	m := newTestTUIModel()
+	m.focused = 0
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	if cmd != nil {
+		t.Error("q should not quit when an input field is focused")
+	}
+}
+
 func TestTUIUpdate_CtrlCAlwaysQuits(t *testing.T) {
 	m := newTestTUIModel()
 	m.focused = 0 // focused on an input field

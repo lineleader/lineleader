@@ -156,6 +156,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab":
 			m.focused = (m.focused + 4) % 5
 			return m, nil
+		case "esc":
+			m.focused = 4 // move to table focus so q works
+			return m, nil
+		case "q":
+			if m.focused == 4 {
+				return m, tea.Quit
+			}
 		}
 
 		if m.focused == 4 { // table is focused
@@ -168,8 +175,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.offset < len(m.results)-1 {
 					m.offset++
 				}
-			case "q":
-				return m, tea.Quit
 			}
 			return m, nil
 		}
@@ -264,8 +269,14 @@ func (m tuiModel) View() tea.View {
 	if len(m.results) == 1 {
 		noun = "result"
 	}
-	status := fmt.Sprintf("%d %s  │  Tab: next field  │  ↑↓: scroll  │  q: quit",
-		len(m.results), noun)
+	var quitHint string
+	if m.focused == 4 {
+		quitHint = "q: quit"
+	} else {
+		quitHint = "esc: stop editing  ctrl+c: quit"
+	}
+	status := fmt.Sprintf("%d %s  │  Tab: next field  │  ↑↓: scroll  │  %s",
+		len(m.results), noun, quitHint)
 	if m.err != "" {
 		status = errStyle.Render(m.err) + "  │  " + status
 	}
