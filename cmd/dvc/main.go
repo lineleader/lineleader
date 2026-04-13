@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/lineleader/lineleader/internal/dvc"
 )
 
@@ -21,6 +22,8 @@ func main() {
 		runImport(os.Args[2:])
 	case "search":
 		runSearch(os.Args[2:])
+	case "tui":
+		runTUI(os.Args[2:])
 	case "list":
 		runList(os.Args[2:])
 	default:
@@ -36,6 +39,7 @@ func printUsage() {
 Usage:
   dvc import [--data-dir PATH] [--dir SCAN_DIR] [pdf-file...]
   dvc search --from DATE --to DATE --budget N [--min-nights N] [--data-dir PATH]
+  dvc tui    [--data-dir PATH]
   dvc list   [--data-dir PATH]`)
 }
 
@@ -141,6 +145,38 @@ func runList(args []string) {
 	for _, c := range charts {
 		fmt.Printf("%s %d  (%d seasons, %d columns)\n",
 			c.ResortCode, c.Year, len(c.Seasons), len(c.Columns))
+	}
+}
+
+// runTUI launches the interactive full-screen search UI.
+func runTUI(args []string) {
+	fs := flag.NewFlagSet("tui", flag.ExitOnError)
+	dataDir := fs.String("data-dir", defaultDataDir, "directory with JSON chart files")
+	fs.Parse(args)
+
+	charts, err := dvc.LoadAll(*dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "loading charts: %v\n", err)
+		os.Exit(1)
+	}
+	if len(charts) == 0 {
+		fmt.Fprintf(os.Stderr, "no charts found in %s — run 'dvc import' first\n", *dataDir)
+		os.Exit(1)
+	}
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	m := dvc.NewTUIModel(charts)
+	m = m.WithDefaults(
+		today.Format("2006-01-02"),
+		today.AddDate(0, 0, 14).Format("2006-01-02"),
+		"100",
+		"1",
+	)
+
+	p := tea.NewProgram(m)
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "tui: %v\n", err)
+		os.Exit(1)
 	}
 }
 

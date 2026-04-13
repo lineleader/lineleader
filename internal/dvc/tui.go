@@ -40,6 +40,7 @@ type tuiModel struct {
 }
 
 // newTUIModel creates a TUI model with the given charts and empty fields.
+// Used internally and by tests.
 func newTUIModel(charts []*ResortChart) tuiModel {
 	return tuiModel{
 		charts:  charts,
@@ -51,6 +52,20 @@ func newTUIModel(charts []*ResortChart) tuiModel {
 			{label: "Min nights"},
 		},
 	}
+}
+
+// NewTUIModel creates an exported TUI model for use from cmd/dvc.
+func NewTUIModel(charts []*ResortChart) tuiModel {
+	return newTUIModel(charts)
+}
+
+// WithDefaults populates the four input fields and runs an initial search.
+func (m tuiModel) WithDefaults(from, to, budget, minNights string) tuiModel {
+	m.fields[0].value = from
+	m.fields[1].value = to
+	m.fields[2].value = budget
+	m.fields[3].value = minNights
+	return m.recompute()
 }
 
 // parseDateTUI parses a date string in YYYY-MM-DD or M/D/YYYY format.
