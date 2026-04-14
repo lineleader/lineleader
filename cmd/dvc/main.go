@@ -152,6 +152,7 @@ func runList(args []string) {
 func runTUI(args []string) {
 	fs := flag.NewFlagSet("tui", flag.ExitOnError)
 	dataDir := fs.String("data-dir", defaultDataDir, "directory with JSON chart files")
+	configFile := fs.String("config", dvc.DefaultConfigPath(), "app config file (JSON)")
 	fs.Parse(args)
 
 	charts, err := dvc.LoadAll(*dataDir)
@@ -164,8 +165,13 @@ func runTUI(args []string) {
 		os.Exit(1)
 	}
 
+	cfg, err := dvc.LoadConfig(*configFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: loading config %s: %v\n", *configFile, err)
+	}
+
 	today := time.Now().UTC().Truncate(24 * time.Hour)
-	m := dvc.NewTUIModel(charts)
+	m := dvc.NewTUIModel(charts).WithFilters(cfg)
 	m = m.WithDefaults(
 		today.Format("2006-01-02"),
 		today.AddDate(0, 0, 14).Format("2006-01-02"),

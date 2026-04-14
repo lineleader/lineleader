@@ -2,6 +2,8 @@ package dvc
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,16 +29,27 @@ type inputField struct {
 	value string
 }
 
+// filterItem represents one toggleable entry in the filter panel.
+type filterItem struct {
+	kind    string // "resort" or "roomtype" or "" (separator)
+	value   string // resort code or room type name
+	enabled bool   // true = included in search (not excluded)
+}
+
 // tuiModel is the bubbletea model for the interactive search UI.
 type tuiModel struct {
-	charts  []*ResortChart
-	fields  [4]inputField // from, to, budget, minNights
-	focused int           // 0–3 = input fields, 4 = table
-	results []StayResult
-	offset  int // scroll position within results
-	height  int // terminal height (updated on WindowSizeMsg)
-	width   int // terminal width
-	err     string
+	charts      []*ResortChart
+	fields      [4]inputField // from, to, budget, minNights
+	focused     int           // 0–3 = input fields, 4 = table
+	results     []StayResult
+	offset      int // scroll position within results
+	height      int // terminal height (updated on WindowSizeMsg)
+	width       int // terminal width
+	err         string
+	filters     Config
+	filterOpen  bool
+	filterItems []filterItem
+	filterCursor int
 }
 
 // newTUIModel creates a TUI model with the given charts and empty fields.
@@ -59,6 +72,19 @@ func NewTUIModel(charts []*ResortChart) tuiModel {
 	return newTUIModel(charts)
 }
 
+// WithFilters sets the initial filter config (loaded from the config file) and
+// builds the filter item list. Changes made in the TUI are in-memory only.
+func (m tuiModel) WithFilters(cfg Config) tuiModel {
+	return m.withFilters(cfg)
+}
+
+// withFilters is the unexported version used internally and in tests.
+func (m tuiModel) withFilters(cfg Config) tuiModel {
+	m.filters = cfg
+	m.filterItems = buildFilterItems(m.charts, cfg)
+	return m
+}
+
 // WithDefaults populates the four input fields and runs an initial search.
 func (m tuiModel) WithDefaults(from, to, budget, minNights string) tuiModel {
 	m.fields[0].value = from
@@ -66,6 +92,62 @@ func (m tuiModel) WithDefaults(from, to, budget, minNights string) tuiModel {
 	m.fields[2].value = budget
 	m.fields[3].value = minNights
 	return m.recompute()
+}
+
+// buildFilterItems builds the ordered list of filter panel items from the
+// unique resort codes and room types across all charts, applying cfg exclusions.
+func buildFilterItems(charts []*ResortChart, cfg Config) []filterItem {
+	resortSeen := map[string]bool{}
+	roomSeen := map[string]bool{}
+	var resortCodes, roomTypes []string
+
+	for _, c := range charts {
+		if !resortSeen[c.ResortCode] {
+			resortSeen[c.ResortCode] = true
+			resortCodes = append(resortCodes, c.ResortCode)
+		}
+		for _, col := range c.Columns {
+			if !roomSeen[col.RoomType] {
+				roomSeen[col.RoomType] = true
+				roomTypes = append(roomTypes, col.RoomType)
+			}
+		}
+	}
+	sort.Strings(resortCodes)
+	sort.Strings(roomTypes)
+
+	var items []filterItem
+	for _, code := range resortCodes {
+		items = append(items, filterItem{
+			kind:    "resort",
+			value:   code,
+			enabled: !slices.Contains(cfg.ExcludeResorts, code),
+		})
+	}
+	// Blank separator between sections.
+	items = append(items, filterItem{kind: ""})
+	for _, rt := range roomTypes {
+		items = append(items, filterItem{
+			kind:    "roomtype",
+			value:   rt,
+			enabled: !slices.Contains(cfg.ExcludeRoomTypes, rt),
+		})
+	}
+	return items
+}
+
+// rebuildFiltersFromItems rebuilds the Config exclusion lists from filterItems.
+func rebuildFiltersFromItems(items []filterItem) Config {
+	var cfg Config
+	for _, item := range items {
+		if item.kind == "resort" && !item.enabled {
+			cfg.ExcludeResorts = append(cfg.ExcludeResorts, item.value)
+		}
+		if item.kind == "roomtype" && !item.enabled {
+			cfg.ExcludeRoomTypes = append(cfg.ExcludeRoomTypes, item.value)
+		}
+	}
+	return cfg
 }
 
 // parseDateTUI parses a date string in YYYY-MM-DD or M/D/YYYY format.
@@ -104,10 +186,12 @@ func (m tuiModel) recompute() tuiModel {
 
 	m.err = ""
 	m.results = Search(m.charts, SearchParams{
-		WindowStart: from,
-		WindowEnd:   to,
-		Budget:      budget,
-		MinNights:   minNights,
+		WindowStart:      from,
+		WindowEnd:        to,
+		Budget:           budget,
+		MinNights:        minNights,
+		ExcludeResorts:   m.filters.ExcludeResorts,
+		ExcludeRoomTypes: m.filters.ExcludeRoomTypes,
 	})
 
 	// Clamp scroll offset to valid range.
@@ -130,6 +214,22 @@ func (m tuiModel) visibleRows() int {
 	return rows
 }
 
+// nextFilterCursor returns the next cursor position in filterItems, skipping separators.
+func (m tuiModel) nextFilterCursor(delta int) int {
+	n := len(m.filterItems)
+	if n == 0 {
+		return 0
+	}
+	pos := m.filterCursor
+	for i := 0; i < n; i++ {
+		pos = (pos + delta + n) % n
+		if m.filterItems[pos].kind != "" {
+			return pos
+		}
+	}
+	return m.filterCursor
+}
+
 // Init implements tea.Model.
 func (m tuiModel) Init() tea.Cmd {
 	return nil
@@ -147,6 +247,25 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ctrl+c quits from anywhere.
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
+		}
+
+		// Filter panel handles its own keys when open.
+		if m.filterOpen {
+			switch msg.String() {
+			case "f", "esc":
+				m.filterOpen = false
+			case "up":
+				m.filterCursor = m.nextFilterCursor(-1)
+			case "down":
+				m.filterCursor = m.nextFilterCursor(1)
+			case "space":
+				if m.filterCursor < len(m.filterItems) {
+					m.filterItems[m.filterCursor].enabled = !m.filterItems[m.filterCursor].enabled
+					m.filters = rebuildFiltersFromItems(m.filterItems)
+					m = m.recompute()
+				}
+			}
+			return m, nil
 		}
 
 		switch msg.String() {
@@ -167,6 +286,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.focused == 4 { // table is focused
 			switch msg.String() {
+			case "f":
+				if len(m.filterItems) == 0 {
+					m.filterItems = buildFilterItems(m.charts, m.filters)
+				}
+				m.filterOpen = true
+				// Ensure cursor lands on a real item.
+				if m.filterCursor < len(m.filterItems) && m.filterItems[m.filterCursor].kind == "" {
+					m.filterCursor = m.nextFilterCursor(1)
+				}
 			case "up":
 				if m.offset > 0 {
 					m.offset--
@@ -207,6 +335,7 @@ func (m tuiModel) View() tea.View {
 	headerStyle := lipgloss.NewStyle().Bold(true)
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	sepStyle := lipgloss.NewStyle().Faint(true)
+	faintStyle := lipgloss.NewStyle().Faint(true)
 
 	// Input fields row.
 	for i, f := range m.fields {
@@ -226,65 +355,107 @@ func (m tuiModel) View() tea.View {
 	sep := sepStyle.Render(strings.Repeat("─", max(m.width, 1)))
 	b.WriteString(sep + "\n")
 
-	// Table header.
-	header := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
-		colResort, "RESORT",
-		colRoomType, "ROOM TYPE",
-		colView, "VIEW",
-		colCheckIn, "CHECK-IN",
-		colCheckOut, "CHECK-OUT",
-		colNights, "NIGHTS",
-		"PTS",
-	)
-	b.WriteString(headerStyle.Render(header) + "\n")
+	if m.filterOpen {
+		// Filter panel replaces the results area.
+		b.WriteString(headerStyle.Render("FILTERS") + "\n")
+		b.WriteString(sep + "\n")
 
-	// Separator.
-	b.WriteString(sep + "\n")
-
-	// Result rows.
-	visible := m.visibleRows()
-	end := m.offset + visible
-	if end > len(m.results) {
-		end = len(m.results)
-	}
-	for _, r := range m.results[m.offset:end] {
-		view := r.View
-		if view == "" {
-			view = "—"
+		visible := m.visibleRows()
+		shown := 0
+		for i, item := range m.filterItems {
+			if shown >= visible {
+				break
+			}
+			switch item.kind {
+			case "":
+				b.WriteString("\n")
+			case "resort", "roomtype":
+				check := "✓"
+				if !item.enabled {
+					check = " "
+				}
+				line := fmt.Sprintf("  [%s] %s", check, item.value)
+				if i == m.filterCursor {
+					line = activeStyle.Render(line)
+				} else if !item.enabled {
+					line = faintStyle.Render(line)
+				}
+				b.WriteString(line + "\n")
+			}
+			shown++
 		}
-		b.WriteString(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d\n",
-			colResort, truncateRunes(r.Resort, colResort),
-			colRoomType, truncateRunes(r.RoomType, colRoomType),
-			colView, view,
-			colCheckIn, r.CheckIn.Format("2006-01-02"),
-			colCheckOut, r.CheckOut.Format("2006-01-02"),
-			colNights, r.Nights,
-			r.Points,
-		))
-	}
 
-	// Status / help bar.
-	b.WriteString(sep + "\n")
-	noun := "results"
-	if len(m.results) == 1 {
-		noun = "result"
-	}
-	var quitHint string
-	if m.focused == 4 {
-		quitHint = "q: quit"
+		b.WriteString(sep + "\n")
+		excluded := countExcluded(m.filterItems)
+		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓: navigate  │  space: toggle  │  f/esc: close", excluded))
 	} else {
-		quitHint = "esc: stop editing  ctrl+c: quit"
+		// Normal results view.
+		header := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+			colResort, "RESORT",
+			colRoomType, "ROOM TYPE",
+			colView, "VIEW",
+			colCheckIn, "CHECK-IN",
+			colCheckOut, "CHECK-OUT",
+			colNights, "NIGHTS",
+			"PTS",
+		)
+		b.WriteString(headerStyle.Render(header) + "\n")
+		b.WriteString(sep + "\n")
+
+		visible := m.visibleRows()
+		end := m.offset + visible
+		if end > len(m.results) {
+			end = len(m.results)
+		}
+		for _, r := range m.results[m.offset:end] {
+			view := r.View
+			if view == "" {
+				view = "—"
+			}
+			b.WriteString(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d\n",
+				colResort, truncateRunes(r.Resort, colResort),
+				colRoomType, truncateRunes(r.RoomType, colRoomType),
+				colView, view,
+				colCheckIn, r.CheckIn.Format("2006-01-02"),
+				colCheckOut, r.CheckOut.Format("2006-01-02"),
+				colNights, r.Nights,
+				r.Points,
+			))
+		}
+
+		b.WriteString(sep + "\n")
+		noun := "results"
+		if len(m.results) == 1 {
+			noun = "result"
+		}
+		var quitHint string
+		if m.focused == 4 {
+			quitHint = "f: filters  │  q: quit"
+		} else {
+			quitHint = "esc: stop editing  ctrl+c: quit"
+		}
+		status := fmt.Sprintf("%d %s  │  Tab: next field  │  ↑↓: scroll  │  %s",
+			len(m.results), noun, quitHint)
+		if m.err != "" {
+			status = errStyle.Render(m.err) + "  │  " + status
+		}
+		b.WriteString(status)
 	}
-	status := fmt.Sprintf("%d %s  │  Tab: next field  │  ↑↓: scroll  │  %s",
-		len(m.results), noun, quitHint)
-	if m.err != "" {
-		status = errStyle.Render(m.err) + "  │  " + status
-	}
-	b.WriteString(status)
 
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v
+}
+
+// countExcluded returns the number of disabled (excluded) items in the filter list.
+func countExcluded(items []filterItem) int {
+	n := 0
+	for _, item := range items {
+		if item.kind != "" && !item.enabled {
+			n++
+		}
+	}
+	return n
 }
 
 // truncateRunes truncates s to at most maxCells runes, adding "…" if needed.
