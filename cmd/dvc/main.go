@@ -143,8 +143,8 @@ func runList(args []string) {
 		return
 	}
 	for _, c := range charts {
-		fmt.Printf("%s %d  (%d seasons, %d columns)\n",
-			c.ResortCode, c.Year, len(c.Seasons), len(c.Columns))
+		fmt.Printf("%s (%s) %d  (%d seasons, %d columns)\n",
+			c.ResortName, c.ResortCode, c.Year, len(c.Seasons), len(c.Columns))
 	}
 }
 
