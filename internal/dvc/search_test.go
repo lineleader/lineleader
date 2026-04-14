@@ -102,6 +102,40 @@ func TestSearch_BasicBudget(t *testing.T) {
 	}
 }
 
+func TestSearch_ExcludeResort(t *testing.T) {
+	chart := minimalChart() // ResortCode = "TST"
+	start, _ := time.Parse("2006-01-02", "2026-01-04")
+	end, _ := time.Parse("2006-01-02", "2026-01-08")
+
+	results := Search([]*ResortChart{chart}, SearchParams{
+		WindowStart:    start,
+		WindowEnd:      end,
+		Budget:         200,
+		MinNights:      1,
+		ExcludeResorts: []string{"TST"},
+	})
+	if len(results) != 0 {
+		t.Errorf("expected 0 results when resort is excluded, got %d", len(results))
+	}
+}
+
+func TestSearch_ExcludeRoomType(t *testing.T) {
+	chart := minimalChart() // columns: STUDIO/R and STUDIO/P
+	start, _ := time.Parse("2006-01-02", "2026-01-04")
+	end, _ := time.Parse("2006-01-02", "2026-01-08")
+
+	results := Search([]*ResortChart{chart}, SearchParams{
+		WindowStart:      start,
+		WindowEnd:        end,
+		Budget:           200,
+		MinNights:        1,
+		ExcludeRoomTypes: []string{"STUDIO"},
+	})
+	if len(results) != 0 {
+		t.Errorf("expected 0 results when room type is excluded, got %d", len(results))
+	}
+}
+
 func TestSearch_SortedByPoints(t *testing.T) {
 	chart := minimalChart()
 	start, _ := time.Parse("2006-01-02", "2026-01-04")
