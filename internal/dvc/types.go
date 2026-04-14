@@ -59,10 +59,12 @@ func (dr DateRange) Contains(d time.Time) (bool, error) {
 
 // SearchParams holds user-provided query parameters for a stay search.
 type SearchParams struct {
-	WindowStart time.Time
-	WindowEnd   time.Time
-	Budget      int
-	MinNights   int // 0 or 1 both mean "at least 1 night"
+	WindowStart      time.Time
+	WindowEnd        time.Time
+	Budget           int
+	MinNights        int      // 0 or 1 both mean "at least 1 night"
+	ExcludeResorts   []string // resort codes to skip entirely
+	ExcludeRoomTypes []string // room type strings to skip
 }
 
 // StayResult is one matching stay from a search.

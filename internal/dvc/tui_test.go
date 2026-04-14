@@ -150,3 +150,83 @@ func TestTUIUpdate_BackspaceDeletesLastRune(t *testing.T) {
 		t.Errorf("after backspace, field = %q, want %q", m.fields[2].value, "10")
 	}
 }
+
+func TestTUIUpdate_FOpensPanelWhenTableFocused(t *testing.T) {
+	m := newTestTUIModel()
+	m = m.recompute()
+	m.focused = 4 // table focus
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	m = next.(tuiModel)
+	if !m.filterOpen {
+		t.Error("expected filterOpen = true after pressing f from table focus")
+	}
+}
+
+func TestTUIUpdate_FDoesNotOpenPanelFromInputField(t *testing.T) {
+	m := newTestTUIModel()
+	m.focused = 0
+	m.fields[0].value = ""
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	m = next.(tuiModel)
+	if m.filterOpen {
+		t.Error("f should not open filter panel when an input field is focused")
+	}
+	if m.fields[0].value != "f" {
+		t.Errorf("f should type into input field, got %q", m.fields[0].value)
+	}
+}
+
+func TestTUIUpdate_FilterPanelEscCloses(t *testing.T) {
+	m := newTestTUIModel()
+	m = m.recompute()
+	m.focused = 4
+	m.filterOpen = true
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(tuiModel)
+	if m.filterOpen {
+		t.Error("expected filterOpen = false after esc")
+	}
+}
+
+func TestTUIUpdate_SpaceTogglesFilterItem(t *testing.T) {
+	chart := minimalChart() // ResortCode = "TST", RoomType = "STUDIO"
+	m := newTUIModel([]*ResortChart{chart})
+	m.fields[0].value = "2026-01-04"
+	m.fields[1].value = "2026-01-08"
+	m.fields[2].value = "200"
+	m.fields[3].value = "1"
+	m = m.withFilters(Config{})
+	m = m.recompute()
+	m.focused = 4
+	m.filterOpen = true
+	m.filterCursor = 0 // first item should be the resort
+
+	resultsBefore := len(m.results)
+
+	// Toggle the resort off
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	m = next.(tuiModel)
+
+	if m.filterItems[0].enabled {
+		t.Error("expected filterItems[0].enabled = false after space toggle")
+	}
+	if len(m.results) >= resultsBefore && resultsBefore > 0 {
+		t.Errorf("expected fewer results after excluding resort; before=%d after=%d",
+			resultsBefore, len(m.results))
+	}
+}
+
+func TestTUIUpdate_FiltersAppliedToResults(t *testing.T) {
+	chart := minimalChart() // ResortCode = "TST"
+	m := newTUIModel([]*ResortChart{chart})
+	m.fields[0].value = "2026-01-04"
+	m.fields[1].value = "2026-01-08"
+	m.fields[2].value = "200"
+	m.fields[3].value = "1"
+	cfg := Config{ExcludeResorts: []string{"TST"}}
+	m = m.withFilters(cfg)
+	m = m.recompute()
+	if len(m.results) != 0 {
+		t.Errorf("expected 0 results with TST excluded, got %d", len(m.results))
+	}
+}

@@ -2,6 +2,7 @@ package dvc
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 )
@@ -45,7 +46,13 @@ func Search(charts []*ResortChart, params SearchParams) []StayResult {
 	var results []StayResult
 
 	for _, chart := range charts {
+		if slices.Contains(params.ExcludeResorts, chart.ResortCode) {
+			continue
+		}
 		for colIdx, col := range chart.Columns {
+			if slices.Contains(params.ExcludeRoomTypes, col.RoomType) {
+				continue
+			}
 			checkIn := params.WindowStart.UTC().Truncate(24 * time.Hour)
 			windowEnd := params.WindowEnd.UTC().Truncate(24 * time.Hour)
 
