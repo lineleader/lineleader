@@ -29,6 +29,55 @@ type inputField struct {
 	value string
 }
 
+// Trip represents one planned stay within a multi-trip planning session.
+type Trip struct {
+	Fields   [3]inputField // 0=From, 1=To, 2=MinNights (Budget is global)
+	Results  []StayResult
+	Selected *StayResult // heap-allocated copy; nil = no selection
+	Offset   int         // scroll position within this trip's results
+	Err      string      // per-trip parse/search error
+}
+
+// SelectedPoints returns the total points committed across all trips.
+func SelectedPoints(trips []Trip) int {
+	total := 0
+	for _, t := range trips {
+		if t.Selected != nil {
+			total += t.Selected.Points
+		}
+	}
+	return total
+}
+
+// RemainingBudget returns how many points are still available after summing all
+// selected stays.
+func RemainingBudget(budget int, trips []Trip) int {
+	return budget - SelectedPoints(trips)
+}
+
+// BudgetForTrip returns the effective search budget for trip at index i: the
+// global budget minus points selected by all OTHER trips. Trip i's own
+// selection does not reduce its own search budget.
+func BudgetForTrip(budget int, trips []Trip, i int) int {
+	used := 0
+	for j, t := range trips {
+		if j != i && t.Selected != nil {
+			used += t.Selected.Points
+		}
+	}
+	return budget - used
+}
+
+// stayEquals compares two StayResults by identity fields (Resort, RoomType,
+// View, CheckIn, CheckOut). Points and Nights are not compared.
+func stayEquals(a, b StayResult) bool {
+	return a.Resort == b.Resort &&
+		a.RoomType == b.RoomType &&
+		a.View == b.View &&
+		a.CheckIn.Equal(b.CheckIn) &&
+		a.CheckOut.Equal(b.CheckOut)
+}
+
 // filterItem represents one toggleable entry in the filter panel.
 type filterItem struct {
 	kind        string // "resort" or "roomtype" or "" (separator)
