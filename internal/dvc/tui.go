@@ -256,11 +256,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "f", "esc":
 				m.filterOpen = false
-			case "up":
+			case "up", "k":
 				m.filterCursor = m.nextFilterCursor(-1)
-			case "down":
+			case "down", "j":
 				m.filterCursor = m.nextFilterCursor(1)
-			case "space":
+			case "space", "x":
 				if m.filterCursor < len(m.filterItems) {
 					m.filterItems[m.filterCursor].enabled = !m.filterItems[m.filterCursor].enabled
 					m.filters = rebuildFiltersFromItems(m.filterItems)
@@ -393,7 +393,7 @@ func (m tuiModel) View() tea.View {
 
 		b.WriteString(sep + "\n")
 		excluded := countExcluded(m.filterItems)
-		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓: navigate  │  space: toggle  │  f/esc: close", excluded))
+		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle  │  f/esc: close", excluded))
 	} else {
 		// Normal results view.
 		header := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
