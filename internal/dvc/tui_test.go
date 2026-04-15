@@ -216,6 +216,53 @@ func TestTUIUpdate_SpaceTogglesFilterItem(t *testing.T) {
 	}
 }
 
+func TestTUIUpdate_FilterPanelJKNavigation(t *testing.T) {
+	chart := minimalChart()
+	m := newTUIModel([]*ResortChart{chart})
+	m = m.withFilters(Config{})
+	m.focused = 4
+	m.filterOpen = true
+	m.filterCursor = 0
+
+	// j should move down (same as down arrow)
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m = next.(tuiModel)
+	if m.filterCursor == 0 {
+		t.Error("j should move filterCursor down")
+	}
+	afterJ := m.filterCursor
+
+	// k should move back up (same as up arrow)
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	m = next.(tuiModel)
+	if m.filterCursor != 0 {
+		t.Errorf("k should move filterCursor back to 0, got %d (was %d after j)", m.filterCursor, afterJ)
+	}
+}
+
+func TestTUIUpdate_FilterPanelXTogglesItem(t *testing.T) {
+	chart := minimalChart()
+	m := newTUIModel([]*ResortChart{chart})
+	m = m.withFilters(Config{})
+	m = m.recompute()
+	m.focused = 4
+	m.filterOpen = true
+	m.filterCursor = 0
+
+	resultsBefore := len(m.results)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	m = next.(tuiModel)
+
+	if m.filterItems[0].enabled {
+		t.Error("expected filterItems[0].enabled = false after x toggle")
+	}
+	if len(m.results) >= resultsBefore && resultsBefore > 0 {
+		t.Errorf("expected fewer results after excluding resort; before=%d after=%d",
+			resultsBefore, len(m.results))
+	}
+}
+
 func TestTUIUpdate_FiltersAppliedToResults(t *testing.T) {
 	chart := minimalChart() // ResortCode = "TST"
 	m := newTUIModel([]*ResortChart{chart})

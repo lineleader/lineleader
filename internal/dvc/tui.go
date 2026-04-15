@@ -31,9 +31,10 @@ type inputField struct {
 
 // filterItem represents one toggleable entry in the filter panel.
 type filterItem struct {
-	kind    string // "resort" or "roomtype" or "" (separator)
-	value   string // resort code or room type name
-	enabled bool   // true = included in search (not excluded)
+	kind        string // "resort" or "roomtype" or "" (separator)
+	value       string // resort code or room type name (used for filtering logic)
+	displayName string // human-readable label shown in the UI (full resort name for resorts)
+	enabled     bool   // true = included in search (not excluded)
 }
 
 // tuiModel is the bubbletea model for the interactive search UI.
@@ -97,13 +98,13 @@ func (m tuiModel) WithDefaults(from, to, budget, minNights string) tuiModel {
 // buildFilterItems builds the ordered list of filter panel items from the
 // unique resort codes and room types across all charts, applying cfg exclusions.
 func buildFilterItems(charts []*ResortChart, cfg Config) []filterItem {
-	resortSeen := map[string]bool{}
+	resortNames := map[string]string{} // code → full name
 	roomSeen := map[string]bool{}
 	var resortCodes, roomTypes []string
 
 	for _, c := range charts {
-		if !resortSeen[c.ResortCode] {
-			resortSeen[c.ResortCode] = true
+		if _, seen := resortNames[c.ResortCode]; !seen {
+			resortNames[c.ResortCode] = c.ResortName
 			resortCodes = append(resortCodes, c.ResortCode)
 		}
 		for _, col := range c.Columns {
@@ -119,9 +120,10 @@ func buildFilterItems(charts []*ResortChart, cfg Config) []filterItem {
 	var items []filterItem
 	for _, code := range resortCodes {
 		items = append(items, filterItem{
-			kind:    "resort",
-			value:   code,
-			enabled: !slices.Contains(cfg.ExcludeResorts, code),
+			kind:        "resort",
+			value:       code,
+			displayName: resortNames[code],
+			enabled:     !slices.Contains(cfg.ExcludeResorts, code),
 		})
 	}
 	// Blank separator between sections.
@@ -254,11 +256,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "f", "esc":
 				m.filterOpen = false
-			case "up":
+			case "up", "k":
 				m.filterCursor = m.nextFilterCursor(-1)
-			case "down":
+			case "down", "j":
 				m.filterCursor = m.nextFilterCursor(1)
-			case "space":
+			case "space", "x":
 				if m.filterCursor < len(m.filterItems) {
 					m.filterItems[m.filterCursor].enabled = !m.filterItems[m.filterCursor].enabled
 					m.filters = rebuildFiltersFromItems(m.filterItems)
@@ -374,7 +376,11 @@ func (m tuiModel) View() tea.View {
 				if !item.enabled {
 					check = " "
 				}
-				line := fmt.Sprintf("  [%s] %s", check, item.value)
+				label := item.value
+				if item.displayName != "" {
+					label = item.displayName
+				}
+				line := fmt.Sprintf("  [%s] %s", check, label)
 				if i == m.filterCursor {
 					line = activeStyle.Render(line)
 				} else if !item.enabled {
@@ -387,7 +393,7 @@ func (m tuiModel) View() tea.View {
 
 		b.WriteString(sep + "\n")
 		excluded := countExcluded(m.filterItems)
-		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓: navigate  │  space: toggle  │  f/esc: close", excluded))
+		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle  │  f/esc: close", excluded))
 	} else {
 		// Normal results view.
 		header := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
