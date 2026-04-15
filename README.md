@@ -41,11 +41,41 @@ dvc list   [--data-dir PATH]
 Results are sorted by points (ascending) and show resort, room type, view,
 check-in/out dates, nights, and total points.
 
+**Interactive TUI:**
+
+`dvc search` launches an interactive terminal UI. Use Tab to move between
+fields and Enter to run a search. Press `f` to open the filter panel, which
+lists all imported resorts (by full name) and room types as toggleable items:
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move up |
+| `↓` / `j` | Move down |
+| `space` / `x` | Toggle resort or room type |
+| `f` / `esc` | Close filter panel |
+
+Filters are applied live. Excluded items are saved to
+`~/.config/lineleader/config.json` and loaded on next launch.
+
 **Show available data:**
 
 ```sh
 ./bin/dvc list
 ```
+
+**Config file:**
+
+Default exclusions can be set in `~/.config/lineleader/config.json`:
+
+```json
+{
+  "exclude_resorts": ["AKV", "BCV"],
+  "exclude_room_types": ["3-Bedroom Grand Villa"]
+}
+```
+
+Resort codes match what `dvc list` shows. The filter panel uses full resort
+names for display but stores codes internally.
 
 ### Adding more resorts
 
