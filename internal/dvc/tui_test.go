@@ -278,6 +278,26 @@ func TestTUIUpdate_FiltersAppliedToResults(t *testing.T) {
 	}
 }
 
+// TestTUIRecompute_InvalidBudgetResetsOffset is a regression test for a panic
+// where typing an invalid character into the budget field (e.g. '{' instead of
+// '[') cleared Results without resetting Offset, causing View to slice
+// trip.Results[8:0].
+func TestTUIRecompute_InvalidBudgetResetsOffset(t *testing.T) {
+	m := newTestTUIModel()
+	m = m.recomputeAll()
+	if len(m.trips[0].Results) == 0 {
+		t.Skip("no results with default params")
+	}
+	m.trips[0].Offset = len(m.trips[0].Results) - 1 // scrolled to last row
+
+	m.budgetField.value = "100{" // invalid — as if user typed '{' by mistake
+	m = m.recomputeAll()
+
+	if m.trips[0].Offset != 0 {
+		t.Errorf("Offset = %d after invalid budget; want 0 to prevent slice-bounds panic", m.trips[0].Offset)
+	}
+}
+
 // --- Group 4: multi-trip key bindings ---
 
 func TestTUIUpdate_PlusAddsTrip(t *testing.T) {

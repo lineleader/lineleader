@@ -307,6 +307,7 @@ func (m tuiModel) recomputeAll() tuiModel {
 		for i := range m.trips {
 			m.trips[i].Err = "invalid Budget"
 			m.trips[i].Results = nil
+			m.trips[i].Offset = 0
 		}
 		return m
 	}
