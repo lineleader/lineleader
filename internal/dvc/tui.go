@@ -99,6 +99,13 @@ type tuiModel struct {
 	filterOpen    bool
 	filterItems   []filterItem
 	filterCursor  int
+	plans         []Plan
+	plansPath     string
+	plansOpen     bool
+	plansCursor   int
+	plansNaming   bool   // true while typing a new plan name
+	plansNameBuf  string // name being typed
+	plansErr      string // last save/delete error
 }
 
 // newTUIModel creates a TUI model with the given charts and one empty trip.
@@ -134,6 +141,13 @@ func (m tuiModel) WithFilters(cfg Config) tuiModel {
 func (m tuiModel) withFilters(cfg Config) tuiModel {
 	m.filters = cfg
 	m.filterItems = buildFilterItems(m.charts, cfg)
+	return m
+}
+
+// WithPlans sets the loaded plans and the path to persist them.
+func (m tuiModel) WithPlans(plans []Plan, path string) tuiModel {
+	m.plans = plans
+	m.plansPath = path
 	return m
 }
 
@@ -212,6 +226,77 @@ func parseDateTUI(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("invalid date %q — use YYYY-MM-DD or M/D/YYYY", s)
+}
+
+// snapshotPlan builds a Plan from the current model state.
+func (m tuiModel) snapshotPlan(name string) Plan {
+	specs := make([]TripSpec, len(m.trips))
+	for i, t := range m.trips {
+		specs[i] = TripSpec{
+			From:      t.Fields[0].value,
+			To:        t.Fields[1].value,
+			MinNights: t.Fields[2].value,
+		}
+	}
+	p := Plan{
+		Name:   name,
+		Budget: m.budgetField.value,
+		Trips:  specs,
+	}
+	if len(m.filters.ExcludeResorts) > 0 {
+		p.ExcludeResorts = append([]string(nil), m.filters.ExcludeResorts...)
+	}
+	if len(m.filters.ExcludeRoomTypes) > 0 {
+		p.ExcludeRoomTypes = append([]string(nil), m.filters.ExcludeRoomTypes...)
+	}
+	return p
+}
+
+// applyPlan replaces trips, budget, and filters from a saved Plan and
+// recomputes results.
+func (m tuiModel) applyPlan(p Plan) tuiModel {
+	trips := make([]Trip, len(p.Trips))
+	for i, spec := range p.Trips {
+		trips[i] = Trip{
+			Fields: [3]inputField{
+				{label: "From", value: spec.From},
+				{label: "To", value: spec.To},
+				{label: "Min nights", value: spec.MinNights},
+			},
+		}
+	}
+	m.trips = trips
+	m.activeTripIdx = 0
+	m.budgetField.value = p.Budget
+	m.filters = Config{
+		ExcludeResorts:   p.ExcludeResorts,
+		ExcludeRoomTypes: p.ExcludeRoomTypes,
+	}
+	m.filterItems = buildFilterItems(m.charts, m.filters)
+	return m.recomputeAll()
+}
+
+// savePlan upserts the current state as a named plan, persists to disk, and
+// returns the updated model. Sets m.plansErr on write failure.
+func (m tuiModel) savePlan(name string) tuiModel {
+	plan := m.snapshotPlan(name)
+	found := false
+	for i, p := range m.plans {
+		if p.Name == name {
+			m.plans[i] = plan
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.plans = append(m.plans, plan)
+	}
+	if err := SavePlans(m.plansPath, m.plans); err != nil {
+		m.plansErr = err.Error()
+	} else {
+		m.plansErr = ""
+	}
+	return m
 }
 
 // recomputeAll re-runs the search for every trip using the global budget and
@@ -329,6 +414,66 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		// Plans panel handles its own keys when open.
+		if m.plansOpen {
+			if m.plansNaming {
+				switch msg.String() {
+				case "esc":
+					m.plansNaming = false
+					m.plansNameBuf = ""
+				case "backspace":
+					runes := []rune(m.plansNameBuf)
+					if len(runes) > 0 {
+						m.plansNameBuf = string(runes[:len(runes)-1])
+					}
+				case "enter":
+					if m.plansNameBuf != "" {
+						m = m.savePlan(m.plansNameBuf)
+						m.plansNaming = false
+						m.plansNameBuf = ""
+					}
+				default:
+					if msg.Text != "" {
+						m.plansNameBuf += msg.Text
+					}
+				}
+				return m, nil
+			}
+			switch msg.String() {
+			case "p", "esc":
+				m.plansOpen = false
+			case "up", "k":
+				if m.plansCursor > 0 {
+					m.plansCursor--
+				}
+			case "down", "j":
+				if m.plansCursor < len(m.plans)-1 {
+					m.plansCursor++
+				}
+			case "s":
+				m.plansNaming = true
+				m.plansNameBuf = ""
+			case "d":
+				if m.plansCursor < len(m.plans) {
+					m.plans = append(m.plans[:m.plansCursor], m.plans[m.plansCursor+1:]...)
+					if m.plansCursor >= len(m.plans) && m.plansCursor > 0 {
+						m.plansCursor--
+					}
+					if err := SavePlans(m.plansPath, m.plans); err != nil {
+						m.plansErr = err.Error()
+					} else {
+						m.plansErr = ""
+					}
+				}
+			case "enter":
+				if m.plansCursor < len(m.plans) {
+					m = m.applyPlan(m.plans[m.plansCursor])
+					m.plansOpen = false
+				}
+			}
+			return m, nil
+		}
+
 		// Filter panel handles its own keys when open.
 		if m.filterOpen {
 			switch msg.String() {
@@ -367,6 +512,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focused == 4 { // table is focused
 			trip := &m.trips[m.activeTripIdx]
 			switch msg.String() {
+			case "p":
+				m.plansOpen = true
+				m.plansNaming = false
+				if m.plansCursor >= len(m.plans) {
+					m.plansCursor = 0
+				}
 			case "f":
 				if len(m.filterItems) == 0 {
 					m.filterItems = buildFilterItems(m.charts, m.filters)
@@ -471,9 +622,36 @@ func (m tuiModel) View() tea.View {
 	}
 	b.WriteString(budgetLabel + budgetValue)
 	b.WriteString(fmt.Sprintf("   Remaining: %d pts", remaining))
-	b.WriteString("   f: filters   q: quit\n")
+	b.WriteString("   f: filters   p: plans   q: quit\n")
 
-	if m.filterOpen {
+	if m.plansOpen {
+		b.WriteString(sep + "\n")
+		b.WriteString(headerStyle.Render("PLANS") + "\n")
+		b.WriteString(sep + "\n")
+
+		if len(m.plans) == 0 && !m.plansNaming {
+			b.WriteString(faintStyle.Render("  (no saved plans)") + "\n")
+		}
+		for i, p := range m.plans {
+			noun := "trip"
+			if len(p.Trips) != 1 {
+				noun = "trips"
+			}
+			line := fmt.Sprintf("  %s  (%d %s, budget: %s)", p.Name, len(p.Trips), noun, p.Budget)
+			if i == m.plansCursor && !m.plansNaming {
+				line = activeStyle.Render(line)
+			}
+			b.WriteString(line + "\n")
+		}
+		if m.plansNaming {
+			b.WriteString(activeStyle.Render(fmt.Sprintf("  New plan name: %s█", m.plansNameBuf)) + "\n")
+		}
+		if m.plansErr != "" {
+			b.WriteString(errStyle.Render("  error: "+m.plansErr) + "\n")
+		}
+		b.WriteString(sep + "\n")
+		b.WriteString("enter: load  │  s: new  │  d: delete  │  p/esc: close")
+	} else if m.filterOpen {
 		b.WriteString(sep + "\n")
 		// Filter panel replaces the results area.
 		b.WriteString(headerStyle.Render("FILTERS") + "\n")
@@ -597,7 +775,7 @@ func (m tuiModel) View() tea.View {
 		}
 		var quitHint string
 		if m.focused == 4 {
-			quitHint = "enter: select  │  +/-: trips  │  [/]: switch trip  │  f: filters  │  q: quit"
+			quitHint = "enter: select  │  +/-: trips  │  [/]: switch trip  │  f: filters  │  p: plans  │  q: quit"
 		} else {
 			quitHint = "esc: stop editing  │  ctrl+c: quit"
 		}
