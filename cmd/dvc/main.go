@@ -170,8 +170,11 @@ func runTUI(args []string) {
 		fmt.Fprintf(os.Stderr, "warning: loading config %s: %v\n", *configFile, err)
 	}
 
+	plansPath := dvc.DefaultPlansPath()
+	plans, _ := dvc.LoadPlans(plansPath) // non-fatal; missing file returns nil
+
 	today := time.Now().UTC().Truncate(24 * time.Hour)
-	m := dvc.NewTUIModel(charts).WithFilters(cfg)
+	m := dvc.NewTUIModel(charts).WithFilters(cfg).WithPlans(plans, plansPath)
 	m = m.WithDefaults(
 		today.Format("2006-01-02"),
 		today.AddDate(0, 0, 14).Format("2006-01-02"),

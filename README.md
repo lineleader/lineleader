@@ -57,6 +57,24 @@ lists all imported resorts (by full name) and room types as toggleable items:
 Filters are applied live. Excluded items are saved to
 `~/.config/lineleader/config.json` and loaded on next launch.
 
+**Saving and loading trip plans:**
+
+Press `p` (from table focus) to open the plans panel. A plan captures all
+trip date ranges, the global budget, and the current filter state so you
+can pick up a multi-trip research session exactly where you left off.
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move up |
+| `↓` / `j` | Move down |
+| `enter` | Load highlighted plan |
+| `s` | Start typing a new plan name (press `enter` to save, `esc` to cancel) |
+| `d` | Delete highlighted plan |
+| `p` / `esc` | Close plans panel |
+
+Plans are saved to `~/.config/lineleader/plans.json` and loaded
+automatically on the next launch.
+
 **Show available data:**
 
 ```sh
