@@ -382,6 +382,45 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if trip.Offset < len(trip.Results)-1 {
 					trip.Offset++
 				}
+			case "[":
+				if m.activeTripIdx > 0 {
+					m.activeTripIdx--
+				}
+			case "]":
+				if m.activeTripIdx < len(m.trips)-1 {
+					m.activeTripIdx++
+				}
+			case "+":
+				last := m.trips[len(m.trips)-1]
+				newTrip := Trip{
+					Fields: [3]inputField{
+						{label: "From", value: last.Fields[0].value},
+						{label: "To", value: last.Fields[1].value},
+						{label: "Min nights", value: "1"},
+					},
+				}
+				m.trips = append(m.trips, newTrip)
+				m.activeTripIdx = len(m.trips) - 1
+				m = m.recomputeAll()
+			case "-":
+				if len(m.trips) > 1 {
+					m.trips = append(m.trips[:m.activeTripIdx], m.trips[m.activeTripIdx+1:]...)
+					if m.activeTripIdx >= len(m.trips) {
+						m.activeTripIdx = len(m.trips) - 1
+					}
+					m = m.recomputeAll()
+				}
+			case "enter":
+				if len(trip.Results) > 0 {
+					highlighted := trip.Results[trip.Offset]
+					if trip.Selected != nil && stayEquals(*trip.Selected, highlighted) {
+						trip.Selected = nil
+					} else {
+						sel := highlighted // copy by value
+						trip.Selected = &sel
+					}
+					m = m.recomputeAll()
+				}
 			}
 			return m, nil
 		}

@@ -277,3 +277,150 @@ func TestTUIUpdate_FiltersAppliedToResults(t *testing.T) {
 		t.Errorf("expected 0 results with TST excluded, got %d", len(m.trips[0].Results))
 	}
 }
+
+// --- Group 4: multi-trip key bindings ---
+
+func TestTUIUpdate_PlusAddsTrip(t *testing.T) {
+	m := newTestTUIModel()
+	m.focused = 4
+	if len(m.trips) != 1 {
+		t.Fatalf("initial trips = %d, want 1", len(m.trips))
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel)
+	if len(m.trips) != 2 {
+		t.Errorf("after +, trips = %d, want 2", len(m.trips))
+	}
+	if m.activeTripIdx != 1 {
+		t.Errorf("activeTripIdx = %d, want 1", m.activeTripIdx)
+	}
+}
+
+func TestTUIUpdate_MinusRemovesTrip(t *testing.T) {
+	m := newTestTUIModel()
+	m.focused = 4
+	// Add a second trip first.
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel)
+	if len(m.trips) != 2 {
+		t.Fatalf("expected 2 trips after +, got %d", len(m.trips))
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: '-', Text: "-"})
+	m = next.(tuiModel)
+	if len(m.trips) != 1 {
+		t.Errorf("after -, trips = %d, want 1", len(m.trips))
+	}
+}
+
+func TestTUIUpdate_MinusNoopOnSingleTrip(t *testing.T) {
+	m := newTestTUIModel()
+	m.focused = 4
+	next, _ := m.Update(tea.KeyPressMsg{Code: '-', Text: "-"})
+	m = next.(tuiModel)
+	if len(m.trips) != 1 {
+		t.Errorf("- on single trip should be a no-op; trips = %d", len(m.trips))
+	}
+}
+
+func TestTUIUpdate_BracketSwitchesActiveTrip(t *testing.T) {
+	m := newTestTUIModel()
+	m.focused = 4
+	// Add second trip.
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel) // activeTripIdx = 1
+
+	// ] wraps — already at last, no change.
+	next, _ = m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	m = next.(tuiModel)
+	if m.activeTripIdx != 1 {
+		t.Errorf("] beyond last: activeTripIdx = %d, want 1", m.activeTripIdx)
+	}
+
+	// [ goes back.
+	next, _ = m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
+	m = next.(tuiModel)
+	if m.activeTripIdx != 0 {
+		t.Errorf("after [, activeTripIdx = %d, want 0", m.activeTripIdx)
+	}
+
+	// [ at first — no change.
+	next, _ = m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
+	m = next.(tuiModel)
+	if m.activeTripIdx != 0 {
+		t.Errorf("[ beyond first: activeTripIdx = %d, want 0", m.activeTripIdx)
+	}
+}
+
+func TestTUIUpdate_EnterSelectsResult(t *testing.T) {
+	m := newTestTUIModel()
+	m = m.recomputeAll()
+	m.focused = 4
+	if len(m.trips[0].Results) == 0 {
+		t.Skip("no results to select")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.trips[0].Selected == nil {
+		t.Error("expected Selected to be set after enter")
+	}
+}
+
+func TestTUIUpdate_EnterDeselectsResult(t *testing.T) {
+	m := newTestTUIModel()
+	m = m.recomputeAll()
+	m.focused = 4
+	if len(m.trips[0].Results) == 0 {
+		t.Skip("no results to select")
+	}
+	// Select.
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.trips[0].Selected == nil {
+		t.Fatal("expected Selected after first enter")
+	}
+	// Deselect.
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.trips[0].Selected != nil {
+		t.Error("expected Selected = nil after second enter (deselect)")
+	}
+}
+
+func TestTUIUpdate_SelectionDeductsFromOtherTrip(t *testing.T) {
+	chart := minimalChart()
+	m := newTUIModel([]*ResortChart{chart})
+	m.trips[0].Fields[0].value = "2026-01-04"
+	m.trips[0].Fields[1].value = "2026-01-08"
+	m.trips[0].Fields[2].value = "1"
+	m.budgetField.value = "200"
+	m = m.recomputeAll()
+	if len(m.trips[0].Results) == 0 {
+		t.Skip("no results for trip 0")
+	}
+
+	// Add trip 2 with same dates.
+	m.focused = 4
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel)
+	m.activeTripIdx = 0 // go back to trip 0
+
+	resultsBefore := len(m.trips[1].Results)
+
+	// Select a result on trip 0 — should reduce trip 1's effective budget.
+	m.focused = 4
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(tuiModel)
+
+	if m.trips[0].Selected == nil {
+		t.Fatal("expected trip 0 to have a selection")
+	}
+	selectedPts := m.trips[0].Selected.Points
+	if selectedPts == 0 {
+		t.Skip("selected stay has 0 points, can't test budget effect")
+	}
+	// Trip 1 should have fewer or equal results (budget shrank).
+	if len(m.trips[1].Results) > resultsBefore {
+		t.Errorf("trip 1 results grew after trip 0 selection: before=%d after=%d",
+			resultsBefore, len(m.trips[1].Results))
+	}
+}
