@@ -1,6 +1,7 @@
 package dvc
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -236,5 +237,48 @@ func TestRecomputeAll_InvalidBudgetField(t *testing.T) {
 		if len(trip.Results) != 0 {
 			t.Errorf("trip %d: expected nil results for invalid budget, got %d", i, len(trip.Results))
 		}
+	}
+}
+
+// --- Group 5: View smoke tests ---
+
+func TestTUIView_ShowsAllTrips(t *testing.T) {
+	m := newTwoTripModel()
+	m.height = 40
+	m.width = 100
+	v := m.View()
+	out := v.Content
+	if !strings.Contains(out, "TRIP 1") {
+		t.Error("View missing 'TRIP 1'")
+	}
+	if !strings.Contains(out, "TRIP 2") {
+		t.Error("View missing 'TRIP 2'")
+	}
+}
+
+func TestTUIView_ShowsRemainingBudget(t *testing.T) {
+	m := newTwoTripModel()
+	m.height = 40
+	m.width = 100
+	v := m.View()
+	out := v.Content
+	if !strings.Contains(out, "Remaining:") {
+		t.Error("View missing 'Remaining:' counter")
+	}
+}
+
+func TestTUIView_ShowsSelectedMark(t *testing.T) {
+	m := newTwoTripModel()
+	m.height = 40
+	m.width = 100
+	if len(m.trips[0].Results) == 0 {
+		t.Skip("no results to select")
+	}
+	sel := m.trips[0].Results[0]
+	m.trips[0].Selected = &sel
+	v := m.View()
+	out := v.Content
+	if !strings.Contains(out, "✓") {
+		t.Error("View missing '✓' mark for selected stay")
 	}
 }

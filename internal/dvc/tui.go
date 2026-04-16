@@ -272,12 +272,14 @@ func recomputeTrip(charts []*ResortChart, trip Trip, budget int, filters Config)
 	return trip
 }
 
-// visibleRows returns how many result rows fit in the current terminal height.
-func (m tuiModel) visibleRows() int {
-	// Reserve: 1 budget bar + 1 sep + 1 trip header + 1 sep + 1 col header + 1 sep + 1 status = 7
-	rows := m.height - 7
-	if rows < 1 {
-		rows = 1
+// visibleRowsPerTrip returns how many result rows fit per trip section.
+func (m tuiModel) visibleRowsPerTrip() int {
+	// Fixed rows per trip: 1 header + 1 sep + 1 col header + 1 sep = 4
+	// Plus global bar (1) + global sep (1) + status (1) = 3
+	fixed := 3 + len(m.trips)*4
+	rows := (m.height - fixed) / len(m.trips)
+	if rows < 3 {
+		rows = 3
 	}
 	return rows
 }
@@ -471,14 +473,13 @@ func (m tuiModel) View() tea.View {
 	b.WriteString(fmt.Sprintf("   Remaining: %d pts", remaining))
 	b.WriteString("   f: filters   q: quit\n")
 
-	b.WriteString(sep + "\n")
-
 	if m.filterOpen {
+		b.WriteString(sep + "\n")
 		// Filter panel replaces the results area.
 		b.WriteString(headerStyle.Render("FILTERS") + "\n")
 		b.WriteString(sep + "\n")
 
-		visible := m.visibleRows()
+		visible := m.visibleRowsPerTrip() * len(m.trips)
 		shown := 0
 		for i, item := range m.filterItems {
 			if shown >= visible {
@@ -511,25 +512,9 @@ func (m tuiModel) View() tea.View {
 		excluded := countExcluded(m.filterItems)
 		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle  │  f/esc: close", excluded))
 	} else {
-		// Active trip header.
-		trip := m.trips[m.activeTripIdx]
-		renderField := func(idx int, val string) string {
-			if m.focused == idx {
-				return activeStyle.Render(val) + "█"
-			}
-			return val
-		}
-		tripBudget := BudgetForTrip(budget, m.trips, m.activeTripIdx)
-		b.WriteString(fmt.Sprintf("From: %s   To: %s   Min nights: %s   [budget: %d pts]\n",
-			renderField(0, trip.Fields[0].value),
-			renderField(1, trip.Fields[1].value),
-			renderField(2, trip.Fields[2].value),
-			tripBudget,
-		))
-		b.WriteString(sep + "\n")
-
-		// Results table for the active trip.
-		header := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+		// Stacked trip sections — one per trip.
+		visible := m.visibleRowsPerTrip()
+		colHeader := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
 			colResort, "RESORT",
 			colRoomType, "ROOM TYPE",
 			colView, "VIEW",
@@ -538,46 +523,85 @@ func (m tuiModel) View() tea.View {
 			colNights, "NIGHTS",
 			"PTS",
 		)
-		b.WriteString(headerStyle.Render(header) + "\n")
-		b.WriteString(sep + "\n")
 
-		visible := m.visibleRows()
-		end := trip.Offset + visible
-		if end > len(trip.Results) {
-			end = len(trip.Results)
-		}
-		for _, r := range trip.Results[trip.Offset:end] {
-			view := r.View
-			if view == "" {
-				view = "—"
+		for i, trip := range m.trips {
+			tripBudget := BudgetForTrip(budget, m.trips, i)
+			fromVal := trip.Fields[0].value
+			toVal := trip.Fields[1].value
+			minVal := trip.Fields[2].value
+
+			renderField := func(idx int, val string) string {
+				if m.focused == idx && m.activeTripIdx == i && m.focused < 3 {
+					return activeStyle.Render(val) + "█"
+				}
+				return val
 			}
-			b.WriteString(fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d\n",
-				colResort, truncateRunes(r.Resort, colResort),
-				colRoomType, truncateRunes(r.RoomType, colRoomType),
-				colView, view,
-				colCheckIn, r.CheckIn.Format("2006-01-02"),
-				colCheckOut, r.CheckOut.Format("2006-01-02"),
-				colNights, r.Nights,
-				r.Points,
-			))
-		}
-		if trip.Err != "" {
-			b.WriteString(errStyle.Render(trip.Err) + "\n")
+
+			tripHeader := fmt.Sprintf("▶ TRIP %d  From: %s   To: %s   Min nights: %s   [budget: %d pts]",
+				i+1,
+				renderField(0, fromVal),
+				renderField(1, toVal),
+				renderField(2, minVal),
+				tripBudget,
+			)
+			if i == m.activeTripIdx {
+				tripHeader = activeStyle.Render(tripHeader)
+			}
+			b.WriteString(sep + "\n")
+			b.WriteString(tripHeader + "\n")
+			b.WriteString(sep + "\n")
+			b.WriteString(headerStyle.Render(colHeader) + "\n")
+			b.WriteString(sep + "\n")
+
+			end := trip.Offset + visible
+			if end > len(trip.Results) {
+				end = len(trip.Results)
+			}
+			for j, r := range trip.Results[trip.Offset:end] {
+				view := r.View
+				if view == "" {
+					view = "—"
+				}
+				prefix := "  "
+				rowIdx := trip.Offset + j
+				if trip.Selected != nil && stayEquals(*trip.Selected, r) {
+					prefix = "✓ "
+				} else if i == m.activeTripIdx && m.focused == 4 && rowIdx == trip.Offset && j == 0 {
+					prefix = "> "
+				}
+				b.WriteString(fmt.Sprintf("%s%-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d\n",
+					prefix,
+					colResort, truncateRunes(r.Resort, colResort),
+					colRoomType, truncateRunes(r.RoomType, colRoomType),
+					colView, view,
+					colCheckIn, r.CheckIn.Format("2006-01-02"),
+					colCheckOut, r.CheckOut.Format("2006-01-02"),
+					colNights, r.Nights,
+					r.Points,
+				))
+			}
+			if trip.Err != "" {
+				b.WriteString(errStyle.Render(trip.Err) + "\n")
+			}
 		}
 
+		// Status bar.
 		b.WriteString(sep + "\n")
-		noun := "results"
-		if len(trip.Results) == 1 {
-			noun = "result"
+		var counts []string
+		for i, trip := range m.trips {
+			noun := "results"
+			if len(trip.Results) == 1 {
+				noun = "result"
+			}
+			counts = append(counts, fmt.Sprintf("%d %s (trip %d)", len(trip.Results), noun, i+1))
 		}
 		var quitHint string
 		if m.focused == 4 {
-			quitHint = "f: filters  │  q: quit"
+			quitHint = "enter: select  │  +/-: trips  │  [/]: switch trip  │  f: filters  │  q: quit"
 		} else {
 			quitHint = "esc: stop editing  │  ctrl+c: quit"
 		}
-		b.WriteString(fmt.Sprintf("%d %s  │  Tab: next field  │  ↑↓: scroll  │  %s",
-			len(trip.Results), noun, quitHint))
+		b.WriteString(strings.Join(counts, " · ") + "  │  Tab: next field  │  ↑↓: scroll  │  " + quitHint)
 	}
 
 	v := tea.NewView(b.String())
