@@ -9,52 +9,52 @@ import (
 // newTestTUIModel creates a model with the minimal chart and valid default field values.
 func newTestTUIModel() tuiModel {
 	m := newTUIModel([]*ResortChart{minimalChart()})
-	m.fields[0].value = "2026-01-04"
-	m.fields[1].value = "2026-01-08"
-	m.fields[2].value = "100"
-	m.fields[3].value = "1"
+	m.trips[0].Fields[0].value = "2026-01-04"
+	m.trips[0].Fields[1].value = "2026-01-08"
+	m.trips[0].Fields[2].value = "1"
+	m.budgetField.value = "100"
 	return m
 }
 
 func TestTUIRecompute_ValidParams(t *testing.T) {
 	m := newTestTUIModel()
-	m = m.recompute()
-	if m.err != "" {
-		t.Fatalf("unexpected error: %s", m.err)
+	m = m.recomputeAll()
+	if m.trips[0].Err != "" {
+		t.Fatalf("unexpected error: %s", m.trips[0].Err)
 	}
-	if len(m.results) == 0 {
+	if len(m.trips[0].Results) == 0 {
 		t.Error("expected results, got none")
 	}
 }
 
 func TestTUIRecompute_InvalidFromDate(t *testing.T) {
 	m := newTestTUIModel()
-	m = m.recompute() // prime with results
-	prev := len(m.results)
-	m.fields[0].value = "not-a-date"
-	m = m.recompute()
-	if m.err == "" {
+	m = m.recomputeAll() // prime with results
+	prev := len(m.trips[0].Results)
+	m.trips[0].Fields[0].value = "not-a-date"
+	m = m.recomputeAll()
+	if m.trips[0].Err == "" {
 		t.Error("expected validation error for invalid date, got empty")
 	}
-	if len(m.results) != prev {
-		t.Errorf("results changed on invalid input: was %d, now %d", prev, len(m.results))
+	if len(m.trips[0].Results) != prev {
+		t.Errorf("results changed on invalid input: was %d, now %d", prev, len(m.trips[0].Results))
 	}
 }
 
 func TestTUIRecompute_OffsetClamped(t *testing.T) {
 	m := newTestTUIModel()
-	m = m.recompute()
-	if len(m.results) == 0 {
+	m = m.recomputeAll()
+	if len(m.trips[0].Results) == 0 {
 		t.Skip("no results with default params, skipping offset clamp test")
 	}
-	m.offset = len(m.results) - 1
-	m.fields[2].value = "9" // very tight budget — zero results from minimal chart (min rate = 10)
-	m = m.recompute()
-	if len(m.results) > 0 && m.offset >= len(m.results) {
-		t.Errorf("offset %d not clamped; results len = %d", m.offset, len(m.results))
+	m.trips[0].Offset = len(m.trips[0].Results) - 1
+	m.budgetField.value = "9" // very tight budget — zero results from minimal chart (min rate = 10)
+	m = m.recomputeAll()
+	if len(m.trips[0].Results) > 0 && m.trips[0].Offset >= len(m.trips[0].Results) {
+		t.Errorf("offset %d not clamped; results len = %d", m.trips[0].Offset, len(m.trips[0].Results))
 	}
-	if len(m.results) == 0 && m.offset != 0 {
-		t.Errorf("offset %d should be 0 when results are empty", m.offset)
+	if len(m.trips[0].Results) == 0 && m.trips[0].Offset != 0 {
+		t.Errorf("offset %d should be 0 when results are empty", m.trips[0].Offset)
 	}
 }
 
@@ -129,31 +129,31 @@ func TestTUIUpdate_CtrlCAlwaysQuits(t *testing.T) {
 
 func TestTUIUpdate_TypingAppendsToField(t *testing.T) {
 	m := newTestTUIModel()
-	m.fields[0].value = ""
+	m.trips[0].Fields[0].value = ""
 	m.focused = 0
 	next, _ := m.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	m = next.(tuiModel)
 	next, _ = m.Update(tea.KeyPressMsg{Code: '0', Text: "0"})
 	m = next.(tuiModel)
-	if m.fields[0].value != "20" {
-		t.Errorf("field value = %q, want %q", m.fields[0].value, "20")
+	if m.trips[0].Fields[0].value != "20" {
+		t.Errorf("field value = %q, want %q", m.trips[0].Fields[0].value, "20")
 	}
 }
 
 func TestTUIUpdate_BackspaceDeletesLastRune(t *testing.T) {
 	m := newTestTUIModel()
-	m.fields[2].value = "100"
-	m.focused = 2
+	m.budgetField.value = "100"
+	m.focused = 3 // budget field
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = next.(tuiModel)
-	if m.fields[2].value != "10" {
-		t.Errorf("after backspace, field = %q, want %q", m.fields[2].value, "10")
+	if m.budgetField.value != "10" {
+		t.Errorf("after backspace, budget = %q, want %q", m.budgetField.value, "10")
 	}
 }
 
 func TestTUIUpdate_FOpensPanelWhenTableFocused(t *testing.T) {
 	m := newTestTUIModel()
-	m = m.recompute()
+	m = m.recomputeAll()
 	m.focused = 4 // table focus
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	m = next.(tuiModel)
@@ -165,20 +165,20 @@ func TestTUIUpdate_FOpensPanelWhenTableFocused(t *testing.T) {
 func TestTUIUpdate_FDoesNotOpenPanelFromInputField(t *testing.T) {
 	m := newTestTUIModel()
 	m.focused = 0
-	m.fields[0].value = ""
+	m.trips[0].Fields[0].value = ""
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	m = next.(tuiModel)
 	if m.filterOpen {
 		t.Error("f should not open filter panel when an input field is focused")
 	}
-	if m.fields[0].value != "f" {
-		t.Errorf("f should type into input field, got %q", m.fields[0].value)
+	if m.trips[0].Fields[0].value != "f" {
+		t.Errorf("f should type into input field, got %q", m.trips[0].Fields[0].value)
 	}
 }
 
 func TestTUIUpdate_FilterPanelEscCloses(t *testing.T) {
 	m := newTestTUIModel()
-	m = m.recompute()
+	m = m.recomputeAll()
 	m.focused = 4
 	m.filterOpen = true
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -191,17 +191,17 @@ func TestTUIUpdate_FilterPanelEscCloses(t *testing.T) {
 func TestTUIUpdate_SpaceTogglesFilterItem(t *testing.T) {
 	chart := minimalChart() // ResortCode = "TST", RoomType = "STUDIO"
 	m := newTUIModel([]*ResortChart{chart})
-	m.fields[0].value = "2026-01-04"
-	m.fields[1].value = "2026-01-08"
-	m.fields[2].value = "200"
-	m.fields[3].value = "1"
+	m.trips[0].Fields[0].value = "2026-01-04"
+	m.trips[0].Fields[1].value = "2026-01-08"
+	m.trips[0].Fields[2].value = "1"
+	m.budgetField.value = "200"
 	m = m.withFilters(Config{})
-	m = m.recompute()
+	m = m.recomputeAll()
 	m.focused = 4
 	m.filterOpen = true
 	m.filterCursor = 0 // first item should be the resort
 
-	resultsBefore := len(m.results)
+	resultsBefore := len(m.trips[0].Results)
 
 	// Toggle the resort off
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
@@ -210,9 +210,9 @@ func TestTUIUpdate_SpaceTogglesFilterItem(t *testing.T) {
 	if m.filterItems[0].enabled {
 		t.Error("expected filterItems[0].enabled = false after space toggle")
 	}
-	if len(m.results) >= resultsBefore && resultsBefore > 0 {
+	if len(m.trips[0].Results) >= resultsBefore && resultsBefore > 0 {
 		t.Errorf("expected fewer results after excluding resort; before=%d after=%d",
-			resultsBefore, len(m.results))
+			resultsBefore, len(m.trips[0].Results))
 	}
 }
 
@@ -244,12 +244,12 @@ func TestTUIUpdate_FilterPanelXTogglesItem(t *testing.T) {
 	chart := minimalChart()
 	m := newTUIModel([]*ResortChart{chart})
 	m = m.withFilters(Config{})
-	m = m.recompute()
+	m = m.recomputeAll()
 	m.focused = 4
 	m.filterOpen = true
 	m.filterCursor = 0
 
-	resultsBefore := len(m.results)
+	resultsBefore := len(m.trips[0].Results)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = next.(tuiModel)
@@ -257,23 +257,23 @@ func TestTUIUpdate_FilterPanelXTogglesItem(t *testing.T) {
 	if m.filterItems[0].enabled {
 		t.Error("expected filterItems[0].enabled = false after x toggle")
 	}
-	if len(m.results) >= resultsBefore && resultsBefore > 0 {
+	if len(m.trips[0].Results) >= resultsBefore && resultsBefore > 0 {
 		t.Errorf("expected fewer results after excluding resort; before=%d after=%d",
-			resultsBefore, len(m.results))
+			resultsBefore, len(m.trips[0].Results))
 	}
 }
 
 func TestTUIUpdate_FiltersAppliedToResults(t *testing.T) {
 	chart := minimalChart() // ResortCode = "TST"
 	m := newTUIModel([]*ResortChart{chart})
-	m.fields[0].value = "2026-01-04"
-	m.fields[1].value = "2026-01-08"
-	m.fields[2].value = "200"
-	m.fields[3].value = "1"
+	m.trips[0].Fields[0].value = "2026-01-04"
+	m.trips[0].Fields[1].value = "2026-01-08"
+	m.trips[0].Fields[2].value = "1"
+	m.budgetField.value = "200"
 	cfg := Config{ExcludeResorts: []string{"TST"}}
 	m = m.withFilters(cfg)
-	m = m.recompute()
-	if len(m.results) != 0 {
-		t.Errorf("expected 0 results with TST excluded, got %d", len(m.results))
+	m = m.recomputeAll()
+	if len(m.trips[0].Results) != 0 {
+		t.Errorf("expected 0 results with TST excluded, got %d", len(m.trips[0].Results))
 	}
 }

@@ -88,32 +88,34 @@ type filterItem struct {
 
 // tuiModel is the bubbletea model for the interactive search UI.
 type tuiModel struct {
-	charts      []*ResortChart
-	fields      [4]inputField // from, to, budget, minNights
-	focused     int           // 0–3 = input fields, 4 = table
-	results     []StayResult
-	offset      int // scroll position within results
-	height      int // terminal height (updated on WindowSizeMsg)
-	width       int // terminal width
-	err         string
-	filters     Config
-	filterOpen  bool
-	filterItems []filterItem
-	filterCursor int
+	charts        []*ResortChart
+	budgetField   inputField // global shared budget
+	trips         []Trip     // len >= 1
+	activeTripIdx int
+	focused       int // 0=From, 1=To, 2=MinNights, 3=Budget, 4=Table
+	height        int // terminal height (updated on WindowSizeMsg)
+	width         int // terminal width
+	filters       Config
+	filterOpen    bool
+	filterItems   []filterItem
+	filterCursor  int
 }
 
-// newTUIModel creates a TUI model with the given charts and empty fields.
+// newTUIModel creates a TUI model with the given charts and one empty trip.
 // Used internally and by tests.
 func newTUIModel(charts []*ResortChart) tuiModel {
-	return tuiModel{
-		charts:  charts,
-		focused: 0,
-		fields: [4]inputField{
+	trip := Trip{
+		Fields: [3]inputField{
 			{label: "From"},
 			{label: "To"},
-			{label: "Budget"},
 			{label: "Min nights"},
 		},
+	}
+	return tuiModel{
+		charts:      charts,
+		budgetField: inputField{label: "Budget"},
+		trips:       []Trip{trip},
+		focused:     0,
 	}
 }
 
@@ -135,13 +137,14 @@ func (m tuiModel) withFilters(cfg Config) tuiModel {
 	return m
 }
 
-// WithDefaults populates the four input fields and runs an initial search.
+// WithDefaults populates the global budget and trip 0's date/minNights fields,
+// then runs an initial search.
 func (m tuiModel) WithDefaults(from, to, budget, minNights string) tuiModel {
-	m.fields[0].value = from
-	m.fields[1].value = to
-	m.fields[2].value = budget
-	m.fields[3].value = minNights
-	return m.recompute()
+	m.trips[0].Fields[0].value = from
+	m.trips[0].Fields[1].value = to
+	m.trips[0].Fields[2].value = minNights
+	m.budgetField.value = budget
+	return m.recomputeAll()
 }
 
 // buildFilterItems builds the ordered list of filter panel items from the
@@ -211,54 +214,68 @@ func parseDateTUI(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid date %q — use YYYY-MM-DD or M/D/YYYY", s)
 }
 
-// recompute re-runs the search using the current field values.
-// On a parse error it sets m.err and leaves results unchanged.
-// On success it clears m.err, updates m.results, and clamps m.offset.
-func (m tuiModel) recompute() tuiModel {
-	from, err1 := parseDateTUI(m.fields[0].value)
-	to, err2 := parseDateTUI(m.fields[1].value)
-	budget, err3 := strconv.Atoi(m.fields[2].value)
-	minNights, err4 := strconv.Atoi(m.fields[3].value)
+// recomputeAll re-runs the search for every trip using the global budget and
+// all other trips' selections to compute each trip's effective budget.
+func (m tuiModel) recomputeAll() tuiModel {
+	budget, err := strconv.Atoi(m.budgetField.value)
+	if err != nil {
+		for i := range m.trips {
+			m.trips[i].Err = "invalid Budget"
+			m.trips[i].Results = nil
+		}
+		return m
+	}
+	for i := range m.trips {
+		m.trips[i] = recomputeTrip(m.charts, m.trips[i], BudgetForTrip(budget, m.trips, i), m.filters)
+	}
+	return m
+}
+
+// recomputeTrip re-runs Search for a single Trip and returns the updated Trip.
+// On a parse error it sets trip.Err and leaves results unchanged.
+// On success it clears trip.Err, updates trip.Results, and clamps trip.Offset.
+// It never auto-clears trip.Selected — the user must deselect explicitly.
+func recomputeTrip(charts []*ResortChart, trip Trip, budget int, filters Config) Trip {
+	from, err1 := parseDateTUI(trip.Fields[0].value)
+	to, err2 := parseDateTUI(trip.Fields[1].value)
+	minNights, err3 := strconv.Atoi(trip.Fields[2].value)
 
 	switch {
 	case err1 != nil:
-		m.err = "invalid From date"
-		return m
+		trip.Err = "invalid From date"
+		return trip
 	case err2 != nil:
-		m.err = "invalid To date"
-		return m
+		trip.Err = "invalid To date"
+		return trip
 	case err3 != nil:
-		m.err = "invalid Budget"
-		return m
-	case err4 != nil:
-		m.err = "invalid Min nights"
-		return m
+		trip.Err = "invalid Min nights"
+		return trip
 	}
 
-	m.err = ""
-	m.results = Search(m.charts, SearchParams{
+	trip.Err = ""
+	trip.Results = Search(charts, SearchParams{
 		WindowStart:      from,
 		WindowEnd:        to,
 		Budget:           budget,
 		MinNights:        minNights,
-		ExcludeResorts:   m.filters.ExcludeResorts,
-		ExcludeRoomTypes: m.filters.ExcludeRoomTypes,
+		ExcludeResorts:   filters.ExcludeResorts,
+		ExcludeRoomTypes: filters.ExcludeRoomTypes,
 	})
 
 	// Clamp scroll offset to valid range.
-	if len(m.results) == 0 {
-		m.offset = 0
-	} else if m.offset >= len(m.results) {
-		m.offset = len(m.results) - 1
+	if len(trip.Results) == 0 {
+		trip.Offset = 0
+	} else if trip.Offset >= len(trip.Results) {
+		trip.Offset = len(trip.Results) - 1
 	}
 
-	return m
+	return trip
 }
 
 // visibleRows returns how many result rows fit in the current terminal height.
 func (m tuiModel) visibleRows() int {
-	// Reserve: 1 input row + 1 error row + 2 separators + 1 header + 1 status = 6
-	rows := m.height - 6
+	// Reserve: 1 budget bar + 1 sep + 1 trip header + 1 sep + 1 col header + 1 sep + 1 status = 7
+	rows := m.height - 7
 	if rows < 1 {
 		rows = 1
 	}
@@ -284,6 +301,16 @@ func (m tuiModel) nextFilterCursor(delta int) int {
 // Init implements tea.Model.
 func (m tuiModel) Init() tea.Cmd {
 	return nil
+}
+
+// activeField returns a pointer to the currently focused inputField so it can
+// be read and written uniformly regardless of whether it is a trip-local field
+// (focused 0–2) or the global budget field (focused 3).
+func (m *tuiModel) activeField() *inputField {
+	if m.focused == 3 {
+		return &m.budgetField
+	}
+	return &m.trips[m.activeTripIdx].Fields[m.focused]
 }
 
 // Update implements tea.Model.
@@ -313,7 +340,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.filterCursor < len(m.filterItems) {
 					m.filterItems[m.filterCursor].enabled = !m.filterItems[m.filterCursor].enabled
 					m.filters = rebuildFiltersFromItems(m.filterItems)
-					m = m.recompute()
+					m = m.recomputeAll()
 				}
 			}
 			return m, nil
@@ -336,6 +363,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.focused == 4 { // table is focused
+			trip := &m.trips[m.activeTripIdx]
 			switch msg.String() {
 			case "f":
 				if len(m.filterItems) == 0 {
@@ -346,30 +374,31 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.filterCursor < len(m.filterItems) && m.filterItems[m.filterCursor].kind == "" {
 					m.filterCursor = m.nextFilterCursor(1)
 				}
-			case "up":
-				if m.offset > 0 {
-					m.offset--
+			case "up", "k":
+				if trip.Offset > 0 {
+					trip.Offset--
 				}
-			case "down":
-				if m.offset < len(m.results)-1 {
-					m.offset++
+			case "down", "j":
+				if trip.Offset < len(trip.Results)-1 {
+					trip.Offset++
 				}
 			}
 			return m, nil
 		}
 
-		// Input field handling.
+		// Input field handling (focused 0–3).
+		field := m.activeField()
 		switch msg.String() {
 		case "backspace":
-			runes := []rune(m.fields[m.focused].value)
+			runes := []rune(field.value)
 			if len(runes) > 0 {
-				m.fields[m.focused].value = string(runes[:len(runes)-1])
-				m = m.recompute()
+				field.value = string(runes[:len(runes)-1])
+				m = m.recomputeAll()
 			}
 		default:
 			if msg.Text != "" {
-				m.fields[m.focused].value += msg.Text
-				m = m.recompute()
+				field.value += msg.Text
+				m = m.recomputeAll()
 			}
 		}
 	}
@@ -388,22 +417,21 @@ func (m tuiModel) View() tea.View {
 	sepStyle := lipgloss.NewStyle().Faint(true)
 	faintStyle := lipgloss.NewStyle().Faint(true)
 
-	// Input fields row.
-	for i, f := range m.fields {
-		label := labelStyle.Render(f.label+": ")
-		value := f.value
-		if m.focused == i {
-			value = activeStyle.Render(f.value) + "█"
-		}
-		b.WriteString(label + value)
-		if i < 3 {
-			b.WriteString("   ")
-		}
-	}
-	b.WriteString("\n")
-
-	// Separator.
 	sep := sepStyle.Render(strings.Repeat("─", max(m.width, 1)))
+
+	budget, _ := strconv.Atoi(m.budgetField.value)
+	remaining := RemainingBudget(budget, m.trips)
+
+	// Global bar: budget field + remaining counter.
+	budgetLabel := labelStyle.Render(m.budgetField.label + ": ")
+	budgetValue := m.budgetField.value
+	if m.focused == 3 {
+		budgetValue = activeStyle.Render(m.budgetField.value) + "█"
+	}
+	b.WriteString(budgetLabel + budgetValue)
+	b.WriteString(fmt.Sprintf("   Remaining: %d pts", remaining))
+	b.WriteString("   f: filters   q: quit\n")
+
 	b.WriteString(sep + "\n")
 
 	if m.filterOpen {
@@ -444,7 +472,24 @@ func (m tuiModel) View() tea.View {
 		excluded := countExcluded(m.filterItems)
 		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle  │  f/esc: close", excluded))
 	} else {
-		// Normal results view.
+		// Active trip header.
+		trip := m.trips[m.activeTripIdx]
+		renderField := func(idx int, val string) string {
+			if m.focused == idx {
+				return activeStyle.Render(val) + "█"
+			}
+			return val
+		}
+		tripBudget := BudgetForTrip(budget, m.trips, m.activeTripIdx)
+		b.WriteString(fmt.Sprintf("From: %s   To: %s   Min nights: %s   [budget: %d pts]\n",
+			renderField(0, trip.Fields[0].value),
+			renderField(1, trip.Fields[1].value),
+			renderField(2, trip.Fields[2].value),
+			tripBudget,
+		))
+		b.WriteString(sep + "\n")
+
+		// Results table for the active trip.
 		header := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
 			colResort, "RESORT",
 			colRoomType, "ROOM TYPE",
@@ -458,16 +503,16 @@ func (m tuiModel) View() tea.View {
 		b.WriteString(sep + "\n")
 
 		visible := m.visibleRows()
-		end := m.offset + visible
-		if end > len(m.results) {
-			end = len(m.results)
+		end := trip.Offset + visible
+		if end > len(trip.Results) {
+			end = len(trip.Results)
 		}
-		for _, r := range m.results[m.offset:end] {
+		for _, r := range trip.Results[trip.Offset:end] {
 			view := r.View
 			if view == "" {
 				view = "—"
 			}
-			b.WriteString(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d\n",
+			b.WriteString(fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d\n",
 				colResort, truncateRunes(r.Resort, colResort),
 				colRoomType, truncateRunes(r.RoomType, colRoomType),
 				colView, view,
@@ -477,24 +522,23 @@ func (m tuiModel) View() tea.View {
 				r.Points,
 			))
 		}
+		if trip.Err != "" {
+			b.WriteString(errStyle.Render(trip.Err) + "\n")
+		}
 
 		b.WriteString(sep + "\n")
 		noun := "results"
-		if len(m.results) == 1 {
+		if len(trip.Results) == 1 {
 			noun = "result"
 		}
 		var quitHint string
 		if m.focused == 4 {
 			quitHint = "f: filters  │  q: quit"
 		} else {
-			quitHint = "esc: stop editing  ctrl+c: quit"
+			quitHint = "esc: stop editing  │  ctrl+c: quit"
 		}
-		status := fmt.Sprintf("%d %s  │  Tab: next field  │  ↑↓: scroll  │  %s",
-			len(m.results), noun, quitHint)
-		if m.err != "" {
-			status = errStyle.Render(m.err) + "  │  " + status
-		}
-		b.WriteString(status)
+		b.WriteString(fmt.Sprintf("%d %s  │  Tab: next field  │  ↑↓: scroll  │  %s",
+			len(trip.Results), noun, quitHint))
 	}
 
 	v := tea.NewView(b.String())
