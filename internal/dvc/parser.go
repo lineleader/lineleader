@@ -2,10 +2,10 @@ package dvc
 
 import (
 	"fmt"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +65,29 @@ func parseIntsAfterKeyword(s, keyword string) []int {
 	return parseInts(s[idx+len(keyword):])
 }
 
+// intPos is an integer value together with the byte offset (in the line) of its
+// first digit — used as a column x-anchor when aligning header labels to data.
+type intPos struct {
+	val int
+	x   int
+}
+
+// parseIntPositionsAfterKeyword is the positional variant of parseIntsAfterKeyword.
+// It returns each integer with the byte offset of its first digit within s.
+func parseIntPositionsAfterKeyword(s, keyword string) []intPos {
+	offset := 0
+	idx := strings.Index(strings.ToUpper(s), strings.ToUpper(keyword))
+	if idx >= 0 {
+		offset = idx + len(keyword)
+	}
+	var out []intPos
+	for _, m := range regexp.MustCompile(`\d+`).FindAllStringIndex(s[offset:], -1) {
+		n, _ := strconv.Atoi(s[offset+m[0] : offset+m[1]])
+		out = append(out, intPos{val: n, x: offset + m[0]})
+	}
+	return out
+}
+
 // knownRoomTypes lists DVC room types with distinguishing keywords and metadata.
 // Longer/more-specific keywords must appear before shorter ones to avoid substring matches.
 var knownRoomTypes = []struct {
@@ -83,6 +106,7 @@ var knownRoomTypes = []struct {
 	{"ONE-BEDROOM", "ONE-BEDROOM VILLA", 5},
 	{"DELUXE INN ROOM", "DELUXE INN ROOM", 4},
 	{"DELUXE STUDIO", "DELUXE STUDIO", 5},
+	{"TOWER STUDIO", "TOWER STUDIO", 2},
 	{"RESORT STUDIO", "RESORT STUDIO", 5},
 	{"DUO STUDIO", "DUO STUDIO", 2},
 	{"HOTEL ROOM", "HOTEL ROOM", 4},
@@ -127,56 +151,147 @@ var viewCodeRE = regexp.MustCompile(`\b(TP|SV|PM|R|P|S|V|C|I|O)\b|B/P`)
 // legendCodeRE matches a line that starts with a view code definition: "CODE - description"
 var legendCodeRE = regexp.MustCompile(`^\s*[A-Z]{1,3}(?:/[A-Z]{1,2})?\s*-\s*\S`)
 
-// parseColumns extracts the ordered []Column from the header block (lines before TRAVEL PERIODS).
-func parseColumns(headerLines []string) ([]Column, error) {
-	// Step 1: Find the NIGHTS header line and room-type spans within it.
-	nightsLine := ""
-	for _, hl := range headerLines {
-		upper := strings.ToUpper(hl)
-		if strings.Contains(upper, "NIGHTS") {
-			for _, rt := range knownRoomTypes {
-				if strings.Contains(upper, rt.keyword) {
-					nightsLine = hl
-					break
-				}
-			}
+// cellRE matches a "cell" on a layout line — a run of non-space tokens joined by single
+// spaces. Two-or-more spaces break cells. E.g. "DELUXE STUDIO   ONE-BEDROOM" → two cells.
+var cellRE = regexp.MustCompile(`\S+(?: \S+)*`)
+
+// sleepsRE captures N in "(Sleeps up to N)".
+var sleepsRE = regexp.MustCompile(`\(Sleeps up to (\d+)\)`)
+
+// cell is a non-empty text fragment on a header line with byte offsets in that line.
+type cell struct {
+	text  string
+	start int // inclusive
+	end   int // exclusive
+}
+
+func (c cell) center() int { return (c.start + c.end) / 2 }
+
+// parseCells splits line into cells separated by 2+ spaces.
+func parseCells(line string) []cell {
+	var out []cell
+	for _, m := range cellRE.FindAllStringIndex(line, -1) {
+		out = append(out, cell{text: line[m[0]:m[1]], start: m[0], end: m[1]})
+	}
+	return out
+}
+
+// sleepsInCell returns N if the cell is a "(Sleeps up to N)" annotation, else 0.
+func sleepsInCell(c cell) int {
+	if m := sleepsRE.FindStringSubmatch(c.text); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	return 0
+}
+
+// matchRoomType scans text (upper-cased) for known room-type keywords in declared order
+// (longest first wins). Returns (canonical name, sleeps, matched keyword, found).
+func matchRoomType(text string) (string, int, string, bool) {
+	upper := strings.ToUpper(text)
+	for _, rt := range knownRoomTypes {
+		if strings.Contains(upper, rt.keyword) {
+			return rt.name, rt.sleeps, rt.keyword, true
 		}
-		if nightsLine != "" {
+	}
+	return "", 0, "", false
+}
+
+// hasDuplicateKeyword reports whether any known room-type keyword appears 2+ times in text —
+// e.g. SSR's "THREE-BEDROOM THREE-BEDROOM" NIGHTS-line cell where the second occurrence
+// denotes a distinct room variant (TREEHOUSE VILLA) disambiguated on a later header line.
+func hasDuplicateKeyword(text string) bool {
+	upper := strings.ToUpper(text)
+	for _, rt := range knownRoomTypes {
+		if strings.Count(upper, rt.keyword) >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func absInt(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// parseColumns extracts []Column anchored on the first data row's integer x-positions.
+// The data row defines the ground-truth column count and positions; header lines above
+// it (the block preceding TRAVEL PERIODS) are walked to determine each column's room
+// type, view, and sleeps.
+func parseColumns(headerLines []string, firstDataLine string) ([]Column, error) {
+	// 1. Column anchors from the first data row.
+	keyword := "THU"
+	if !strings.Contains(strings.ToUpper(firstDataLine), "THU") {
+		keyword = "SAT"
+	}
+	dataCols := parseIntPositionsAfterKeyword(firstDataLine, keyword)
+	if len(dataCols) == 0 {
+		return nil, fmt.Errorf("no integer columns in data row")
+	}
+
+	// 2. Find NIGHTS header line and its group cells (column-group labels).
+	nightsIdx := -1
+	for i, hl := range headerLines {
+		if strings.Contains(strings.ToUpper(hl), "NIGHTS") {
+			nightsIdx = i
 			break
 		}
 	}
-	if nightsLine == "" {
+	if nightsIdx < 0 {
 		return nil, fmt.Errorf("could not find NIGHTS header line")
 	}
-
-	type roomSpan struct {
-		name   string
-		sleeps int
-		startX int
-	}
-	var roomSpans []roomSpan
-	upperNights := strings.ToUpper(nightsLine)
-	for _, rt := range knownRoomTypes {
-		// Find all occurrences so duplicate room-type keywords (e.g. two TWO-BEDROOM
-		// columns with different views) all get their own span.
-		for start := 0; ; {
-			idx := strings.Index(upperNights[start:], rt.keyword)
-			if idx < 0 {
-				break
-			}
-			abs := start + idx
-			roomSpans = append(roomSpans, roomSpan{rt.name, rt.sleeps, abs})
-			start = abs + 1
+	nightsLine := headerLines[nightsIdx]
+	firstDataX := dataCols[0].x
+	var groupCells []cell
+	for _, c := range parseCells(nightsLine) {
+		// Skip cells fully left of the data-column region (row labels like "NIGHTS").
+		if c.end+5 < firstDataX {
+			continue
 		}
+		if strings.TrimSpace(strings.ToUpper(c.text)) == "NIGHTS" {
+			continue
+		}
+		groupCells = append(groupCells, c)
 	}
-	sort.Slice(roomSpans, func(i, j int) bool { return roomSpans[i].startX < roomSpans[j].startX })
-	if len(roomSpans) == 0 {
-		return nil, fmt.Errorf("no room types found in NIGHTS line")
+	if len(groupCells) == 0 {
+		return nil, fmt.Errorf("no column groups on NIGHTS line")
 	}
 
-	// Step 2: Find the column-code line — the header line with the most view-code matches.
-	// A legend line has only 1 match; the actual column header has N×M matches (rooms × views).
-	// Require at least 2 matches to distinguish a real column-code line from a legend line.
+	// 3. Group horizontal spans. Matched NIGHTS labels (e.g. "DELUXE STUDIO") are
+	//    left-aligned over their column group, so next-cell.start is the correct
+	//    boundary. Unmatched group headers (e.g. VDH "GARDEN ROOM") span multiple
+	//    sub-columns and are center-aligned, so their boundary is the midpoint of
+	//    the whitespace gap with the previous cell (biased right by 1 so a column
+	//    landing exactly on the midpoint falls in the left group).
+	type groupRange struct {
+		start, end int // end is exclusive
+	}
+	matchedCell := make([]bool, len(groupCells))
+	for i, gc := range groupCells {
+		_, _, _, matchedCell[i] = matchRoomType(gc.text)
+	}
+	boundaryAt := func(prev, next cell, nextMatched bool) int {
+		if nextMatched {
+			return next.start
+		}
+		return (prev.end + next.start + 1) / 2
+	}
+	ranges := make([]groupRange, len(groupCells))
+	for i := range groupCells {
+		gr := groupRange{start: math.MinInt32 / 2, end: math.MaxInt32 / 2}
+		if i > 0 {
+			gr.start = boundaryAt(groupCells[i-1], groupCells[i], matchedCell[i])
+		}
+		if i < len(groupCells)-1 {
+			gr.end = boundaryAt(groupCells[i], groupCells[i+1], matchedCell[i+1])
+		}
+		ranges[i] = gr
+	}
+
+	// 4. View codes and their x positions (excluding the legend prefix).
 	codeLine := ""
 	bestCount := 1
 	for _, line := range headerLines {
@@ -186,56 +301,174 @@ func parseColumns(headerLines []string) ([]Column, error) {
 			codeLine = line
 		}
 	}
-
-	if codeLine == "" {
-		// No view-code columns: one Column per room-type span.
-		var cols []Column
-		for _, rs := range roomSpans {
-			cols = append(cols, Column{RoomType: rs.name, View: "", Sleeps: rs.sleeps})
-		}
-		return cols, nil
+	type viewCode struct {
+		text string
+		x    int
 	}
-
-	// Step 3: On the column-code line some matches may be part of the legend prefix
-	// (e.g. "TP - Theme Park View   R P TP …" or "C - Kilimanjaro …   V R SV C …").
-	// Compute legendEnd as the byte offset after the last "CODE -" legend prefix.
-	legendEnd := 0
-	for _, m := range legendCodeRE.FindAllStringIndex(codeLine, -1) {
-		if m[1] > legendEnd {
-			legendEnd = m[1]
-		}
-	}
-
-	var rawCodes []string
-	var codePositions []int
-	for _, pos := range viewCodeRE.FindAllStringIndex(codeLine, -1) {
-		if pos[0] >= legendEnd {
-			rawCodes = append(rawCodes, codeLine[pos[0]:pos[1]])
-			codePositions = append(codePositions, pos[0])
-		}
-	}
-
-	if len(rawCodes) == 0 {
-		// All matches were inside the legend prefix — treat as no-view-code.
-		var cols []Column
-		for _, rs := range roomSpans {
-			cols = append(cols, Column{RoomType: rs.name, View: "", Sleeps: rs.sleeps})
-		}
-		return cols, nil
-	}
-
-	// Step 4: Assign each view code to the room-type whose startX is the largest
-	// value still ≤ the code's position (left-anchored column groups).
-	var columns []Column
-	for i, code := range rawCodes {
-		codeX := codePositions[i]
-		best := roomSpans[0]
-		for _, rs := range roomSpans[1:] {
-			if rs.startX <= codeX {
-				best = rs
+	var codes []viewCode
+	if codeLine != "" {
+		legendEnd := 0
+		for _, m := range legendCodeRE.FindAllStringIndex(codeLine, -1) {
+			if m[1] > legendEnd {
+				legendEnd = m[1]
 			}
 		}
-		columns = append(columns, Column{RoomType: best.name, View: code, Sleeps: best.sleeps})
+		for _, pos := range viewCodeRE.FindAllStringIndex(codeLine, -1) {
+			if pos[0] >= legendEnd {
+				codes = append(codes, viewCode{text: codeLine[pos[0]:pos[1]], x: pos[0]})
+			}
+		}
+	}
+
+	// Helper: closest "(Sleeps up to N)" annotation to x within range (returns 0 if none).
+	findSleepsNear := func(x int, gr groupRange) int {
+		bestN, bestD := 0, math.MaxInt32
+		for _, hl := range headerLines {
+			for _, c := range parseCells(hl) {
+				n := sleepsInCell(c)
+				if n == 0 {
+					continue
+				}
+				if c.center() < gr.start || c.center() >= gr.end {
+					continue
+				}
+				d := absInt(x - c.center())
+				if d < bestD {
+					bestD, bestN = d, n
+				}
+			}
+		}
+		return bestN
+	}
+
+	// 5. Build the column list group-by-group.
+	var columns []Column
+	for gi, gc := range groupCells {
+		gr := ranges[gi]
+		var colsInGroup []intPos
+		for _, dp := range dataCols {
+			if dp.x >= gr.start && dp.x < gr.end {
+				colsInGroup = append(colsInGroup, dp)
+			}
+		}
+		if len(colsInGroup) == 0 {
+			continue
+		}
+		var codesInGroup []viewCode
+		for _, vc := range codes {
+			if vc.x >= gr.start && vc.x < gr.end {
+				codesInGroup = append(codesInGroup, vc)
+			}
+		}
+
+		baseName, baseSleeps, baseKeyword, matched := matchRoomType(gc.text)
+
+		if !matched {
+			// Group-prefix case (e.g. VDH "GARDEN ROOM"): find sub-room-type cells on
+			// subsequent header lines within this group's span and combine.
+			prefix := strings.TrimSpace(gc.text)
+			var subCells []cell
+			for li, hl := range headerLines {
+				if li == nightsIdx {
+					continue
+				}
+				for _, c := range parseCells(hl) {
+					if c.center() < gr.start || c.center() >= gr.end {
+						continue
+					}
+					if sleepsInCell(c) > 0 {
+						continue
+					}
+					if _, _, _, ok := matchRoomType(c.text); ok {
+						subCells = append(subCells, c)
+					}
+				}
+			}
+			for _, dp := range colsInGroup {
+				if len(subCells) == 0 {
+					columns = append(columns, Column{RoomType: prefix, View: "", Sleeps: 0})
+					continue
+				}
+				best := subCells[0]
+				bestD := absInt(dp.x - best.center())
+				for _, sc := range subCells[1:] {
+					if d := absInt(dp.x - sc.center()); d < bestD {
+						best, bestD = sc, d
+					}
+				}
+				subName, subSleeps, _, _ := matchRoomType(best.text)
+				combined := prefix + " " + subName
+				if cName, cSleeps, _, ok := matchRoomType(combined); ok {
+					combined, subSleeps = cName, cSleeps
+				}
+				if n := findSleepsNear(dp.x, gr); n > 0 {
+					subSleeps = n
+				}
+				columns = append(columns, Column{RoomType: combined, View: "", Sleeps: subSleeps})
+			}
+			continue
+		}
+
+		if hasDuplicateKeyword(gc.text) && len(colsInGroup) > len(codesInGroup) {
+			// Duplicate-keyword case (e.g. SSR "THREE-BEDROOM THREE-BEDROOM"): the
+			// view-code columns use the default variant; remaining no-view columns use
+			// an alternate variant. The distinguishing token (e.g. "TREEHOUSE") lives
+			// in a sub-cell on a later header line — combine it with the base keyword
+			// and re-match to find the compound known room type.
+			altName, altSleeps := "", baseSleeps
+			for li, hl := range headerLines {
+				if li == nightsIdx {
+					continue
+				}
+				for _, c := range parseCells(hl) {
+					if c.center() < gr.start || c.center() >= gr.end {
+						continue
+					}
+					if sleepsInCell(c) > 0 {
+						continue
+					}
+					for _, word := range strings.Fields(c.text) {
+						n, s, _, ok := matchRoomType(baseKeyword + " " + word)
+						if ok && n != baseName {
+							altName, altSleeps = n, s
+							break
+						}
+					}
+					if altName != "" {
+						break
+					}
+				}
+				if altName != "" {
+					break
+				}
+			}
+			for i, dp := range colsInGroup {
+				name, sleeps, view := baseName, baseSleeps, ""
+				if i < len(codesInGroup) {
+					view = codesInGroup[i].text
+				} else if altName != "" {
+					name, sleeps = altName, altSleeps
+				}
+				if n := findSleepsNear(dp.x, gr); n > 0 {
+					sleeps = n
+				}
+				columns = append(columns, Column{RoomType: name, View: view, Sleeps: sleeps})
+			}
+			continue
+		}
+
+		// Standard case: 1:1 mapping of data cols to view codes (or no-view if none).
+		for i, dp := range colsInGroup {
+			view := ""
+			if i < len(codesInGroup) {
+				view = codesInGroup[i].text
+			}
+			sleeps := baseSleeps
+			if n := findSleepsNear(dp.x, gr); n > 0 {
+				sleeps = n
+			}
+			columns = append(columns, Column{RoomType: baseName, View: view, Sleeps: sleeps})
+		}
 	}
 	return columns, nil
 }
@@ -305,7 +538,20 @@ func parseLayoutText(text string, resortCode string) (*ResortChart, error) {
 		return nil, fmt.Errorf("could not find data section start")
 	}
 
-	columns, err := parseColumns(lines[:splitIdx])
+	// Locate the first data row (SUN—THU or SUN—SAT) to anchor column positions.
+	firstDataLine := ""
+	for _, l := range lines[splitIdx:] {
+		upper := strings.ToUpper(l)
+		if strings.Contains(upper, "SUN") && (strings.Contains(upper, "THU") || strings.Contains(upper, "SAT")) {
+			firstDataLine = l
+			break
+		}
+	}
+	if firstDataLine == "" {
+		return nil, fmt.Errorf("could not find first data row")
+	}
+
+	columns, err := parseColumns(lines[:splitIdx], firstDataLine)
 	if err != nil {
 		return nil, fmt.Errorf("parsing columns: %w", err)
 	}
