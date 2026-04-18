@@ -302,6 +302,75 @@ func TestParseLayoutText_SunSat(t *testing.T) {
 	}
 }
 
+// ssr2027Layout exercises a multi-section header: two THREE-BEDROOM columns on the
+// NIGHTS line whose distinguishing suffixes (GRAND VILLA vs. TREEHOUSE VILLA) sit on
+// the next header line. The TREEHOUSE column also has no view code.
+const ssr2027Layout = `Disney's Saratoga Springs Resort & Spa
+AT WALT DISNEY WORLD® RESORT
+
+
+2027 VACATION POINTS PER NIGHT
+                                        NIGHTS            DELUXE STUDIO                  ONE-BEDROOM                    TWO-BEDROOM                  THREE-BEDROOM THREE-BEDROOM
+                                                             (Sleeps up to 4)                VILLA                          VILLA                      GRAND VILLA TREEHOUSE VILLA
+                                                                                            (Sleeps up to 5)               (Sleeps up to 9)             (Sleeps up to 12)               (Sleeps up to 9)
+
+  S - Standard
+  P - Preferred                                               S               P              S              P               S              P              S               P
+
+TRAVEL PERIODS
+                                       SUN—THU                 9             11              21             24             27              35             63               74                   38
+                                       FRI—SAT                14             16              27             30             34              39             72               84                   43
+Sept 1 - Sept 30
+                                        WEEKLY                73             87             159            180            203             253            459              538                  276
+`
+
+func TestParseLayoutText_SSR2027(t *testing.T) {
+	chart, err := parseLayoutText(ssr2027Layout, "SSR")
+	if err != nil {
+		t.Fatalf("parseLayoutText error: %v", err)
+	}
+
+	wantCols := []Column{
+		{RoomType: "DELUXE STUDIO", View: "S", Sleeps: 4},
+		{RoomType: "DELUXE STUDIO", View: "P", Sleeps: 4},
+		{RoomType: "ONE-BEDROOM VILLA", View: "S", Sleeps: 5},
+		{RoomType: "ONE-BEDROOM VILLA", View: "P", Sleeps: 5},
+		{RoomType: "TWO-BEDROOM VILLA", View: "S", Sleeps: 9},
+		{RoomType: "TWO-BEDROOM VILLA", View: "P", Sleeps: 9},
+		{RoomType: "THREE-BEDROOM GRAND VILLA", View: "S", Sleeps: 12},
+		{RoomType: "THREE-BEDROOM GRAND VILLA", View: "P", Sleeps: 12},
+		{RoomType: "THREE-BEDROOM TREEHOUSE VILLA", View: "", Sleeps: 9},
+	}
+	if len(chart.Columns) != len(wantCols) {
+		t.Fatalf("len(Columns) = %d, want %d: %+v", len(chart.Columns), len(wantCols), chart.Columns)
+	}
+	for i, want := range wantCols {
+		if chart.Columns[i] != want {
+			t.Errorf("Columns[%d] = %+v, want %+v", i, chart.Columns[i], want)
+		}
+	}
+
+	if len(chart.Seasons) != 1 {
+		t.Fatalf("len(Seasons) = %d, want 1", len(chart.Seasons))
+	}
+	s := chart.Seasons[0]
+	wantSunThu := []int{9, 11, 21, 24, 27, 35, 63, 74, 38}
+	wantFriSat := []int{14, 16, 27, 30, 34, 39, 72, 84, 43}
+	if len(s.SunThu) != len(wantSunThu) {
+		t.Fatalf("SunThu len = %d, want %d: %v", len(s.SunThu), len(wantSunThu), s.SunThu)
+	}
+	for i, v := range wantSunThu {
+		if s.SunThu[i] != v {
+			t.Errorf("SunThu[%d] = %d, want %d", i, s.SunThu[i], v)
+		}
+	}
+	for i, v := range wantFriSat {
+		if s.FriSat[i] != v {
+			t.Errorf("FriSat[%d] = %d, want %d", i, s.FriSat[i], v)
+		}
+	}
+}
+
 func TestParseInts(t *testing.T) {
 	cases := []struct {
 		s    string
