@@ -371,6 +371,76 @@ func TestParseLayoutText_SSR2027(t *testing.T) {
 	}
 }
 
+// vdh2027Layout exercises a multi-section header: "GARDEN ROOM" is a group
+// header on the NIGHTS line that spans two sub-columns whose specific room
+// types (DUO STUDIO, DELUXE STUDIO) appear on a later header line. Both
+// GARDEN ROOM sub-columns have no view code.
+const vdh2027Layout = `The Villas at Disneyland® Hotel
+AT DISNEYLAND® RESORT
+
+
+2027 VACATION POINTS PER NIGHT
+                                        NIGHTS               DUO STUDIO                  DELUXE STUDIO                 ONE-BEDROOM                  TWO-BEDROOM                  THREE-BEDROOM                                 GARDEN ROOM
+                                                             (Sleeps up to 2)               (Sleeps up to 4)               VILLA                        VILLA                      GRAND VILLA
+                                                                                                                          (Sleeps up to 5)             (Sleeps up to 9)              (Sleeps up to 12)           DUO STUDIO              DELUXE STUDIO
+                                                                                                                                                                                                                  (Sleeps up to 2)          (Sleeps up to 4)
+ S - Standard View
+ P- Preferred View                                            S              P              S               P                     P                            P                              P
+
+TRAVEL PERIODS
+                                       SUN—THU                10             11             13              15                    30                           43                             96                          12                        19
+                                        FRI—SAT               13             14             16              19                    37                           53                            118                          15                        23
+Jan 1 - Jan 31
+                                         WEEKLY               76             83             97             113                   224                          321                            716                          90                        141
+`
+
+func TestParseLayoutText_VDH2027(t *testing.T) {
+	chart, err := parseLayoutText(vdh2027Layout, "VDH")
+	if err != nil {
+		t.Fatalf("parseLayoutText error: %v", err)
+	}
+
+	wantCols := []Column{
+		{RoomType: "DUO STUDIO", View: "S", Sleeps: 2},
+		{RoomType: "DUO STUDIO", View: "P", Sleeps: 2},
+		{RoomType: "DELUXE STUDIO", View: "S", Sleeps: 4},
+		{RoomType: "DELUXE STUDIO", View: "P", Sleeps: 4},
+		{RoomType: "ONE-BEDROOM VILLA", View: "P", Sleeps: 5},
+		{RoomType: "TWO-BEDROOM VILLA", View: "P", Sleeps: 9},
+		{RoomType: "THREE-BEDROOM GRAND VILLA", View: "P", Sleeps: 12},
+		{RoomType: "GARDEN ROOM DUO STUDIO", View: "", Sleeps: 2},
+		{RoomType: "GARDEN ROOM DELUXE STUDIO", View: "", Sleeps: 4},
+	}
+	if len(chart.Columns) != len(wantCols) {
+		t.Fatalf("len(Columns) = %d, want %d: %+v", len(chart.Columns), len(wantCols), chart.Columns)
+	}
+	for i, want := range wantCols {
+		if chart.Columns[i] != want {
+			t.Errorf("Columns[%d] = %+v, want %+v", i, chart.Columns[i], want)
+		}
+	}
+
+	if len(chart.Seasons) != 1 {
+		t.Fatalf("len(Seasons) = %d, want 1", len(chart.Seasons))
+	}
+	s := chart.Seasons[0]
+	wantSunThu := []int{10, 11, 13, 15, 30, 43, 96, 12, 19}
+	wantFriSat := []int{13, 14, 16, 19, 37, 53, 118, 15, 23}
+	if len(s.SunThu) != len(wantSunThu) {
+		t.Fatalf("SunThu len = %d, want %d: %v", len(s.SunThu), len(wantSunThu), s.SunThu)
+	}
+	for i, v := range wantSunThu {
+		if s.SunThu[i] != v {
+			t.Errorf("SunThu[%d] = %d, want %d", i, s.SunThu[i], v)
+		}
+	}
+	for i, v := range wantFriSat {
+		if s.FriSat[i] != v {
+			t.Errorf("FriSat[%d] = %d, want %d", i, s.FriSat[i], v)
+		}
+	}
+}
+
 func TestParseInts(t *testing.T) {
 	cases := []struct {
 		s    string
