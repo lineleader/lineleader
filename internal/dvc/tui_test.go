@@ -1,6 +1,7 @@
 package dvc
 
 import (
+	"path/filepath"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -403,6 +404,48 @@ func TestTUIUpdate_EnterDeselectsResult(t *testing.T) {
 	m = next.(tuiModel)
 	if m.trips[0].Selected != nil {
 		t.Error("expected Selected = nil after second enter (deselect)")
+	}
+}
+
+// --- Group 5: loaded plan tracking ---
+
+func TestApplyPlan_SetsLoadedPlanName(t *testing.T) {
+	m := newTestTUIModel()
+	m = m.applyPlan(Plan{
+		Name:   "spring-break",
+		Budget: "150",
+		Trips:  []TripSpec{{From: "2026-03-15", To: "2026-03-22", MinNights: "3"}},
+	})
+	if m.loadedPlanName != "spring-break" {
+		t.Errorf("loadedPlanName = %q, want %q", m.loadedPlanName, "spring-break")
+	}
+}
+
+func TestSavePlan_UpdatesLoadedPlanName(t *testing.T) {
+	m := newTestTUIModel()
+	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
+	m = m.savePlan("summer")
+	if m.plansErr != "" {
+		t.Fatalf("unexpected save error: %s", m.plansErr)
+	}
+	if m.loadedPlanName != "summer" {
+		t.Errorf("loadedPlanName = %q, want %q", m.loadedPlanName, "summer")
+	}
+}
+
+func TestDeleteLoadedPlan_ClearsLoadedPlanName(t *testing.T) {
+	m := newTestTUIModel()
+	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
+	m = m.savePlan("only-one")
+	if m.loadedPlanName != "only-one" {
+		t.Fatalf("setup: loadedPlanName = %q, want %q", m.loadedPlanName, "only-one")
+	}
+	m.plansOpen = true
+	m.plansCursor = 0
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	m = next.(tuiModel)
+	if m.loadedPlanName != "" {
+		t.Errorf("loadedPlanName = %q, want empty after deleting loaded plan", m.loadedPlanName)
 	}
 }
 

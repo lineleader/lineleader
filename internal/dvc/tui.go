@@ -99,13 +99,14 @@ type tuiModel struct {
 	filterOpen    bool
 	filterItems   []filterItem
 	filterCursor  int
-	plans         []Plan
-	plansPath     string
-	plansOpen     bool
-	plansCursor   int
-	plansNaming   bool   // true while typing a new plan name
-	plansNameBuf  string // name being typed
-	plansErr      string // last save/delete error
+	plans          []Plan
+	plansPath      string
+	plansOpen      bool
+	plansCursor    int
+	plansNaming    bool   // true while typing a new plan name
+	plansNameBuf   string // name being typed
+	plansErr       string // last save/delete error
+	loadedPlanName string // name of the plan last loaded via applyPlan or saved via savePlan; "" when none
 }
 
 // newTUIModel creates a TUI model with the given charts and one empty trip.
@@ -273,6 +274,7 @@ func (m tuiModel) applyPlan(p Plan) tuiModel {
 		ExcludeRoomTypes: p.ExcludeRoomTypes,
 	}
 	m.filterItems = buildFilterItems(m.charts, m.filters)
+	m.loadedPlanName = p.Name
 	return m.recomputeAll()
 }
 
@@ -296,6 +298,7 @@ func (m tuiModel) savePlan(name string) tuiModel {
 	} else {
 		m.plansErr = ""
 	}
+	m.loadedPlanName = name
 	return m
 }
 
@@ -456,9 +459,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.plansNameBuf = ""
 			case "d":
 				if m.plansCursor < len(m.plans) {
+					deleted := m.plans[m.plansCursor].Name
 					m.plans = append(m.plans[:m.plansCursor], m.plans[m.plansCursor+1:]...)
 					if m.plansCursor >= len(m.plans) && m.plansCursor > 0 {
 						m.plansCursor--
+					}
+					if deleted == m.loadedPlanName {
+						m.loadedPlanName = ""
 					}
 					if err := SavePlans(m.plansPath, m.plans); err != nil {
 						m.plansErr = err.Error()
