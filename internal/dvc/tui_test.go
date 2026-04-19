@@ -449,6 +449,51 @@ func TestDeleteLoadedPlan_ClearsLoadedPlanName(t *testing.T) {
 	}
 }
 
+func TestUpdateKey_OverwritesLoadedPlan(t *testing.T) {
+	m := newTestTUIModel()
+	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
+	m = m.savePlan("trip-a")
+	if len(m.plans) != 1 {
+		t.Fatalf("setup: plans len = %d, want 1", len(m.plans))
+	}
+
+	// Mutate a trip field in-place before pressing 'u'.
+	m.trips[0].Fields[0].value = "2026-12-01"
+
+	m.plansOpen = true
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	m = next.(tuiModel)
+
+	if len(m.plans) != 1 {
+		t.Errorf("plans len = %d, want 1 (u should upsert, not append)", len(m.plans))
+	}
+	if m.plans[0].Name != "trip-a" {
+		t.Errorf("plans[0].Name = %q, want %q", m.plans[0].Name, "trip-a")
+	}
+	if len(m.plans[0].Trips) == 0 || m.plans[0].Trips[0].From != "2026-12-01" {
+		t.Errorf("saved Trips[0].From = %+v, want From=2026-12-01", m.plans[0].Trips)
+	}
+	if m.plansErr != "" {
+		t.Errorf("unexpected plansErr: %s", m.plansErr)
+	}
+}
+
+func TestUpdateKey_NoopWhenNoPlanLoaded(t *testing.T) {
+	m := newTestTUIModel()
+	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
+	m.plansOpen = true
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	m = next.(tuiModel)
+
+	if len(m.plans) != 0 {
+		t.Errorf("plans len = %d, want 0 (u with nothing loaded should be a no-op)", len(m.plans))
+	}
+	if m.plansErr != "" {
+		t.Errorf("unexpected plansErr: %s", m.plansErr)
+	}
+}
+
 func TestTUIUpdate_SelectionDeductsFromOtherTrip(t *testing.T) {
 	chart := minimalChart()
 	m := newTUIModel([]*ResortChart{chart})

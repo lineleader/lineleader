@@ -457,6 +457,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "s":
 				m.plansNaming = true
 				m.plansNameBuf = ""
+			case "u":
+				if m.loadedPlanName != "" {
+					m = m.savePlan(m.loadedPlanName)
+				}
 			case "d":
 				if m.plansCursor < len(m.plans) {
 					deleted := m.plans[m.plansCursor].Name
