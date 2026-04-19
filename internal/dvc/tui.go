@@ -634,6 +634,9 @@ func (m tuiModel) View() tea.View {
 	}
 	b.WriteString(budgetLabel + budgetValue)
 	b.WriteString(fmt.Sprintf("   Remaining: %d pts", remaining))
+	if m.loadedPlanName != "" {
+		b.WriteString("   Plan: " + m.loadedPlanName)
+	}
 	b.WriteString("   f: filters   p: plans   q: quit\n")
 
 	if m.plansOpen {
@@ -662,7 +665,7 @@ func (m tuiModel) View() tea.View {
 			b.WriteString(errStyle.Render("  error: "+m.plansErr) + "\n")
 		}
 		b.WriteString(sep + "\n")
-		b.WriteString("enter: load  │  s: new  │  d: delete  │  p/esc: close")
+		b.WriteString("enter: load  │  s: new  │  u: update  │  d: delete  │  p/esc: close")
 	} else if m.filterOpen {
 		b.WriteString(sep + "\n")
 		// Filter panel replaces the results area.
