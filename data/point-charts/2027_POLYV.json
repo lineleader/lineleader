@@ -14,77 +14,77 @@
       "sleeps": 5
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
+      "room_type": "TWO-BEDROOM BUNGALOW",
       "view": "P",
       "sleeps": 9
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
+      "room_type": "TOWER DUO STUDIO",
       "view": "R",
       "sleeps": 9
     },
     {
-      "room_type": "DUO STUDIO",
+      "room_type": "TOWER DUO STUDIO",
       "view": "P",
       "sleeps": 2
     },
     {
-      "room_type": "DUO STUDIO",
+      "room_type": "TOWER DUO STUDIO",
       "view": "PM",
       "sleeps": 2
     },
     {
-      "room_type": "DUO STUDIO",
+      "room_type": "TOWER DELUXE STUDIO",
       "view": "R",
       "sleeps": 2
     },
     {
-      "room_type": "DELUXE STUDIO",
+      "room_type": "TOWER DELUXE STUDIO",
       "view": "P",
       "sleeps": 5
     },
     {
-      "room_type": "DELUXE STUDIO",
+      "room_type": "TOWER DELUXE STUDIO",
       "view": "TP",
       "sleeps": 5
     },
     {
-      "room_type": "DELUXE STUDIO",
+      "room_type": "TOWER ONE-BEDROOM VILLA",
       "view": "R",
       "sleeps": 5
     },
     {
-      "room_type": "ONE-BEDROOM VILLA",
+      "room_type": "TOWER ONE-BEDROOM VILLA",
       "view": "P",
       "sleeps": 5
     },
     {
-      "room_type": "ONE-BEDROOM VILLA",
+      "room_type": "TOWER ONE-BEDROOM VILLA",
       "view": "TP",
       "sleeps": 5
     },
     {
-      "room_type": "ONE-BEDROOM VILLA",
+      "room_type": "TOWER TWO-BEDROOM VILLA",
       "view": "R",
       "sleeps": 5
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
+      "room_type": "TOWER TWO-BEDROOM VILLA",
       "view": "P",
       "sleeps": 9
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
+      "room_type": "TOWER TWO-BEDROOM VILLA",
       "view": "TP",
       "sleeps": 9
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
+      "room_type": "TOWER PENTHOUSE TWO-BEDROOM VILLA",
       "view": "P",
       "sleeps": 9
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
+      "room_type": "TOWER PENTHOUSE TWO-BEDROOM VILLA",
       "view": "TP",
       "sleeps": 9
     }
