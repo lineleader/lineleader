@@ -4,14 +4,29 @@
   "year": 2026,
   "columns": [
     {
+      "room_type": "TOWER STUDIO",
+      "view": "",
+      "sleeps": 2
+    },
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "R",
+      "sleeps": 5
+    },
+    {
+      "room_type": "DELUXE STUDIO",
+      "view": "P",
+      "sleeps": 5
+    },
+    {
       "room_type": "ONE-BEDROOM VILLA",
       "view": "R",
       "sleeps": 5
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
+      "room_type": "ONE-BEDROOM VILLA",
       "view": "P",
-      "sleeps": 9
+      "sleeps": 5
     },
     {
       "room_type": "TWO-BEDROOM VILLA",
@@ -24,14 +39,9 @@
       "sleeps": 9
     },
     {
-      "room_type": "TWO-BEDROOM VILLA",
-      "view": "R",
-      "sleeps": 9
-    },
-    {
-      "room_type": "TWO-BEDROOM VILLA",
-      "view": "P",
-      "sleeps": 9
+      "room_type": "THREE-BEDROOM GRAND VILLA",
+      "view": "",
+      "sleeps": 12
     }
   ],
   "seasons": [

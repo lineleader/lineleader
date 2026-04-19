@@ -16,12 +16,12 @@
     {
       "room_type": "DELUXE STUDIO",
       "view": "S",
-      "sleeps": 5
+      "sleeps": 4
     },
     {
       "room_type": "DELUXE STUDIO",
       "view": "P",
-      "sleeps": 5
+      "sleeps": 4
     },
     {
       "room_type": "ONE-BEDROOM VILLA",
@@ -37,6 +37,16 @@
       "room_type": "THREE-BEDROOM GRAND VILLA",
       "view": "P",
       "sleeps": 12
+    },
+    {
+      "room_type": "GARDEN ROOM DUO STUDIO",
+      "view": "",
+      "sleeps": 2
+    },
+    {
+      "room_type": "GARDEN ROOM DELUXE STUDIO",
+      "view": "",
+      "sleeps": 4
     }
   ],
   "seasons": [

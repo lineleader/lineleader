@@ -6,12 +6,12 @@
     {
       "room_type": "DELUXE STUDIO",
       "view": "S",
-      "sleeps": 5
+      "sleeps": 4
     },
     {
       "room_type": "DELUXE STUDIO",
       "view": "P",
-      "sleeps": 5
+      "sleeps": 4
     },
     {
       "room_type": "ONE-BEDROOM VILLA",
@@ -42,6 +42,11 @@
       "room_type": "THREE-BEDROOM GRAND VILLA",
       "view": "P",
       "sleeps": 12
+    },
+    {
+      "room_type": "THREE-BEDROOM TREEHOUSE VILLA",
+      "view": "",
+      "sleeps": 9
     }
   ],
   "seasons": [
