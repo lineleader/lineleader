@@ -23,6 +23,41 @@ const (
 	colPts      = 5
 )
 
+// Tokyo Night palette.
+var (
+	tnBlue    = lipgloss.Color("#7aa2f7")
+	tnCyan    = lipgloss.Color("#7dcfff")
+	tnGreen   = lipgloss.Color("#9ece6a")
+	tnYellow  = lipgloss.Color("#e0af68")
+	tnRed     = lipgloss.Color("#f7768e")
+	tnPurple  = lipgloss.Color("#bb9af7")
+	tnTeal    = lipgloss.Color("#73daca")
+	tnOrange  = lipgloss.Color("#ff9e64")
+	tnComment = lipgloss.Color("#565f89")
+
+	// Cycled per trip index: blue, purple, cyan, teal, orange.
+	tnTripAccentHex = []string{"#7aa2f7", "#bb9af7", "#7dcfff", "#73daca", "#ff9e64"}
+)
+
+// Shared lipgloss styles.
+var (
+	labelStyle    = lipgloss.NewStyle().Foreground(tnPurple).Faint(true)
+	headerStyle   = lipgloss.NewStyle().Foreground(tnTeal).Bold(true)
+	sepStyle      = lipgloss.NewStyle().Foreground(tnComment)
+	errStyle      = lipgloss.NewStyle().Foreground(tnRed)
+	faintStyle    = lipgloss.NewStyle().Foreground(tnComment)
+	selectedStyle = lipgloss.NewStyle().Foreground(tnGreen)
+	cursorStyle   = lipgloss.NewStyle().Foreground(tnBlue).Bold(true)
+	budgetStyle   = lipgloss.NewStyle().Foreground(tnYellow)
+	panelHdrStyle = lipgloss.NewStyle().Foreground(tnCyan).Bold(true)
+	hintStyle     = lipgloss.NewStyle().Faint(true)
+)
+
+// tripAccentStyle returns a bold style in the accent color for trip i.
+func tripAccentStyle(i int) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(tnTripAccentHex[i%len(tnTripAccentHex)])).Bold(true)
+}
+
 // inputField holds the label and current text value for one search parameter.
 type inputField struct {
 	label string
@@ -614,36 +649,31 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m tuiModel) View() tea.View {
 	var b strings.Builder
 
-	labelStyle := lipgloss.NewStyle().Faint(true)
-	activeStyle := lipgloss.NewStyle().Bold(true)
-	headerStyle := lipgloss.NewStyle().Bold(true)
-	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	sepStyle := lipgloss.NewStyle().Faint(true)
-	faintStyle := lipgloss.NewStyle().Faint(true)
-
 	sep := sepStyle.Render(strings.Repeat("─", max(m.width, 1)))
 
 	budget, _ := strconv.Atoi(m.budgetField.value)
 	remaining := RemainingBudget(budget, m.trips)
 
 	// Global bar: budget field + remaining counter.
-	budgetLabel := labelStyle.Render(m.budgetField.label + ": ")
-	budgetValue := m.budgetField.value
+	budgetVal := budgetStyle.Render(m.budgetField.value)
 	if m.focused == 3 {
-		budgetValue = activeStyle.Render(m.budgetField.value) + "█"
+		budgetVal = cursorStyle.Render(m.budgetField.value) + "█"
 	}
-	b.WriteString(budgetLabel + budgetValue)
-	b.WriteString(fmt.Sprintf("   Remaining: %d pts", remaining))
+	remStyle := selectedStyle
+	if remaining <= 0 {
+		remStyle = errStyle
+	}
+	b.WriteString(labelStyle.Render("Budget: ") + budgetVal)
+	b.WriteString("   " + labelStyle.Render("Remaining: ") + remStyle.Render(fmt.Sprintf("%d pts", remaining)))
 	if m.loadedPlanName != "" {
-		b.WriteString("   Plan: " + m.loadedPlanName)
+		b.WriteString("   " + labelStyle.Render("Plan: ") + m.loadedPlanName)
 	}
-	b.WriteString("   f: filters   p: plans   q: quit\n")
+	b.WriteString("   " + hintStyle.Render("f: filters   p: plans   q: quit") + "\n")
 
 	if m.plansOpen {
 		b.WriteString(sep + "\n")
-		b.WriteString(headerStyle.Render("PLANS") + "\n")
+		b.WriteString(panelHdrStyle.Render("PLANS") + "\n")
 		b.WriteString(sep + "\n")
-
 		if len(m.plans) == 0 && !m.plansNaming {
 			b.WriteString(faintStyle.Render("  (no saved plans)") + "\n")
 		}
@@ -654,24 +684,24 @@ func (m tuiModel) View() tea.View {
 			}
 			line := fmt.Sprintf("  %s  (%d %s, budget: %s)", p.Name, len(p.Trips), noun, p.Budget)
 			if i == m.plansCursor && !m.plansNaming {
-				line = activeStyle.Render(line)
+				line = cursorStyle.Render(line)
+			} else {
+				line = faintStyle.Render(line)
 			}
 			b.WriteString(line + "\n")
 		}
 		if m.plansNaming {
-			b.WriteString(activeStyle.Render(fmt.Sprintf("  New plan name: %s█", m.plansNameBuf)) + "\n")
+			b.WriteString(cursorStyle.Render(fmt.Sprintf("  New plan name: %s█", m.plansNameBuf)) + "\n")
 		}
 		if m.plansErr != "" {
 			b.WriteString(errStyle.Render("  error: "+m.plansErr) + "\n")
 		}
 		b.WriteString(sep + "\n")
-		b.WriteString("enter: load  │  s: new  │  u: update  │  d: delete  │  p/esc: close")
+		b.WriteString(hintStyle.Render("enter: load  │  s: new  │  u: update  │  d: delete  │  p/esc: close"))
 	} else if m.filterOpen {
 		b.WriteString(sep + "\n")
-		// Filter panel replaces the results area.
-		b.WriteString(headerStyle.Render("FILTERS") + "\n")
+		b.WriteString(panelHdrStyle.Render("FILTERS") + "\n")
 		b.WriteString(sep + "\n")
-
 		visible := m.visibleRowsPerTrip() * len(m.trips)
 		shown := 0
 		for i, item := range m.filterItems {
@@ -692,7 +722,7 @@ func (m tuiModel) View() tea.View {
 				}
 				line := fmt.Sprintf("  [%s] %s", check, label)
 				if i == m.filterCursor {
-					line = activeStyle.Render(line)
+					line = cursorStyle.Render(line)
 				} else if !item.enabled {
 					line = faintStyle.Render(line)
 				}
@@ -700,10 +730,9 @@ func (m tuiModel) View() tea.View {
 			}
 			shown++
 		}
-
 		b.WriteString(sep + "\n")
 		excluded := countExcluded(m.filterItems)
-		b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle  │  f/esc: close", excluded))
+		b.WriteString(hintStyle.Render(fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle  │  f/esc: close", excluded)))
 	} else {
 		// Stacked trip sections — one per trip.
 		visible := m.visibleRowsPerTrip()
@@ -719,27 +748,32 @@ func (m tuiModel) View() tea.View {
 
 		for i, trip := range m.trips {
 			tripBudget := BudgetForTrip(budget, m.trips, i)
+			accent := tripAccentStyle(i)
+
 			fromVal := trip.Fields[0].value
 			toVal := trip.Fields[1].value
 			minVal := trip.Fields[2].value
 
 			renderField := func(idx int, val string) string {
 				if m.focused == idx && m.activeTripIdx == i && m.focused < 3 {
-					return activeStyle.Render(val) + "█"
+					return accent.Render(val) + "█"
 				}
 				return val
 			}
 
-			tripHeader := fmt.Sprintf("▶ TRIP %d  From: %s   To: %s   Min nights: %s   [budget: %d pts]",
-				i+1,
-				renderField(0, fromVal),
-				renderField(1, toVal),
-				renderField(2, minVal),
-				tripBudget,
-			)
+			var tripHeader string
 			if i == m.activeTripIdx {
-				tripHeader = activeStyle.Render(tripHeader)
+				tripHeader = accent.Render(fmt.Sprintf("▶ TRIP %d", i+1)) +
+					"  " + labelStyle.Render("From: ") + renderField(0, fromVal) +
+					"   " + labelStyle.Render("To: ") + renderField(1, toVal) +
+					"   " + labelStyle.Render("Min nights: ") + renderField(2, minVal) +
+					"   " + budgetStyle.Render(fmt.Sprintf("[budget: %d pts]", tripBudget))
+			} else {
+				plain := fmt.Sprintf("▶ TRIP %d  From: %s   To: %s   Min nights: %s   [budget: %d pts]",
+					i+1, fromVal, toVal, minVal, tripBudget)
+				tripHeader = faintStyle.Render(plain)
 			}
+
 			b.WriteString(sep + "\n")
 			b.WriteString(tripHeader + "\n")
 			b.WriteString(sep + "\n")
@@ -755,14 +789,20 @@ func (m tuiModel) View() tea.View {
 				if view == "" {
 					view = "—"
 				}
-				prefix := "  "
+				isSelected := trip.Selected != nil && stayEquals(*trip.Selected, r)
 				rowIdx := trip.Offset + j
-				if trip.Selected != nil && stayEquals(*trip.Selected, r) {
+				isCursor := i == m.activeTripIdx && m.focused == 4 && rowIdx == trip.Offset && j == 0
+
+				var prefix string
+				if isSelected {
 					prefix = "✓ "
-				} else if i == m.activeTripIdx && m.focused == 4 && rowIdx == trip.Offset && j == 0 {
+				} else if isCursor {
 					prefix = "> "
+				} else {
+					prefix = "  "
 				}
-				b.WriteString(fmt.Sprintf("%s%-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d\n",
+
+				row := fmt.Sprintf("%s%-*s  %-*s  %-*s  %-*s  %-*s  %-*d  %d",
 					prefix,
 					colResort, truncateRunes(r.Resort, colResort),
 					colRoomType, truncateRunes(r.RoomType, colRoomType),
@@ -771,7 +811,16 @@ func (m tuiModel) View() tea.View {
 					colCheckOut, r.CheckOut.Format("2006-01-02"),
 					colNights, r.Nights,
 					r.Points,
-				))
+				)
+
+				switch {
+				case isSelected:
+					b.WriteString(selectedStyle.Render(row) + "\n")
+				case isCursor:
+					b.WriteString(cursorStyle.Render(row) + "\n")
+				default:
+					b.WriteString(row + "\n")
+				}
 			}
 			if trip.Err != "" {
 				b.WriteString(errStyle.Render(trip.Err) + "\n")
@@ -794,7 +843,7 @@ func (m tuiModel) View() tea.View {
 		} else {
 			quitHint = "esc: stop editing  │  ctrl+c: quit"
 		}
-		b.WriteString(strings.Join(counts, " · ") + "  │  Tab: next field  │  ↑↓: scroll  │  " + quitHint)
+		b.WriteString(hintStyle.Render(strings.Join(counts, " · ") + "  │  Tab: next field  │  ↑↓: scroll  │  " + quitHint))
 	}
 
 	v := tea.NewView(b.String())
