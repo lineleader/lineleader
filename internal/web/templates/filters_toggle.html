@@ -1,0 +1,6 @@
+{{define "filters_toggle"}}
+{{template "filters" .Filters}}
+<div id="trip-list" hx-swap-oob="true">
+  {{range .App.Trips}}{{template "trip" .}}{{end}}
+</div>
+{{end}}

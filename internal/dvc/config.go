@@ -3,6 +3,7 @@ package dvc
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -37,4 +38,21 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// SaveConfig writes cfg to path, creating parent directories as needed.
+// It uses an atomic write (temp file + rename) to avoid corruption.
+func SaveConfig(path string, cfg Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

@@ -1,0 +1,32 @@
+{{define "plans"}}
+<aside id="panel" class="panel">
+  <header class="panel-header">
+    <h2>Plans</h2>
+    <button type="button" hx-get="/panel/close" hx-target="#panel" hx-swap="outerHTML">Close</button>
+  </header>
+  <form hx-post="/plans" hx-target="#panel" hx-swap="outerHTML">
+    <label>Name <input name="name" type="text" required></label>
+    <button type="submit">Save current</button>
+    {{if .LoadedPlanName}}
+      <button type="submit"
+              formaction="/plans/{{.LoadedPlanName}}/update"
+              formmethod="post">Update "{{.LoadedPlanName}}"</button>
+    {{end}}
+  </form>
+  {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+  {{if eq (len .Plans) 0}}
+    <p class="empty">(no saved plans)</p>
+  {{else}}
+    <ul class="plan-list">
+      {{range .Plans}}
+      <li>
+        <strong>{{.Name}}</strong>
+        <span class="meta">({{len .Trips}} trips, budget: {{.Budget}})</span>
+        <button type="button" hx-post="/plans/{{.Name}}/load" hx-target="#app" hx-swap="outerHTML">Load</button>
+        <button type="button" hx-delete="/plans/{{.Name}}" hx-target="#panel" hx-swap="outerHTML" hx-confirm="Delete plan {{.Name}}?">Delete</button>
+      </li>
+      {{end}}
+    </ul>
+  {{end}}
+</aside>
+{{end}}

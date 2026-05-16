@@ -1,0 +1,19 @@
+{{define "trip"}}
+<section class="trip" id="trip-{{.Index}}">
+  <header class="trip-header">
+    <span class="trip-label">TRIP {{add1 .Index}}</span>
+    <form class="trip-form"
+          hx-post="/trips/{{.Index}}/field"
+          hx-target="#trip-{{.Index}}-results"
+          hx-swap="outerHTML"
+          hx-trigger="input changed delay:200ms from:find input">
+      <label>From <input name="from" type="text" value="{{.Spec.From}}" autocomplete="off"></label>
+      <label>To <input name="to" type="text" value="{{.Spec.To}}" autocomplete="off"></label>
+      <label>Min nights <input name="min_nights" type="text" value="{{.Spec.MinNights}}" autocomplete="off"></label>
+    </form>
+    <span class="trip-budget">[budget: {{.EffectiveBudget}} pts]</span>
+    <button type="button" class="trip-remove" hx-delete="/trips/{{.Index}}" hx-target="#app" hx-swap="outerHTML">×</button>
+  </header>
+  {{template "results" .}}
+</section>
+{{end}}

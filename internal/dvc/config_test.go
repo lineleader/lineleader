@@ -3,6 +3,7 @@ package dvc
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -33,5 +34,23 @@ func TestLoadConfig_ValidJSON(t *testing.T) {
 	}
 	if len(cfg.ExcludeRoomTypes) != 1 || cfg.ExcludeRoomTypes[0] != "THREE-BEDROOM GRAND VILLA" {
 		t.Errorf("ExcludeRoomTypes = %v, want [THREE-BEDROOM GRAND VILLA]", cfg.ExcludeRoomTypes)
+	}
+}
+
+func TestSaveConfig_RoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sub", "config.json")
+	want := Config{
+		ExcludeResorts:   []string{"VERO", "HH"},
+		ExcludeRoomTypes: []string{"THREE-BEDROOM GRAND VILLA"},
+	}
+	if err := SaveConfig(path, want); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	got, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("round-trip mismatch:\n got  %+v\n want %+v", got, want)
 	}
 }

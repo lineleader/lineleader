@@ -95,12 +95,12 @@ func runSearch(args []string) {
 		os.Exit(1)
 	}
 
-	windowStart, err := parseDate(*from)
+	windowStart, err := dvc.ParseDate(*from)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid --from date: %v\n", err)
 		os.Exit(1)
 	}
-	windowEnd, err := parseDate(*to)
+	windowEnd, err := dvc.ParseDate(*to)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid --to date: %v\n", err)
 		os.Exit(1)
@@ -189,12 +189,3 @@ func runTUI(args []string) {
 	}
 }
 
-// parseDate parses a date string in YYYY-MM-DD or M/D/YYYY format.
-func parseDate(s string) (time.Time, error) {
-	for _, layout := range []string{"2006-01-02", "1/2/2006", "01/02/2006"} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC(), nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("cannot parse %q — use YYYY-MM-DD or M/D/YYYY", s)
-}

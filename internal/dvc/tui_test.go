@@ -7,6 +7,34 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+func TestParseDate(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantOK  bool
+		wantISO string
+	}{
+		{"2026-01-04", true, "2026-01-04"},
+		{"1/4/2026", true, "2026-01-04"},
+		{"01/04/2026", true, "2026-01-04"},
+		{"not-a-date", false, ""},
+		{"", false, ""},
+	}
+	for _, c := range cases {
+		got, err := ParseDate(c.in)
+		if c.wantOK {
+			if err != nil {
+				t.Errorf("ParseDate(%q) err = %v, want nil", c.in, err)
+				continue
+			}
+			if got.Format("2006-01-02") != c.wantISO {
+				t.Errorf("ParseDate(%q) = %s, want %s", c.in, got.Format("2006-01-02"), c.wantISO)
+			}
+		} else if err == nil {
+			t.Errorf("ParseDate(%q) err = nil, want error", c.in)
+		}
+	}
+}
+
 // newTestTUIModel creates a model with the minimal chart and valid default field values.
 func newTestTUIModel() tuiModel {
 	m := newTUIModel([]*ResortChart{minimalChart()})
