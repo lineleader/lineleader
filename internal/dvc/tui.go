@@ -219,8 +219,8 @@ func rebuildFiltersFromItems(items []filterItem) Config {
 	return cfg
 }
 
-// parseDateTUI parses a date string in YYYY-MM-DD or M/D/YYYY format.
-func parseDateTUI(s string) (time.Time, error) {
+// ParseDate parses a date string in YYYY-MM-DD or M/D/YYYY format.
+func ParseDate(s string) (time.Time, error) {
 	for _, layout := range []string{"2006-01-02", "1/2/2006", "01/02/2006"} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t.UTC(), nil
@@ -325,8 +325,8 @@ func (m tuiModel) recomputeAll() tuiModel {
 // On success it clears trip.Err, updates trip.Results, and clamps trip.Offset.
 // It never auto-clears trip.Selected — the user must deselect explicitly.
 func recomputeTrip(charts []*ResortChart, trip Trip, budget int, filters Config) Trip {
-	from, err1 := parseDateTUI(trip.Fields[0].value)
-	to, err2 := parseDateTUI(trip.Fields[1].value)
+	from, err1 := ParseDate(trip.Fields[0].value)
+	to, err2 := ParseDate(trip.Fields[1].value)
 	minNights, err3 := strconv.Atoi(trip.Fields[2].value)
 
 	switch {

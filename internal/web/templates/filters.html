@@ -1,0 +1,39 @@
+{{define "filters"}}
+<aside id="panel" class="panel">
+  <header class="panel-header">
+    <h2>Filters</h2>
+    <button type="button" hx-get="/panel/close" hx-target="#panel" hx-swap="outerHTML">Close</button>
+  </header>
+  <section>
+    <h3>Resorts</h3>
+    <ul class="filter-list">
+      {{range .Resorts}}
+      <li class="{{if not .Enabled}}excluded{{end}}">
+        <button type="button"
+                hx-post="/filters/resorts/{{.Code}}"
+                hx-target="#panel"
+                hx-swap="outerHTML">
+          {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
+        </button>
+      </li>
+      {{end}}
+    </ul>
+  </section>
+  <section>
+    <h3>Room types</h3>
+    <ul class="filter-list">
+      {{range .RoomTypes}}
+      <li class="{{if not .Enabled}}excluded{{end}}">
+        <button type="button"
+                hx-post="/filters/roomtypes/{{.Name}}"
+                hx-target="#panel"
+                hx-swap="outerHTML">
+          {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
+        </button>
+      </li>
+      {{end}}
+    </ul>
+  </section>
+  <p class="panel-hint">Toggle to exclude. Changes persist to config.json. Reload the page to see updated results across all trips.</p>
+</aside>
+{{end}}

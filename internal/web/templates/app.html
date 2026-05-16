@@ -1,0 +1,22 @@
+{{define "app"}}
+<div id="app-inner">
+  <div class="bar">
+    <form class="budget-form" hx-post="/budget" hx-target="#app" hx-swap="outerHTML" hx-trigger="input changed delay:200ms from:find input">
+      <label for="budget">Budget:</label>
+      <input id="budget" name="budget" type="text" value="{{.Budget}}" autocomplete="off">
+      <span class="remaining">Remaining: {{.Remaining}} pts</span>
+      {{if .LoadedPlanName}}<span class="loaded-plan">Plan: {{.LoadedPlanName}}</span>{{end}}
+      {{if .BudgetErr}}<span class="err">{{.BudgetErr}}</span>{{end}}
+    </form>
+    <div class="actions">
+      <button type="button" hx-get="/filters" hx-target="#panel" hx-swap="outerHTML">Filters</button>
+      <button type="button" hx-get="/plans" hx-target="#panel" hx-swap="outerHTML">Plans</button>
+      <button type="button" hx-post="/trips" hx-target="#app" hx-swap="outerHTML">+ Add trip</button>
+    </div>
+  </div>
+
+  <div id="trip-list">
+    {{range .Trips}}{{template "trip" .}}{{end}}
+  </div>
+</div>
+{{end}}

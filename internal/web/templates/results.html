@@ -1,0 +1,44 @@
+{{define "results"}}
+<div class="results" id="trip-{{.Index}}-results">
+  {{if .Err}}
+    <p class="err">{{.Err}}</p>
+  {{else if eq (len .Results) 0}}
+    <p class="empty">No stays within budget.</p>
+  {{else}}
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>RESORT</th>
+          <th>ROOM TYPE</th>
+          <th>VIEW</th>
+          <th>CHECK-IN</th>
+          <th>CHECK-OUT</th>
+          <th>NIGHTS</th>
+          <th>PTS</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Results}}
+        <tr class="{{if .Selected}}selected{{end}}">
+          <td>
+            <button type="button"
+                    class="select-btn"
+                    hx-post="/trips/{{$.Index}}/select/{{.RowIndex}}"
+                    hx-target="#app"
+                    hx-swap="outerHTML">{{if .Selected}}✓{{else}}·{{end}}</button>
+          </td>
+          <td>{{.Resort}}</td>
+          <td>{{.RoomType}}</td>
+          <td>{{viewOrDash .View}}</td>
+          <td>{{formatDate .CheckIn}}</td>
+          <td>{{formatDate .CheckOut}}</td>
+          <td>{{.Nights}}</td>
+          <td>{{.Points}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{end}}
+</div>
+{{end}}
