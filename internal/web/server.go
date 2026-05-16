@@ -49,6 +49,7 @@ func NewServer(opts Options) http.Handler {
 	mux.HandleFunc("DELETE /trips/{i}", h.removeTrip)
 	mux.HandleFunc("POST /trips/{i}/field", h.updateField)
 	mux.HandleFunc("POST /trips/{i}/select/{row}", h.toggleSelection)
+	mux.HandleFunc("POST /trips/{i}/collapse", h.toggleCollapsed)
 	mux.HandleFunc("GET /filters", h.openFilters)
 	mux.HandleFunc("POST /filters/resorts/{code}", h.toggleResortFilter)
 	mux.HandleFunc("POST /filters/roomtypes/{name}", h.toggleRoomTypeFilter)

@@ -25,6 +25,8 @@ type tripView struct {
 	Results         []resultRow
 	Err             string
 	HasSelection    bool
+	Collapsed       bool
+	Selected        *resultRow
 }
 
 type resultRow struct {
@@ -80,6 +82,7 @@ func (s *Session) buildAppView() appView {
 			EffectiveBudget: s.budgetForTrip(globalBudget, i),
 			Err:             t.Err,
 			HasSelection:    t.Selected != nil,
+			Collapsed:       t.Collapsed,
 		}
 		var selKey string
 		if t.Selected != nil {
@@ -87,7 +90,7 @@ func (s *Session) buildAppView() appView {
 		}
 		tv.Results = make([]resultRow, len(t.Results))
 		for j, r := range t.Results {
-			tv.Results[j] = resultRow{
+			row := resultRow{
 				RowIndex: j,
 				Resort:   r.Resort,
 				RoomType: r.RoomType,
@@ -97,6 +100,25 @@ func (s *Session) buildAppView() appView {
 				Nights:   r.Nights,
 				Points:   r.Points,
 				Selected: selKey != "" && stayKey(r) == selKey,
+			}
+			tv.Results[j] = row
+			if row.Selected {
+				sel := row
+				tv.Selected = &sel
+			}
+		}
+		// If the trip has a selection that's not in the current results
+		// (e.g. filtered out), fall back to the stored Selected stay.
+		if tv.Selected == nil && t.Selected != nil {
+			tv.Selected = &resultRow{
+				Resort:   t.Selected.Resort,
+				RoomType: t.Selected.RoomType,
+				View:     t.Selected.View,
+				CheckIn:  t.Selected.CheckIn,
+				CheckOut: t.Selected.CheckOut,
+				Nights:   t.Selected.Nights,
+				Points:   t.Selected.Points,
+				Selected: true,
 			}
 		}
 		v.Trips[i] = tv

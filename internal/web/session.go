@@ -29,10 +29,19 @@ type Session struct {
 
 // tripState is one trip's input + last computed results.
 type tripState struct {
-	Spec     dvc.TripSpec // From/To/MinNights as strings
-	Results  []dvc.StayResult
-	Selected *dvc.StayResult
-	Err      string
+	Spec      dvc.TripSpec // From/To/MinNights as strings
+	Results   []dvc.StayResult
+	Selected  *dvc.StayResult
+	Err       string
+	Collapsed bool
+}
+
+// toggleCollapsed flips Collapsed for trip i. No-op if i is out of range.
+func (s *Session) toggleCollapsed(i int) {
+	if i < 0 || i >= len(s.trips) {
+		return
+	}
+	s.trips[i].Collapsed = !s.trips[i].Collapsed
 }
 
 // NewSession builds a session and runs an initial recompute so the first

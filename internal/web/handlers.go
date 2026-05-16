@@ -109,6 +109,24 @@ func (h *handlers) toggleSelection(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "app", h.session.buildAppView())
 }
 
+// toggleCollapsed handles POST /trips/{i}/collapse.
+func (h *handlers) toggleCollapsed(w http.ResponseWriter, r *http.Request) {
+	i, err := strconv.Atoi(r.PathValue("i"))
+	if err != nil {
+		http.Error(w, "bad trip index", http.StatusBadRequest)
+		return
+	}
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	if i < 0 || i >= len(h.session.trips) {
+		http.Error(w, "trip out of range", http.StatusBadRequest)
+		return
+	}
+	h.session.toggleCollapsed(i)
+	view := h.session.buildAppView()
+	h.render(w, "trip", view.Trips[i])
+}
+
 // openFilters handles GET /filters.
 func (h *handlers) openFilters(w http.ResponseWriter, r *http.Request) {
 	h.session.mu.Lock()
