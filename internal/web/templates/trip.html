@@ -15,7 +15,7 @@
             hx-post="/trips/{{.Index}}/field"
             hx-target="#trip-{{.Index}}-results"
             hx-swap="outerHTML"
-            hx-trigger="input changed delay:200ms from:find input">
+            hx-trigger="input delay:200ms">
         <label>From <input name="from" type="text" value="{{.Spec.From}}" autocomplete="off"></label>
         <label>To <input name="to" type="text" value="{{.Spec.To}}" autocomplete="off"></label>
         <label>Min nights <input name="min_nights" type="text" value="{{.Spec.MinNights}}" autocomplete="off"></label>
