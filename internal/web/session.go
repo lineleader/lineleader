@@ -191,9 +191,11 @@ func (s *Session) toggleSelection(i, rowIdx int) {
 	highlighted := t.Results[rowIdx]
 	if t.Selected != nil && stayEquals(*t.Selected, highlighted) {
 		t.Selected = nil
+		t.Collapsed = false
 	} else {
 		sel := highlighted
 		t.Selected = &sel
+		t.Collapsed = true
 	}
 	s.recomputeAll()
 }

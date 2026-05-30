@@ -108,8 +108,12 @@ func TestSelectAndField_ShowsCheckmark(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
 
-	// Select row 0 of trip 0.
-	resp, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	// Select row 0 of trip 0. This collapses the trip, so expand it again to
+	// inspect the results table.
+	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(ts.URL+"/trips/0/collapse", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +138,31 @@ func TestSelectAndField_ShowsCheckmark(t *testing.T) {
 	got2 := body(t, resp2)
 	if !strings.Contains(got2, `class="selected"`) {
 		t.Errorf("expected selected row class to persist after field change, got:\n%s", got2)
+	}
+}
+
+func TestSelect_CollapsesTrip(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	// Selecting a room collapses the trip so the user can move to the next one.
+	resp, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, `class="trip collapsed"`) {
+		t.Errorf("expected trip to collapse after selecting a room, got:\n%s", got)
+	}
+
+	// Deselecting the same room expands the trip again so it can be re-picked.
+	resp2, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := body(t, resp2)
+	if strings.Contains(got2, `class="trip collapsed"`) {
+		t.Errorf("expected trip to expand after deselecting a room, got:\n%s", got2)
 	}
 }
 
