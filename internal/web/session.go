@@ -235,6 +235,7 @@ func (s *Session) snapshotPlan(name string) dvc.Plan {
 	specs := make([]dvc.TripSpec, len(s.trips))
 	for i, t := range s.trips {
 		specs[i] = t.Spec
+		specs[i].Selected = t.Selected
 	}
 	p := dvc.Plan{Name: name, Budget: s.budget, Trips: specs}
 	if len(s.filters.ExcludeResorts) > 0 {
@@ -250,7 +251,9 @@ func (s *Session) snapshotPlan(name string) dvc.Plan {
 func (s *Session) applyPlan(p dvc.Plan) {
 	trips := make([]*tripState, len(p.Trips))
 	for i, spec := range p.Trips {
-		trips[i] = &tripState{Spec: spec}
+		selected := spec.Selected
+		spec.Selected = nil // live Spec holds only input fields
+		trips[i] = &tripState{Spec: spec, Selected: selected}
 	}
 	s.trips = trips
 	s.budget = p.Budget

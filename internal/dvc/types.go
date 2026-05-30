@@ -69,11 +69,11 @@ type SearchParams struct {
 
 // StayResult is one matching stay from a search.
 type StayResult struct {
-	Resort   string
-	RoomType string
-	View     string
-	CheckIn  time.Time
-	CheckOut time.Time
-	Nights   int
-	Points   int
+	Resort   string    `json:"resort"`
+	RoomType string    `json:"room_type"`
+	View     string    `json:"view"`
+	CheckIn  time.Time `json:"check_in"`
+	CheckOut time.Time `json:"check_out"`
+	Nights   int       `json:"nights"`
+	Points   int       `json:"points"`
 }

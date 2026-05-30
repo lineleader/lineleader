@@ -137,6 +137,34 @@ func TestSelectAndField_ShowsCheckmark(t *testing.T) {
 	}
 }
 
+func TestSavePlanAndLoad_RestoresSelection(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	// Select row 0 of trip 0, then save the plan with that selection.
+	http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	http.PostForm(ts.URL+"/plans", url.Values{"name": {"summer"}})
+
+	// Clear the selection by toggling the same row off.
+	resp, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := body(t, resp); strings.Contains(got, "✓") {
+		t.Fatalf("expected selection cleared before load, got:\n%s", got)
+	}
+
+	// Loading the plan should restore the saved selection.
+	resp2, err := http.Post(ts.URL+"/plans/summer/load", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := body(t, resp2)
+	if !strings.Contains(got2, "✓") {
+		t.Errorf("expected selection restored after load, got:\n%s", got2)
+	}
+}
+
 func TestToggleResortFilter_PersistsAndAffectsResults(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()

@@ -449,6 +449,36 @@ func TestApplyPlan_SetsLoadedPlanName(t *testing.T) {
 	}
 }
 
+func TestPlanRoundTrip_PreservesSelection(t *testing.T) {
+	m := newTestTUIModel()
+	checkIn, _ := ParseDate("2026-01-04")
+	checkOut, _ := ParseDate("2026-01-08")
+	sel := StayResult{
+		Resort:   "TST",
+		RoomType: "STUDIO",
+		View:     "R",
+		CheckIn:  checkIn,
+		CheckOut: checkOut,
+		Nights:   4,
+		Points:   40,
+	}
+	m.trips[0].Selected = &sel
+
+	plan := m.snapshotPlan("summer")
+	if plan.Trips[0].Selected == nil {
+		t.Fatal("snapshotPlan dropped the trip selection")
+	}
+
+	// Apply into a fresh model with no selection.
+	loaded := newTestTUIModel().applyPlan(plan)
+	if loaded.trips[0].Selected == nil {
+		t.Fatal("applyPlan did not restore the trip selection")
+	}
+	if loaded.trips[0].Selected.Resort != "TST" {
+		t.Errorf("restored selection resort = %q, want TST", loaded.trips[0].Selected.Resort)
+	}
+}
+
 func TestSavePlan_UpdatesLoadedPlanName(t *testing.T) {
 	m := newTestTUIModel()
 	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
