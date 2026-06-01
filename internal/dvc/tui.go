@@ -237,6 +237,7 @@ func (m tuiModel) snapshotPlan(name string) Plan {
 			From:      t.Fields[0].value,
 			To:        t.Fields[1].value,
 			MinNights: t.Fields[2].value,
+			Selected:  t.Selected,
 		}
 	}
 	p := Plan{
@@ -264,6 +265,7 @@ func (m tuiModel) applyPlan(p Plan) tuiModel {
 				{label: "To", value: spec.To},
 				{label: "Min nights", value: spec.MinNights},
 			},
+			Selected: spec.Selected,
 		}
 	}
 	m.trips = trips

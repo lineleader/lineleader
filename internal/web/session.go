@@ -29,10 +29,19 @@ type Session struct {
 
 // tripState is one trip's input + last computed results.
 type tripState struct {
-	Spec     dvc.TripSpec // From/To/MinNights as strings
-	Results  []dvc.StayResult
-	Selected *dvc.StayResult
-	Err      string
+	Spec      dvc.TripSpec // From/To/MinNights as strings
+	Results   []dvc.StayResult
+	Selected  *dvc.StayResult
+	Err       string
+	Collapsed bool
+}
+
+// toggleCollapsed flips Collapsed for trip i. No-op if i is out of range.
+func (s *Session) toggleCollapsed(i int) {
+	if i < 0 || i >= len(s.trips) {
+		return
+	}
+	s.trips[i].Collapsed = !s.trips[i].Collapsed
 }
 
 // NewSession builds a session and runs an initial recompute so the first
@@ -182,9 +191,11 @@ func (s *Session) toggleSelection(i, rowIdx int) {
 	highlighted := t.Results[rowIdx]
 	if t.Selected != nil && stayEquals(*t.Selected, highlighted) {
 		t.Selected = nil
+		t.Collapsed = false
 	} else {
 		sel := highlighted
 		t.Selected = &sel
+		t.Collapsed = true
 	}
 	s.recomputeAll()
 }
@@ -226,6 +237,7 @@ func (s *Session) snapshotPlan(name string) dvc.Plan {
 	specs := make([]dvc.TripSpec, len(s.trips))
 	for i, t := range s.trips {
 		specs[i] = t.Spec
+		specs[i].Selected = t.Selected
 	}
 	p := dvc.Plan{Name: name, Budget: s.budget, Trips: specs}
 	if len(s.filters.ExcludeResorts) > 0 {
@@ -241,7 +253,9 @@ func (s *Session) snapshotPlan(name string) dvc.Plan {
 func (s *Session) applyPlan(p dvc.Plan) {
 	trips := make([]*tripState, len(p.Trips))
 	for i, spec := range p.Trips {
-		trips[i] = &tripState{Spec: spec}
+		selected := spec.Selected
+		spec.Selected = nil // live Spec holds only input fields
+		trips[i] = &tripState{Spec: spec, Selected: selected}
 	}
 	s.trips = trips
 	s.budget = p.Budget

@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 )
 
-// TripSpec is the serialisable form of one trip's input fields.
+// TripSpec is the serialisable form of one trip's input fields plus the stay
+// the user had selected (if any) when the plan was saved.
 type TripSpec struct {
-	From      string `json:"from"`
-	To        string `json:"to"`
-	MinNights string `json:"min_nights"`
+	From      string      `json:"from"`
+	To        string      `json:"to"`
+	MinNights string      `json:"min_nights"`
+	Selected  *StayResult `json:"selected,omitempty"`
 }
 
 // Plan is a named, saveable set of trips plus the global budget and filter
