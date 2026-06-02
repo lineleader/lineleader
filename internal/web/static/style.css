@@ -282,7 +282,7 @@ button:focus-visible {
 .err { color: var(--danger); }
 
 /* ============================== Side panel ============================== */
-#panel { width: 0; transition: width 0.28s var(--ease); overflow: hidden; }
+#panel { width: 0; transition: width 0.28s var(--ease); overflow-x: hidden; }
 #panel.panel { width: 400px; }
 
 .panel {
