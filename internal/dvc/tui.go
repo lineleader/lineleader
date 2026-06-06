@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -31,51 +30,13 @@ type inputField struct {
 
 // Trip represents one planned stay within a multi-trip planning session.
 type Trip struct {
-	Fields   [3]inputField // 0=From, 1=To, 2=MinNights (Budget is global)
-	Results  []StayResult
-	Selected *StayResult // heap-allocated copy; nil = no selection
-	Offset   int         // scroll position within this trip's results
-	Err      string      // per-trip parse/search error
-}
-
-// SelectedPoints returns the total points committed across all trips.
-func SelectedPoints(trips []Trip) int {
-	total := 0
-	for _, t := range trips {
-		if t.Selected != nil {
-			total += t.Selected.Points
-		}
-	}
-	return total
-}
-
-// RemainingBudget returns how many points are still available after summing all
-// selected stays.
-func RemainingBudget(budget int, trips []Trip) int {
-	return budget - SelectedPoints(trips)
-}
-
-// BudgetForTrip returns the effective search budget for trip at index i: the
-// global budget minus points selected by all OTHER trips. Trip i's own
-// selection does not reduce its own search budget.
-func BudgetForTrip(budget int, trips []Trip, i int) int {
-	used := 0
-	for j, t := range trips {
-		if j != i && t.Selected != nil {
-			used += t.Selected.Points
-		}
-	}
-	return budget - used
-}
-
-// stayEquals compares two StayResults by identity fields (Resort, RoomType,
-// View, CheckIn, CheckOut). Points and Nights are not compared.
-func stayEquals(a, b StayResult) bool {
-	return a.Resort == b.Resort &&
-		a.RoomType == b.RoomType &&
-		a.View == b.View &&
-		a.CheckIn.Equal(b.CheckIn) &&
-		a.CheckOut.Equal(b.CheckOut)
+	Fields     [3]inputField // 0=From, 1=To, 2=MinNights (Budget is global)
+	Results    []StayResult
+	Selected   *StayResult // heap-allocated copy; nil = no selection
+	Offset     int         // scroll position within this trip's results (TUI view-only)
+	Err        string      // per-trip parse/search error
+	FilterMode FilterMode  // inherit (zero value) or override the global filters
+	Filters    FilterSet   // this trip's exclusions when FilterMode is override
 }
 
 // filterItem represents one toggleable entry in the filter panel.
@@ -217,16 +178,6 @@ func rebuildFiltersFromItems(items []filterItem) Config {
 		}
 	}
 	return cfg
-}
-
-// ParseDate parses a date string in YYYY-MM-DD or M/D/YYYY format.
-func ParseDate(s string) (time.Time, error) {
-	for _, layout := range []string{"2006-01-02", "1/2/2006", "01/02/2006"} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC(), nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("invalid date %q — use YYYY-MM-DD or M/D/YYYY", s)
 }
 
 // snapshotPlan builds a Plan from the current model state.

@@ -1,5 +1,12 @@
 package dvc
 
+import (
+	"fmt"
+	"strconv"
+	"sync"
+	"time"
+)
+
 // EffectiveFilters resolves the filter set a trip should search with: its own
 // set when overriding, otherwise the global config's set.
 func EffectiveFilters(global Config, mode FilterMode, f FilterSet) FilterSet {
@@ -7,4 +14,235 @@ func EffectiveFilters(global Config, mode FilterMode, f FilterSet) FilterSet {
 		return f
 	}
 	return global.AsFilterSet()
+}
+
+// SelectedPoints returns the total points committed across all trips.
+func SelectedPoints(trips []Trip) int {
+	total := 0
+	for _, t := range trips {
+		if t.Selected != nil {
+			total += t.Selected.Points
+		}
+	}
+	return total
+}
+
+// RemainingBudget returns how many points are still available after summing all
+// selected stays.
+func RemainingBudget(budget int, trips []Trip) int {
+	return budget - SelectedPoints(trips)
+}
+
+// BudgetForTrip returns the effective search budget for trip at index i: the
+// global budget minus points selected by all OTHER trips. Trip i's own
+// selection does not reduce its own search budget.
+func BudgetForTrip(budget int, trips []Trip, i int) int {
+	used := 0
+	for j, t := range trips {
+		if j != i && t.Selected != nil {
+			used += t.Selected.Points
+		}
+	}
+	return budget - used
+}
+
+// stayEquals compares two StayResults by identity fields (Resort, RoomType,
+// View, CheckIn, CheckOut). Points and Nights are not compared.
+func stayEquals(a, b StayResult) bool {
+	return a.Resort == b.Resort &&
+		a.RoomType == b.RoomType &&
+		a.View == b.View &&
+		a.CheckIn.Equal(b.CheckIn) &&
+		a.CheckOut.Equal(b.CheckOut)
+}
+
+// ParseDate parses a date string in YYYY-MM-DD or M/D/YYYY format.
+func ParseDate(s string) (time.Time, error) {
+	for _, layout := range []string{"2006-01-02", "1/2/2006", "01/02/2006"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid date %q — use YYYY-MM-DD or M/D/YYYY", s)
+}
+
+// Defaults are the initial trip-0 input values. It mirrors web.Defaults so the
+// web layer can pass its own defaults into the Planner without this pure-domain
+// package importing package web.
+type Defaults struct {
+	From, To, Budget, MinNights string
+}
+
+// Planner is the concurrency-safe single source of truth for a multi-trip
+// planning session. It holds the trips, the global budget and filters, and the
+// loaded plans, and recomputes search results whenever its state changes.
+//
+// Every exported mutator (and later, reader) locks mu; the private recompute*
+// helpers assume the lock is already held.
+type Planner struct {
+	mu             sync.Mutex
+	charts         []*ResortChart
+	budget         string // raw input string, like the TUI's budgetField.value
+	trips          []Trip
+	global         Config
+	plans          []Plan
+	loadedPlanName string
+	configPath     string
+	plansPath      string
+}
+
+// PlannerOptions configures a new Planner.
+type PlannerOptions struct {
+	Charts     []*ResortChart
+	Global     Config
+	ConfigPath string
+	Plans      []Plan
+	PlansPath  string
+	Defaults   Defaults
+}
+
+// NewPlanner builds a Planner seeded with a single trip from opts.Defaults and
+// runs an initial recompute so the first read has results.
+func NewPlanner(opts PlannerOptions) *Planner {
+	p := &Planner{
+		charts:     opts.Charts,
+		budget:     opts.Defaults.Budget,
+		global:     opts.Global,
+		plans:      opts.Plans,
+		configPath: opts.ConfigPath,
+		plansPath:  opts.PlansPath,
+		trips: []Trip{{
+			Fields: [3]inputField{
+				{label: "From", value: opts.Defaults.From},
+				{label: "To", value: opts.Defaults.To},
+				{label: "Min nights", value: opts.Defaults.MinNights},
+			},
+		}},
+	}
+	p.recomputeAll()
+	return p
+}
+
+// recomputeAll re-runs the search for every trip using the global budget and
+// all other trips' selections to compute each trip's effective budget. The
+// caller must hold p.mu.
+func (p *Planner) recomputeAll() {
+	budget, err := strconv.Atoi(p.budget)
+	if err != nil {
+		for i := range p.trips {
+			p.trips[i].Err = "invalid Budget"
+			p.trips[i].Results = nil
+		}
+		return
+	}
+	for i := range p.trips {
+		p.recomputeTrip(i, BudgetForTrip(budget, p.trips, i))
+	}
+}
+
+// recomputeTrip re-runs Search for the trip at index i with the given effective
+// budget, resolving the trip's exclusions through EffectiveFilters. On a parse
+// error it sets the trip's Err and leaves Results unchanged; on success it
+// clears Err and replaces Results. It never auto-clears Selected and never
+// touches Offset (TUI view-only). The caller must hold p.mu.
+func (p *Planner) recomputeTrip(i, budget int) {
+	t := &p.trips[i]
+	from, err1 := ParseDate(t.Fields[0].value)
+	to, err2 := ParseDate(t.Fields[1].value)
+	minNights, err3 := strconv.Atoi(t.Fields[2].value)
+
+	switch {
+	case err1 != nil:
+		t.Err = "invalid From date"
+		return
+	case err2 != nil:
+		t.Err = "invalid To date"
+		return
+	case err3 != nil:
+		t.Err = "invalid Min nights"
+		return
+	}
+
+	filters := EffectiveFilters(p.global, t.FilterMode, t.Filters)
+	t.Err = ""
+	t.Results = Search(p.charts, SearchParams{
+		WindowStart:      from,
+		WindowEnd:        to,
+		Budget:           budget,
+		MinNights:        minNights,
+		ExcludeResorts:   filters.ExcludeResorts,
+		ExcludeRoomTypes: filters.ExcludeRoomTypes,
+	})
+}
+
+// SetBudget sets the raw global budget input and recomputes all trips.
+func (p *Planner) SetBudget(s string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.budget = s
+	p.recomputeAll()
+}
+
+// AddTrip appends a new trip cloning the last trip's From/To dates with
+// min-nights reset to "1", then recomputes.
+func (p *Planner) AddTrip() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	last := p.trips[len(p.trips)-1]
+	p.trips = append(p.trips, Trip{
+		Fields: [3]inputField{
+			{label: "From", value: last.Fields[0].value},
+			{label: "To", value: last.Fields[1].value},
+			{label: "Min nights", value: "1"},
+		},
+	})
+	p.recomputeAll()
+}
+
+// RemoveTrip drops the trip at index i; it is a no-op if only one trip exists
+// or i is out of range.
+func (p *Planner) RemoveTrip(i int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.trips) <= 1 || i < 0 || i >= len(p.trips) {
+		return
+	}
+	p.trips = append(p.trips[:i], p.trips[i+1:]...)
+	p.recomputeAll()
+}
+
+// SetTripField sets one of trip i's input fields (0=From, 1=To, 2=MinNights)
+// and recomputes. Out-of-range trip or field indices are no-ops.
+func (p *Planner) SetTripField(i, field int, value string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.trips) || field < 0 || field > 2 {
+		return
+	}
+	p.trips[i].Fields[field].value = value
+	p.recomputeAll()
+}
+
+// ToggleSelection flips the Selected stay for trip i at result row rowIdx. If
+// the row is already selected it deselects; otherwise it selects a copy. Out-of
+// range trip or row indices are no-ops. All trips are recomputed afterward
+// because other trips' effective budgets depend on this trip's selection.
+func (p *Planner) ToggleSelection(i, rowIdx int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.trips) {
+		return
+	}
+	t := &p.trips[i]
+	if rowIdx < 0 || rowIdx >= len(t.Results) {
+		return
+	}
+	highlighted := t.Results[rowIdx]
+	if t.Selected != nil && stayEquals(*t.Selected, highlighted) {
+		t.Selected = nil
+	} else {
+		sel := highlighted
+		t.Selected = &sel
+	}
+	p.recomputeAll()
 }
