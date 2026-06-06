@@ -256,6 +256,103 @@ func (p *Planner) ToggleGlobalRoomType(name string) error {
 	return SaveConfig(p.configPath, p.global)
 }
 
+// cloneFilterSet returns a deep copy of f with freshly allocated slices, so the
+// result shares no backing arrays with f. Used when seeding a trip's Filters
+// from the global config to avoid aliasing global's slices.
+func cloneFilterSet(f FilterSet) FilterSet {
+	return FilterSet{
+		ExcludeResorts:   append([]string(nil), f.ExcludeResorts...),
+		ExcludeRoomTypes: append([]string(nil), f.ExcludeRoomTypes...),
+	}
+}
+
+// ensureOverride flips an inherit trip to override, seeding its Filters from the
+// global config (deep-copied) so "override" starts from what the trip currently
+// sees rather than a blank slate. A trip already in override is left untouched so
+// its existing Filters are preserved. The caller must hold p.mu.
+func (p *Planner) ensureOverride(t *Trip) {
+	if t.FilterMode != FilterModeOverride {
+		t.FilterMode = FilterModeOverride
+		t.Filters = cloneFilterSet(p.global.AsFilterSet())
+	}
+}
+
+// toggleString flips presence of v in slice s: removing it if present, appending
+// it otherwise. It returns the updated slice.
+func toggleString(s []string, v string) []string {
+	if i := slices.Index(s, v); i >= 0 {
+		return slices.Delete(s, i, i+1)
+	}
+	return append(s, v)
+}
+
+// SetTripFilterMode sets trip i's filter mode. Switching to override on an
+// inherit trip seeds its Filters from the global config (deep-copied) so the
+// panel opens showing the same exclusions as global; an already-override trip
+// keeps its Filters. Switching to inherit clears Filters. Out-of-range i is a
+// no-op. Recomputes all trips afterward.
+func (p *Planner) SetTripFilterMode(i int, mode FilterMode) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.trips) {
+		return
+	}
+	t := &p.trips[i]
+	switch mode {
+	case FilterModeOverride:
+		p.ensureOverride(t)
+	case FilterModeInherit:
+		t.FilterMode = FilterModeInherit
+		t.Filters = FilterSet{}
+	}
+	p.recomputeAll()
+}
+
+// ToggleTripResort flips exclusion of a resort code in trip i's per-trip
+// filters. An inherit trip is first auto-flipped to override and seeded from the
+// global config (so the seed's exclusions are preserved) before the toggle is
+// applied. Out-of-range i is a no-op. Recomputes all trips afterward.
+func (p *Planner) ToggleTripResort(i int, code string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.trips) {
+		return
+	}
+	t := &p.trips[i]
+	p.ensureOverride(t)
+	t.Filters.ExcludeResorts = toggleString(t.Filters.ExcludeResorts, code)
+	p.recomputeAll()
+}
+
+// ToggleTripRoomType flips exclusion of a room type in trip i's per-trip
+// filters, with the same seed-on-inherit behavior as ToggleTripResort.
+// Out-of-range i is a no-op. Recomputes all trips afterward.
+func (p *Planner) ToggleTripRoomType(i int, name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.trips) {
+		return
+	}
+	t := &p.trips[i]
+	p.ensureOverride(t)
+	t.Filters.ExcludeRoomTypes = toggleString(t.Filters.ExcludeRoomTypes, name)
+	p.recomputeAll()
+}
+
+// ResetTripFilters returns trip i to inherit mode and clears its Filters, so it
+// resolves through the global config again. Out-of-range i is a no-op.
+// Recomputes all trips afterward.
+func (p *Planner) ResetTripFilters(i int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.trips) {
+		return
+	}
+	p.trips[i].FilterMode = FilterModeInherit
+	p.trips[i].Filters = FilterSet{}
+	p.recomputeAll()
+}
+
 // ToggleSelection flips the Selected stay for trip i at result row rowIdx. If
 // the row is already selected it deselects; otherwise it selects a copy. Out-of
 // range trip or row indices are no-ops. All trips are recomputed afterward

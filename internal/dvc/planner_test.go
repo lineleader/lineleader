@@ -393,6 +393,241 @@ func TestToggleGlobalRoomType_AffectsInheritNotOverride(t *testing.T) {
 	}
 }
 
+// --- Per-trip filter ops (fpl.6) ---
+
+// twoResortCharts returns two single-room-type resorts (AAA/STUDIO and
+// BBB/VILLA) so per-trip filter tests can distinguish resort and room-type
+// exclusions independently.
+func twoResortCharts() []*ResortChart {
+	mk := func(code, room string) *ResortChart {
+		return &ResortChart{
+			ResortName: code + " Resort",
+			ResortCode: code,
+			Year:       2026,
+			Columns:    []Column{{RoomType: room, View: "R", Sleeps: 4}},
+			Seasons: []Season{{
+				Periods: []DateRange{{Start: "2026-01-01", End: "2026-01-31"}},
+				SunThu:  []int{10},
+				FriSat:  []int{14},
+			}},
+		}
+	}
+	return []*ResortChart{mk("AAA", "STUDIO"), mk("BBB", "VILLA")}
+}
+
+// newPerTripPlanner builds a Planner over twoResortCharts with the given global
+// config and two inherit trips covering Jan 4–8 2026.
+func newPerTripPlanner(t *testing.T, global Config) *Planner {
+	t.Helper()
+	p := NewPlanner(PlannerOptions{
+		Charts:     twoResortCharts(),
+		Global:     global,
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		Defaults: Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    "200",
+			MinNights: "1",
+		},
+	})
+	p.AddTrip()
+	return p
+}
+
+// resortsInResults returns the set of resort codes present in results.
+func resortsInResults(results []StayResult) map[string]bool {
+	set := map[string]bool{}
+	for _, r := range results {
+		set[r.Resort] = true
+	}
+	return set
+}
+
+// (a) ISOLATION: a per-trip toggle on trip 0 never changes trip 1.
+func TestToggleTripResort_IsolatedFromOtherTrip(t *testing.T) {
+	p := newPerTripPlanner(t, Config{})
+
+	trip1ModeBefore := p.trips[1].FilterMode
+	trip1FiltersBefore := cloneFilterSet(p.trips[1].Filters)
+	trip1ResultsBefore := len(p.trips[1].Results)
+
+	p.ToggleTripResort(0, "AAA")
+
+	if p.trips[1].FilterMode != trip1ModeBefore {
+		t.Errorf("trip 1 FilterMode changed: got %q, want %q", p.trips[1].FilterMode, trip1ModeBefore)
+	}
+	if !reflect.DeepEqual(p.trips[1].Filters, trip1FiltersBefore) {
+		t.Errorf("trip 1 Filters changed: got %+v, want %+v", p.trips[1].Filters, trip1FiltersBefore)
+	}
+	if len(p.trips[1].Results) != trip1ResultsBefore {
+		t.Errorf("trip 1 Results changed: got %d, want %d", len(p.trips[1].Results), trip1ResultsBefore)
+	}
+}
+
+// (b) SEEDING + NO ALIASING: global excludes AAA; toggling BBB on an inherit
+// trip flips it to override, keeps AAA excluded (seeded), adds BBB, and leaves
+// the global slice untouched.
+func TestToggleTripResort_SeedsFromGlobalWithoutAliasing(t *testing.T) {
+	p := newPerTripPlanner(t, Config{ExcludeResorts: []string{"AAA"}})
+	globalBefore := append([]string(nil), p.global.ExcludeResorts...)
+
+	p.ToggleTripResort(0, "BBB")
+
+	if p.trips[0].FilterMode != FilterModeOverride {
+		t.Errorf("trip 0 FilterMode = %q, want override", p.trips[0].FilterMode)
+	}
+	if !slices.Contains(p.trips[0].Filters.ExcludeResorts, "AAA") {
+		t.Errorf("trip 0 lost seeded exclusion AAA: %v", p.trips[0].Filters.ExcludeResorts)
+	}
+	if !slices.Contains(p.trips[0].Filters.ExcludeResorts, "BBB") {
+		t.Errorf("trip 0 missing toggled exclusion BBB: %v", p.trips[0].Filters.ExcludeResorts)
+	}
+	// Both resorts now excluded -> no results.
+	if len(p.trips[0].Results) != 0 {
+		t.Errorf("trip 0 results = %d, want 0 (both resorts excluded)", len(p.trips[0].Results))
+	}
+	// NO ALIASING: global slice is exactly unchanged.
+	if !reflect.DeepEqual(p.global.ExcludeResorts, globalBefore) {
+		t.Errorf("global ExcludeResorts mutated by per-trip toggle: got %v, want %v", p.global.ExcludeResorts, globalBefore)
+	}
+}
+
+// (b') room-type variant of the seeding/aliasing property.
+func TestToggleTripRoomType_SeedsFromGlobalWithoutAliasing(t *testing.T) {
+	p := newPerTripPlanner(t, Config{ExcludeRoomTypes: []string{"STUDIO"}})
+	globalBefore := append([]string(nil), p.global.ExcludeRoomTypes...)
+
+	p.ToggleTripRoomType(0, "VILLA")
+
+	if p.trips[0].FilterMode != FilterModeOverride {
+		t.Errorf("trip 0 FilterMode = %q, want override", p.trips[0].FilterMode)
+	}
+	if !slices.Contains(p.trips[0].Filters.ExcludeRoomTypes, "STUDIO") {
+		t.Errorf("trip 0 lost seeded exclusion STUDIO: %v", p.trips[0].Filters.ExcludeRoomTypes)
+	}
+	if !slices.Contains(p.trips[0].Filters.ExcludeRoomTypes, "VILLA") {
+		t.Errorf("trip 0 missing toggled exclusion VILLA: %v", p.trips[0].Filters.ExcludeRoomTypes)
+	}
+	if !reflect.DeepEqual(p.global.ExcludeRoomTypes, globalBefore) {
+		t.Errorf("global ExcludeRoomTypes mutated: got %v, want %v", p.global.ExcludeRoomTypes, globalBefore)
+	}
+}
+
+// (c) RESET: after ResetTripFilters the trip inherits global again, so a later
+// global toggle changes its Results.
+func TestResetTripFilters_ReturnsToInheritAndReusesGlobal(t *testing.T) {
+	p := newPerTripPlanner(t, Config{})
+	// Diverge trip 0 onto override.
+	p.ToggleTripResort(0, "AAA")
+	if p.trips[0].FilterMode != FilterModeOverride {
+		t.Fatalf("precondition: trip 0 should be override, got %q", p.trips[0].FilterMode)
+	}
+
+	p.ResetTripFilters(0)
+	if p.trips[0].FilterMode != FilterModeInherit {
+		t.Errorf("after reset FilterMode = %q, want inherit", p.trips[0].FilterMode)
+	}
+	if len(p.trips[0].Filters.ExcludeResorts) != 0 || len(p.trips[0].Filters.ExcludeRoomTypes) != 0 {
+		t.Errorf("after reset Filters not cleared: %+v", p.trips[0].Filters)
+	}
+
+	before := len(p.trips[0].Results)
+	// Excluding BBB globally should now shrink the inherit trip's results.
+	if err := p.ToggleGlobalResort("BBB"); err != nil {
+		t.Fatalf("ToggleGlobalResort: %v", err)
+	}
+	if len(p.trips[0].Results) >= before {
+		t.Errorf("inherit trip did not re-use global after reset: before=%d after=%d", before, len(p.trips[0].Results))
+	}
+}
+
+// (d) SetTripFilterMode override then inherit clears Filters.
+func TestSetTripFilterMode_OverrideThenInheritClearsFilters(t *testing.T) {
+	p := newPerTripPlanner(t, Config{ExcludeResorts: []string{"AAA"}})
+
+	p.SetTripFilterMode(0, FilterModeOverride)
+	if p.trips[0].FilterMode != FilterModeOverride {
+		t.Fatalf("mode = %q, want override", p.trips[0].FilterMode)
+	}
+	// Override on an inherit trip seeds from global.
+	if !slices.Contains(p.trips[0].Filters.ExcludeResorts, "AAA") {
+		t.Errorf("override did not seed from global: %v", p.trips[0].Filters.ExcludeResorts)
+	}
+
+	p.SetTripFilterMode(0, FilterModeInherit)
+	if p.trips[0].FilterMode != FilterModeInherit {
+		t.Errorf("mode = %q, want inherit", p.trips[0].FilterMode)
+	}
+	if len(p.trips[0].Filters.ExcludeResorts) != 0 || len(p.trips[0].Filters.ExcludeRoomTypes) != 0 {
+		t.Errorf("inherit did not clear Filters: %+v", p.trips[0].Filters)
+	}
+}
+
+// SetTripFilterMode(override) on an already-override trip preserves its Filters.
+func TestSetTripFilterMode_OverrideOnOverrideDoesNotReseed(t *testing.T) {
+	p := newPerTripPlanner(t, Config{ExcludeResorts: []string{"AAA"}})
+
+	p.SetTripFilterMode(0, FilterModeOverride)
+	// Diverge: drop the seeded AAA exclusion.
+	p.ToggleTripResort(0, "AAA")
+	if slices.Contains(p.trips[0].Filters.ExcludeResorts, "AAA") {
+		t.Fatalf("precondition: AAA should be toggled off, got %v", p.trips[0].Filters.ExcludeResorts)
+	}
+
+	// Re-asserting override must NOT re-seed AAA back in.
+	p.SetTripFilterMode(0, FilterModeOverride)
+	if slices.Contains(p.trips[0].Filters.ExcludeResorts, "AAA") {
+		t.Errorf("override re-seeded an already-override trip: %v", p.trips[0].Filters.ExcludeResorts)
+	}
+}
+
+// (e) OVERRIDE TO EMPTY: toggling off every exclusion yields all stays in budget.
+func TestToggleTripResort_OverrideToEmptyShowsEverything(t *testing.T) {
+	p := newPerTripPlanner(t, Config{ExcludeResorts: []string{"AAA", "BBB"}})
+
+	// Seed override (both excluded), then toggle both off.
+	p.SetTripFilterMode(0, FilterModeOverride)
+	p.ToggleTripResort(0, "AAA")
+	p.ToggleTripResort(0, "BBB")
+
+	if len(p.trips[0].Filters.ExcludeResorts) != 0 {
+		t.Errorf("expected no resort exclusions, got %v", p.trips[0].Filters.ExcludeResorts)
+	}
+	// StayResult.Resort holds the resort NAME, not the code.
+	got := resortsInResults(p.trips[0].Results)
+	if !got["AAA Resort"] || !got["BBB Resort"] {
+		t.Errorf("override-to-empty trip missing resorts: got %v, want both AAA Resort and BBB Resort", got)
+	}
+}
+
+// EDGE: out-of-range i is a no-op (no panic) for every per-trip op.
+func TestPerTripOps_OutOfRangeNoOp(t *testing.T) {
+	p := newPerTripPlanner(t, Config{})
+	p.SetTripFilterMode(9, FilterModeOverride)
+	p.SetTripFilterMode(-1, FilterModeOverride)
+	p.ToggleTripResort(9, "AAA")
+	p.ToggleTripRoomType(-1, "STUDIO")
+	p.ResetTripFilters(99)
+	// Existing trips untouched.
+	if p.trips[0].FilterMode != FilterModeInherit || p.trips[1].FilterMode != FilterModeInherit {
+		t.Errorf("out-of-range op mutated a trip: %q %q", p.trips[0].FilterMode, p.trips[1].FilterMode)
+	}
+}
+
+// EDGE: toggling the same code twice on an override trip returns to the seeded state.
+func TestToggleTripResort_TwiceReturnsToSeededState(t *testing.T) {
+	p := newPerTripPlanner(t, Config{ExcludeResorts: []string{"AAA"}})
+	p.SetTripFilterMode(0, FilterModeOverride)
+	seeded := cloneFilterSet(p.trips[0].Filters)
+
+	p.ToggleTripResort(0, "BBB") // add
+	p.ToggleTripResort(0, "BBB") // remove -> back to seeded
+
+	if !reflect.DeepEqual(p.trips[0].Filters, seeded) {
+		t.Errorf("double toggle did not return to seeded state: got %+v, want %+v", p.trips[0].Filters, seeded)
+	}
+}
+
 func TestToggleGlobalResort_SaveErrorReturnedButStateMutated(t *testing.T) {
 	p := newGlobalFilterPlanner(t)
 	// Point configPath at a path whose parent is a file, so MkdirAll/Save fails.
