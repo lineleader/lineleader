@@ -353,6 +353,147 @@ func (p *Planner) ResetTripFilters(i int) {
 	p.recomputeAll()
 }
 
+// snapshotPlan builds a Plan capturing the current trips, budget, global
+// filters, and each trip's per-trip filter mode/filters. The caller must hold
+// p.mu.
+//
+// Per trip, Filters is set to a pointer to the trip's FilterSet only when the
+// trip is in override mode; inherit trips leave Filters nil so the JSON key is
+// omitted (matching the omitempty intent on TripSpec.Filters). Global
+// exclusions are copied onto the Plan only when non-empty.
+func (p *Planner) snapshotPlan(name string) Plan {
+	specs := make([]TripSpec, len(p.trips))
+	for i := range p.trips {
+		t := &p.trips[i]
+		spec := TripSpec{
+			From:       t.Fields[0].value,
+			To:         t.Fields[1].value,
+			MinNights:  t.Fields[2].value,
+			Selected:   t.Selected,
+			FilterMode: t.FilterMode,
+		}
+		if t.FilterMode == FilterModeOverride {
+			f := cloneFilterSet(t.Filters)
+			spec.Filters = &f
+		}
+		specs[i] = spec
+	}
+	pl := Plan{
+		Name:   name,
+		Budget: p.budget,
+		Trips:  specs,
+	}
+	if len(p.global.ExcludeResorts) > 0 {
+		pl.ExcludeResorts = append([]string(nil), p.global.ExcludeResorts...)
+	}
+	if len(p.global.ExcludeRoomTypes) > 0 {
+		pl.ExcludeRoomTypes = append([]string(nil), p.global.ExcludeRoomTypes...)
+	}
+	return pl
+}
+
+// SavePlan upserts the current state as a named plan, persists the plans file,
+// and records name as the loaded plan. Saving an existing name overwrites it
+// rather than appending a duplicate.
+func (p *Planner) SavePlan(name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	plan := p.snapshotPlan(name)
+	found := false
+	for i := range p.plans {
+		if p.plans[i].Name == name {
+			p.plans[i] = plan
+			found = true
+			break
+		}
+	}
+	if !found {
+		p.plans = append(p.plans, plan)
+	}
+	p.loadedPlanName = name
+	return SavePlans(p.plansPath, p.plans)
+}
+
+// applyPlan replaces the live trips, budget, and global filters from a saved
+// Plan. Per spec, the trip's FilterMode is restored and Filters is the deref of
+// spec.Filters (empty when nil). The caller must hold p.mu and must recompute
+// afterward.
+func (p *Planner) applyPlan(pl Plan) {
+	trips := make([]Trip, len(pl.Trips))
+	for i, spec := range pl.Trips {
+		t := Trip{
+			Fields: [3]inputField{
+				{label: "From", value: spec.From},
+				{label: "To", value: spec.To},
+				{label: "Min nights", value: spec.MinNights},
+			},
+			Selected:   spec.Selected,
+			FilterMode: spec.FilterMode,
+		}
+		t.Filters = FilterSet{}
+		if spec.Filters != nil {
+			t.Filters = *spec.Filters
+		}
+		trips[i] = t
+	}
+	p.trips = trips
+	p.budget = pl.Budget
+	p.global = Config{
+		ExcludeResorts:   append([]string(nil), pl.ExcludeResorts...),
+		ExcludeRoomTypes: append([]string(nil), pl.ExcludeRoomTypes...),
+	}
+}
+
+// LoadPlan finds a plan by name and applies it, recomputing all trips and
+// recording it as the loaded plan. It returns false (leaving state untouched)
+// when no plan matches name.
+func (p *Planner) LoadPlan(name string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.plans {
+		if p.plans[i].Name == name {
+			p.applyPlan(p.plans[i])
+			p.loadedPlanName = name
+			p.recomputeAll()
+			return true
+		}
+	}
+	return false
+}
+
+// DeletePlan removes the named plan and persists the plans file. Deleting the
+// currently loaded plan clears LoadedPlanName. Deleting an unknown name is a
+// no-op (no write, nil error).
+func (p *Planner) DeletePlan(name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.plans {
+		if p.plans[i].Name == name {
+			p.plans = slices.Delete(p.plans, i, i+1)
+			if p.loadedPlanName == name {
+				p.loadedPlanName = ""
+			}
+			return SavePlans(p.plansPath, p.plans)
+		}
+	}
+	return nil
+}
+
+// Plans returns a defensive copy of the saved plans for the UI to render.
+func (p *Planner) Plans() []Plan {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]Plan(nil), p.plans...)
+}
+
+// LoadedPlanName returns the name of the plan last loaded or saved, or "" when
+// none.
+func (p *Planner) LoadedPlanName() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.loadedPlanName
+}
+
 // ToggleSelection flips the Selected stay for trip i at result row rowIdx. If
 // the row is already selected it deselects; otherwise it selects a copy. Out-of
 // range trip or row indices are no-ops. All trips are recomputed afterward
