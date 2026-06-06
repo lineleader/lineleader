@@ -2,6 +2,7 @@ package dvc
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -221,6 +222,38 @@ func (p *Planner) SetTripField(i, field int, value string) {
 	}
 	p.trips[i].Fields[field].value = value
 	p.recomputeAll()
+}
+
+// ToggleGlobalResort flips exclusion of a resort code in the global config,
+// recomputes all trips, and persists the config. Toggling a global filter
+// affects every inherit trip (which resolves via EffectiveFilters) but leaves
+// override trips unchanged. The error from persisting is returned; the
+// in-memory toggle and recompute are not rolled back on a save failure.
+func (p *Planner) ToggleGlobalResort(code string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i := slices.Index(p.global.ExcludeResorts, code); i >= 0 {
+		p.global.ExcludeResorts = slices.Delete(p.global.ExcludeResorts, i, i+1)
+	} else {
+		p.global.ExcludeResorts = append(p.global.ExcludeResorts, code)
+	}
+	p.recomputeAll()
+	return SaveConfig(p.configPath, p.global)
+}
+
+// ToggleGlobalRoomType flips exclusion of a room type in the global config,
+// recomputes all trips, and persists the config. It behaves like
+// ToggleGlobalResort but operates on p.global.ExcludeRoomTypes.
+func (p *Planner) ToggleGlobalRoomType(name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i := slices.Index(p.global.ExcludeRoomTypes, name); i >= 0 {
+		p.global.ExcludeRoomTypes = slices.Delete(p.global.ExcludeRoomTypes, i, i+1)
+	} else {
+		p.global.ExcludeRoomTypes = append(p.global.ExcludeRoomTypes, name)
+	}
+	p.recomputeAll()
+	return SaveConfig(p.configPath, p.global)
 }
 
 // ToggleSelection flips the Selected stay for trip i at result row rowIdx. If

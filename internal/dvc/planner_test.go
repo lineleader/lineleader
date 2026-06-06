@@ -1,7 +1,10 @@
 package dvc
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -252,5 +255,162 @@ func TestRecompute_OverrideIgnoresGlobalFilters(t *testing.T) {
 	p.recomputeAll()
 	if len(p.trips[0].Results) == 0 {
 		t.Error("override trip with empty filters should ignore global exclusion and return results")
+	}
+}
+
+// --- Global filter toggles ---
+
+// newGlobalFilterPlanner builds a Planner with configPath under t.TempDir and
+// two trips: trip 0 inherits global filters, trip 1 overrides with an empty
+// filter set so global toggles never affect it.
+func newGlobalFilterPlanner(t *testing.T) *Planner {
+	t.Helper()
+	p := NewPlanner(PlannerOptions{
+		Charts:     []*ResortChart{minimalChart()},
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		Defaults: Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    "200",
+			MinNights: "1",
+		},
+	})
+	// Add a second trip pinned to OVERRIDE with empty filters.
+	p.trips = append(p.trips, Trip{
+		Fields: [3]inputField{
+			{label: "From", value: "2026-01-04"},
+			{label: "To", value: "2026-01-08"},
+			{label: "Min nights", value: "1"},
+		},
+		FilterMode: FilterModeOverride,
+		Filters:    FilterSet{},
+	})
+	p.recomputeAll()
+	return p
+}
+
+func TestToggleGlobalResort_RoundTripAndPersists(t *testing.T) {
+	p := newGlobalFilterPlanner(t)
+
+	if err := p.ToggleGlobalResort("TST"); err != nil {
+		t.Fatalf("ToggleGlobalResort add: %v", err)
+	}
+	if !slices.Contains(p.global.ExcludeResorts, "TST") {
+		t.Errorf("after add: ExcludeResorts = %v, want to contain TST", p.global.ExcludeResorts)
+	}
+
+	// Persisted to disk.
+	cfg, err := LoadConfig(p.configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !slices.Contains(cfg.ExcludeResorts, "TST") {
+		t.Errorf("saved config ExcludeResorts = %v, want to contain TST", cfg.ExcludeResorts)
+	}
+
+	// Second toggle removes it (round-trip).
+	if err := p.ToggleGlobalResort("TST"); err != nil {
+		t.Fatalf("ToggleGlobalResort remove: %v", err)
+	}
+	if slices.Contains(p.global.ExcludeResorts, "TST") {
+		t.Errorf("after remove: ExcludeResorts = %v, want TST gone", p.global.ExcludeResorts)
+	}
+	cfg, err = LoadConfig(p.configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig after remove: %v", err)
+	}
+	if slices.Contains(cfg.ExcludeResorts, "TST") {
+		t.Errorf("saved config after remove still has TST: %v", cfg.ExcludeResorts)
+	}
+}
+
+func TestToggleGlobalResort_AffectsInheritNotOverride(t *testing.T) {
+	p := newGlobalFilterPlanner(t)
+
+	inheritBefore := len(p.trips[0].Results)
+	overrideBefore := len(p.trips[1].Results)
+	if inheritBefore == 0 || overrideBefore == 0 {
+		t.Fatalf("precondition: need results, got inherit=%d override=%d", inheritBefore, overrideBefore)
+	}
+
+	if err := p.ToggleGlobalResort("TST"); err != nil {
+		t.Fatalf("ToggleGlobalResort: %v", err)
+	}
+
+	// Inherit trip drops the now-excluded resort (only TST exists -> 0 results).
+	if len(p.trips[0].Results) != 0 {
+		t.Errorf("inherit trip kept excluded resort: got %d results, want 0", len(p.trips[0].Results))
+	}
+	// Override trip is unchanged.
+	if len(p.trips[1].Results) != overrideBefore {
+		t.Errorf("override trip changed: before=%d after=%d", overrideBefore, len(p.trips[1].Results))
+	}
+}
+
+func TestToggleGlobalRoomType_RoundTripAndPersists(t *testing.T) {
+	p := newGlobalFilterPlanner(t)
+
+	if err := p.ToggleGlobalRoomType("STUDIO"); err != nil {
+		t.Fatalf("ToggleGlobalRoomType add: %v", err)
+	}
+	if !slices.Contains(p.global.ExcludeRoomTypes, "STUDIO") {
+		t.Errorf("after add: ExcludeRoomTypes = %v, want to contain STUDIO", p.global.ExcludeRoomTypes)
+	}
+	cfg, err := LoadConfig(p.configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !slices.Contains(cfg.ExcludeRoomTypes, "STUDIO") {
+		t.Errorf("saved config ExcludeRoomTypes = %v, want to contain STUDIO", cfg.ExcludeRoomTypes)
+	}
+
+	if err := p.ToggleGlobalRoomType("STUDIO"); err != nil {
+		t.Fatalf("ToggleGlobalRoomType remove: %v", err)
+	}
+	if slices.Contains(p.global.ExcludeRoomTypes, "STUDIO") {
+		t.Errorf("after remove: ExcludeRoomTypes = %v, want STUDIO gone", p.global.ExcludeRoomTypes)
+	}
+}
+
+func TestToggleGlobalRoomType_AffectsInheritNotOverride(t *testing.T) {
+	p := newGlobalFilterPlanner(t)
+
+	overrideBefore := len(p.trips[1].Results)
+	if len(p.trips[0].Results) == 0 || overrideBefore == 0 {
+		t.Fatalf("precondition: need results")
+	}
+
+	if err := p.ToggleGlobalRoomType("STUDIO"); err != nil {
+		t.Fatalf("ToggleGlobalRoomType: %v", err)
+	}
+
+	// Only room type is STUDIO -> inherit trip has no results.
+	if len(p.trips[0].Results) != 0 {
+		t.Errorf("inherit trip kept excluded room type: got %d results, want 0", len(p.trips[0].Results))
+	}
+	if len(p.trips[1].Results) != overrideBefore {
+		t.Errorf("override trip changed: before=%d after=%d", overrideBefore, len(p.trips[1].Results))
+	}
+}
+
+func TestToggleGlobalResort_SaveErrorReturnedButStateMutated(t *testing.T) {
+	p := newGlobalFilterPlanner(t)
+	// Point configPath at a path whose parent is a file, so MkdirAll/Save fails.
+	fileAsDir := filepath.Join(t.TempDir(), "notadir")
+	if err := os.WriteFile(fileAsDir, []byte("x"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	p.configPath = filepath.Join(fileAsDir, "config.json")
+
+	err := p.ToggleGlobalResort("TST")
+	if err == nil {
+		t.Fatal("expected SaveConfig error, got nil")
+	}
+	// In-memory toggle + recompute still happened (not rolled back).
+	if !slices.Contains(p.global.ExcludeResorts, "TST") {
+		t.Errorf("state rolled back on save error: ExcludeResorts = %v", p.global.ExcludeResorts)
+	}
+	if len(p.trips[0].Results) != 0 {
+		t.Errorf("recompute did not run on save error: got %d results", len(p.trips[0].Results))
 	}
 }
