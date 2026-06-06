@@ -67,6 +67,29 @@ type SearchParams struct {
 	ExcludeRoomTypes []string // room type strings to skip
 }
 
+// FilterSet holds the exclusions applied when searching for stays.
+type FilterSet struct {
+	ExcludeResorts   []string `json:"exclude_resorts,omitempty"`
+	ExcludeRoomTypes []string `json:"exclude_room_types,omitempty"`
+}
+
+// FilterMode selects whether a trip inherits the global filters or overrides them.
+type FilterMode string
+
+const (
+	FilterModeInherit  FilterMode = ""         // use global filters (zero value)
+	FilterModeOverride FilterMode = "override" // use trip.Filters only
+)
+
+// AsFilterSet adapts the global Config into a FilterSet.
+// The returned set shares Config's underlying slices (no copy).
+func (c Config) AsFilterSet() FilterSet {
+	return FilterSet{
+		ExcludeResorts:   c.ExcludeResorts,
+		ExcludeRoomTypes: c.ExcludeRoomTypes,
+	}
+}
+
 // StayResult is one matching stay from a search.
 type StayResult struct {
 	Resort   string    `json:"resort"`

@@ -1,6 +1,7 @@
 package dvc
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -28,5 +29,41 @@ func TestDateRangeContains(t *testing.T) {
 		if got != c.want {
 			t.Errorf("Contains(%s) = %v, want %v", c.date, got, c.want)
 		}
+	}
+}
+
+func TestConfigAsFilterSet(t *testing.T) {
+	cfg := Config{
+		ExcludeResorts:   []string{"VGF"},
+		ExcludeRoomTypes: []string{"STUDIO"},
+	}
+
+	got := cfg.AsFilterSet()
+
+	if !reflect.DeepEqual(got.ExcludeResorts, []string{"VGF"}) {
+		t.Errorf("ExcludeResorts = %v, want %v", got.ExcludeResorts, []string{"VGF"})
+	}
+	if !reflect.DeepEqual(got.ExcludeRoomTypes, []string{"STUDIO"}) {
+		t.Errorf("ExcludeRoomTypes = %v, want %v", got.ExcludeRoomTypes, []string{"STUDIO"})
+	}
+}
+
+func TestConfigAsFilterSetEmpty(t *testing.T) {
+	got := Config{}.AsFilterSet()
+
+	if got.ExcludeResorts != nil {
+		t.Errorf("ExcludeResorts = %v, want nil", got.ExcludeResorts)
+	}
+	if got.ExcludeRoomTypes != nil {
+		t.Errorf("ExcludeRoomTypes = %v, want nil", got.ExcludeRoomTypes)
+	}
+}
+
+func TestFilterModeValues(t *testing.T) {
+	if FilterModeInherit != "" {
+		t.Errorf("FilterModeInherit = %q, want %q", FilterModeInherit, "")
+	}
+	if FilterModeOverride != "override" {
+		t.Errorf("FilterModeOverride = %q, want %q", FilterModeOverride, "override")
 	}
 }
