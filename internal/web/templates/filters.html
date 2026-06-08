@@ -1,20 +1,49 @@
 {{define "filters"}}
 <aside id="panel" class="panel"{{if .Scope.IsTrip}} data-mode="{{modeLabel .Scope.Mode}}"{{end}}>
   <header class="panel-header">
-    <h2>Filters</h2>
+    <h2>{{filterTitle .Scope}}</h2>
     <button type="button" hx-get="/panel/close" hx-target="#panel" hx-swap="outerHTML">Close</button>
   </header>
+
+  {{if .Scope.IsTrip}}
+  {{$editable := eq (modeLabel .Scope.Mode) "override"}}
+  <div class="filter-mode-switch" role="group" aria-label="Filter mode">
+    <button type="button"
+            class="mode-btn{{if not $editable}} active{{end}}"
+            hx-post="/trips/{{.Scope.TripIndex}}/filters/mode"
+            hx-vars="mode:'inherit'"
+            hx-target="#panel"
+            hx-swap="outerHTML">Inherit</button>
+    <button type="button"
+            class="mode-btn{{if $editable}} active{{end}}"
+            hx-post="/trips/{{.Scope.TripIndex}}/filters/mode"
+            hx-vars="mode:'override'"
+            hx-target="#panel"
+            hx-swap="outerHTML">Override</button>
+    {{if $editable}}<span class="filters-chip override">override</span>{{end}}
+  </div>
+  {{if not $editable}}
+  <p class="panel-hint">Inheriting the global filters. Switch to override to edit this trip's filters.</p>
+  {{end}}
+  {{end}}
+
   <section>
     <h3>Resorts</h3>
     <ul class="filter-list">
       {{range .Resorts}}
       <li class="{{if not .Enabled}}excluded{{end}}">
+        {{if and $.Scope.IsTrip (ne (modeLabel $.Scope.Mode) "override")}}
+        <button type="button" disabled title="Switch to override to edit">
+          {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
+        </button>
+        {{else}}
         <button type="button"
-                hx-post="/filters/resorts/{{.Code}}"
+                hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripIndex}}/filters/resorts/{{.Code}}{{else}}/filters/resorts/{{.Code}}{{end}}"
                 hx-target="#panel"
                 hx-swap="outerHTML">
           {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
         </button>
+        {{end}}
       </li>
       {{end}}
     </ul>
@@ -24,16 +53,35 @@
     <ul class="filter-list">
       {{range .RoomTypes}}
       <li class="{{if not .Enabled}}excluded{{end}}">
+        {{if and $.Scope.IsTrip (ne (modeLabel $.Scope.Mode) "override")}}
+        <button type="button" disabled title="Switch to override to edit">
+          {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
+        </button>
+        {{else}}
         <button type="button"
-                hx-post="/filters/roomtypes/{{.Name}}"
+                hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripIndex}}/filters/roomtypes/{{.Name}}{{else}}/filters/roomtypes/{{.Name}}{{end}}"
                 hx-target="#panel"
                 hx-swap="outerHTML">
           {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
         </button>
+        {{end}}
       </li>
       {{end}}
     </ul>
   </section>
+
+  {{if .Scope.IsTrip}}
+  {{if eq (modeLabel .Scope.Mode) "override"}}
+  <form class="filter-reset"
+        hx-delete="/trips/{{.Scope.TripIndex}}/filters"
+        hx-target="#panel"
+        hx-swap="outerHTML">
+    <button type="submit">Reset to inherit</button>
+  </form>
+  {{end}}
+  <p class="panel-hint">Per-trip filter changes save with the plan, not config.json.</p>
+  {{else}}
   <p class="panel-hint">Toggle to exclude. Changes persist to config.json. Reload the page to see updated results across all trips.</p>
+  {{end}}
 </aside>
 {{end}}

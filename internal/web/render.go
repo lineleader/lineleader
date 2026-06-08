@@ -201,6 +201,19 @@ func templateFuncs() template.FuncMap {
 			return v
 		},
 		"add1": func(i int) int { return i + 1 },
+		// filterTitle builds the scope-aware panel header text, e.g.
+		// "Filters — Global" or "Filters — Trip 2 (override)" using 1-based
+		// trip numbering consistent with the rest of the UI.
+		"filterTitle": func(s filterScope) string {
+			if !s.IsTrip {
+				return "Filters — Global"
+			}
+			mode := "inherit"
+			if s.Mode == dvc.FilterModeOverride {
+				mode = "override"
+			}
+			return fmt.Sprintf("Filters — Trip %d (%s)", s.TripIndex+1, mode)
+		},
 		// modeLabel normalizes a FilterMode into a stable template label:
 		// the override constant stays "override", every other value (including
 		// the empty inherit zero value) renders as "inherit".

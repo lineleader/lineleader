@@ -454,6 +454,169 @@ func TestResetTripFilters_BackToInherit(t *testing.T) {
 	}
 }
 
+// TestTripFilterPanel_ScopedURLsAndSwitch verifies the per-trip filter panel
+// renders scoped POST URLs, the scope-aware title, and the inherit/override
+// switch — not the global URLs.
+func TestTripFilterPanel_ScopedURLsAndSwitch(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	// Switch to override so editable rows (and their scoped URLs) render.
+	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+
+	if !strings.Contains(got, `/trips/0/filters/resorts/TST`) {
+		t.Errorf("expected scoped resort URL, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Filters — Trip 1") {
+		t.Errorf("expected scope-aware title 'Filters — Trip 1', got:\n%s", got)
+	}
+	if !strings.Contains(got, `/trips/0/filters/mode`) {
+		t.Errorf("expected inherit/override switch posting to mode URL, got:\n%s", got)
+	}
+}
+
+// TestTripFilterPanel_InheritDisablesRows verifies an inherit trip's panel shows
+// disabled rows plus a switch-to-override control, and no editable toggle URLs.
+func TestTripFilterPanel_InheritDisablesRows(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+
+	if !strings.Contains(got, `data-mode="inherit"`) {
+		t.Fatalf("expected inherit mode by default, got:\n%s", got)
+	}
+	if !strings.Contains(got, "disabled") {
+		t.Errorf("expected disabled rows on inherit, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Switch to override to edit") {
+		t.Errorf("expected switch-to-override hint, got:\n%s", got)
+	}
+	// Inherit rows must not be editable toggles.
+	if strings.Contains(got, `/trips/0/filters/resorts/TST`) {
+		t.Errorf("inherit rows should not POST toggle URLs, got:\n%s", got)
+	}
+}
+
+// TestTripFilterPanel_OverrideEditableWithChip verifies an override trip's panel
+// shows editable rows (toggle URLs) and the override chip/marker.
+func TestTripFilterPanel_OverrideEditableWithChip(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	// Switch trip 0 to override.
+	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+
+	if !strings.Contains(got, `data-mode="override"`) {
+		t.Fatalf("expected override mode, got:\n%s", got)
+	}
+	if !strings.Contains(got, `/trips/0/filters/resorts/TST`) {
+		t.Errorf("expected editable toggle URL on override, got:\n%s", got)
+	}
+	if !strings.Contains(got, "override") {
+		t.Errorf("expected override marker in panel, got:\n%s", got)
+	}
+}
+
+// TestTripCard_FiltersButtonAndChip verifies the expanded trip card renders the
+// per-trip Filters button and an inherit chip by default, override after switch.
+func TestTripCard_FiltersButtonAndChip(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+
+	if !strings.Contains(got, `hx-get="/trips/0/filters"`) {
+		t.Errorf("expected per-trip Filters button, got:\n%s", got)
+	}
+	if !strings.Contains(got, "[filters: inherit]") {
+		t.Errorf("expected inherit chip by default, got:\n%s", got)
+	}
+
+	// Switch to override and re-render the trip card via collapse toggle path.
+	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
+		t.Fatal(err)
+	}
+	resp2, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := body(t, resp2)
+	if !strings.Contains(got2, "[filters: override]") {
+		t.Errorf("expected override chip after switching mode, got:\n%s", got2)
+	}
+}
+
+// TestTripCard_CollapsedShowsChip verifies the collapsed trip_summary surfaces
+// the override chip too.
+func TestTripCard_CollapsedShowsChip(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	// Switch to override, then collapse the trip.
+	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(ts.URL+"/trips/0/collapse", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, "trip collapsed") {
+		t.Fatalf("expected collapsed trip, got:\n%s", got)
+	}
+	if !strings.Contains(got, "[filters: override]") {
+		t.Errorf("expected override chip in collapsed summary, got:\n%s", got)
+	}
+}
+
+// TestGlobalFilterPanel_NoRegression verifies the global panel still renders the
+// global URLs and global title — unchanged by the scope parameterization.
+func TestGlobalFilterPanel_NoRegression(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+
+	if !strings.Contains(got, `hx-post="/filters/resorts/TST"`) {
+		t.Errorf("expected global resort URL unchanged, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Filters — Global") {
+		t.Errorf("expected global title, got:\n%s", got)
+	}
+	// Global panel must not include the per-trip mode switch.
+	if strings.Contains(got, `/filters/mode`) {
+		t.Errorf("global panel should not have mode switch, got:\n%s", got)
+	}
+}
+
 func TestSavePlanAndLoad(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
