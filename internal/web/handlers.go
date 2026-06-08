@@ -4,6 +4,8 @@ import (
 	"html/template"
 	"net/http"
 	"strconv"
+
+	"github.com/lineleader/lineleader/internal/dvc"
 )
 
 // handlers groups the http handlers + shared dependencies.
@@ -181,6 +183,111 @@ func (h *handlers) renderFilterToggle(w http.ResponseWriter) {
 		App:     h.session.buildAppView(h.session.p.Snapshot()),
 	}
 	h.render(w, "filters_toggle", data)
+}
+
+// openTripFilters handles GET /trips/{i}/filters — opens the per-trip panel.
+// It renders only the "filters" panel (no OOB results swap), mirroring openFilters.
+func (h *handlers) openTripFilters(w http.ResponseWriter, r *http.Request) {
+	i, ok := h.tripIndex(w, r)
+	if !ok {
+		return
+	}
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	h.render(w, "filters", toFiltersView(h.session.p.FilterOptions(i)))
+}
+
+// setTripFilterMode handles POST /trips/{i}/filters/mode.
+// The form value "mode" maps "override" -> dvc.FilterModeOverride and "inherit"
+// -> dvc.FilterModeInherit. Any UNKNOWN value is treated as inherit: this is the
+// safe default (the global filters), and it keeps a malformed request from
+// silently seeding a per-trip override.
+func (h *handlers) setTripFilterMode(w http.ResponseWriter, r *http.Request) {
+	i, ok := h.tripIndex(w, r)
+	if !ok {
+		return
+	}
+	mode := dvc.FilterModeInherit
+	if r.FormValue("mode") == string(dvc.FilterModeOverride) {
+		mode = dvc.FilterModeOverride
+	}
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	h.session.p.SetTripFilterMode(i, mode)
+	h.renderTripFilterToggle(w, i)
+}
+
+// toggleTripResort handles POST /trips/{i}/filters/resorts/{code}.
+func (h *handlers) toggleTripResort(w http.ResponseWriter, r *http.Request) {
+	i, ok := h.tripIndex(w, r)
+	if !ok {
+		return
+	}
+	code := r.PathValue("code")
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	h.session.p.ToggleTripResort(i, code)
+	h.renderTripFilterToggle(w, i)
+}
+
+// toggleTripRoomType handles POST /trips/{i}/filters/roomtypes/{name}. The mux
+// URL-decodes {name}, so room types with spaces (e.g. "ONE-BEDROOM VILLA")
+// arrive intact — matching the global room-type route's decoding.
+func (h *handlers) toggleTripRoomType(w http.ResponseWriter, r *http.Request) {
+	i, ok := h.tripIndex(w, r)
+	if !ok {
+		return
+	}
+	name := r.PathValue("name")
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	h.session.p.ToggleTripRoomType(i, name)
+	h.renderTripFilterToggle(w, i)
+}
+
+// resetTripFilters handles DELETE /trips/{i}/filters — back to inherit.
+func (h *handlers) resetTripFilters(w http.ResponseWriter, r *http.Request) {
+	i, ok := h.tripIndex(w, r)
+	if !ok {
+		return
+	}
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	h.session.p.ResetTripFilters(i)
+	h.renderTripFilterToggle(w, i)
+}
+
+// tripIndex parses and range-checks the {i} path value, writing a 400 and
+// returning ok=false on a bad or out-of-range index.
+func (h *handlers) tripIndex(w http.ResponseWriter, r *http.Request) (int, bool) {
+	i, err := strconv.Atoi(r.PathValue("i"))
+	if err != nil {
+		http.Error(w, "bad trip index", http.StatusBadRequest)
+		return 0, false
+	}
+	h.session.mu.Lock()
+	n := len(h.session.p.Snapshot().Trips)
+	h.session.mu.Unlock()
+	if i < 0 || i >= n {
+		http.Error(w, "trip out of range", http.StatusBadRequest)
+		return 0, false
+	}
+	return i, true
+}
+
+// renderTripFilterToggle renders the per-trip filters_trip_toggle template: the
+// filter PANEL plus ONLY the affected trip's results, OOB-swapped into
+// #trip-{i}-results. Other trips are untouched. Caller must hold session lock.
+func (h *handlers) renderTripFilterToggle(w http.ResponseWriter, i int) {
+	view := h.session.buildAppView(h.session.p.Snapshot())
+	data := struct {
+		Filters filtersView
+		Trip    tripView
+	}{
+		Filters: toFiltersView(h.session.p.FilterOptions(i)),
+		Trip:    view.Trips[i],
+	}
+	h.render(w, "filters_trip_toggle", data)
 }
 
 // openPlans handles GET /plans.

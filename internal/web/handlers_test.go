@@ -245,6 +245,215 @@ func TestToggleResortFilter_PersistsAndAffectsResults(t *testing.T) {
 	}
 }
 
+// roomTypeChart is a fixture whose room type contains a space, used to verify
+// per-trip route URL-decoding of {name}.
+func roomTypeChart() *dvc.ResortChart {
+	return &dvc.ResortChart{
+		ResortName: "Villa Resort",
+		ResortCode: "VLA",
+		Year:       2026,
+		Columns: []dvc.Column{
+			{RoomType: "ONE-BEDROOM VILLA", View: "R", Sleeps: 4},
+		},
+		Seasons: []dvc.Season{
+			{
+				Periods: []dvc.DateRange{{Start: "2026-01-01", End: "2026-01-31"}},
+				SunThu:  []int{10},
+				FriSat:  []int{14},
+			},
+		},
+	}
+}
+
+func newTestServerWithCharts(t *testing.T, charts []*dvc.ResortChart) *httptest.Server {
+	t.Helper()
+	dir := t.TempDir()
+	srv := NewServer(Options{
+		Charts:     charts,
+		Config:     dvc.Config{},
+		ConfigPath: filepath.Join(dir, "config.json"),
+		Plans:      nil,
+		PlansPath:  filepath.Join(dir, "plans.json"),
+		Defaults: Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    "100",
+			MinNights: "1",
+		},
+	})
+	return httptest.NewServer(srv)
+}
+
+func TestPerTripRoutes_BadIndex_400(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	client := ts.Client()
+	cases := []struct {
+		method string
+		path   string
+		body   io.Reader
+		ctype  string
+	}{
+		{"GET", "/trips/x/filters", nil, ""},
+		{"GET", "/trips/9/filters", nil, ""},
+		{"POST", "/trips/x/filters/mode", strings.NewReader("mode=override"), "application/x-www-form-urlencoded"},
+		{"POST", "/trips/9/filters/mode", strings.NewReader("mode=override"), "application/x-www-form-urlencoded"},
+		{"POST", "/trips/x/filters/resorts/TST", nil, ""},
+		{"POST", "/trips/9/filters/resorts/TST", nil, ""},
+		{"POST", "/trips/x/filters/roomtypes/STUDIO", nil, ""},
+		{"POST", "/trips/9/filters/roomtypes/STUDIO", nil, ""},
+		{"DELETE", "/trips/x/filters", nil, ""},
+		{"DELETE", "/trips/9/filters", nil, ""},
+	}
+	for _, c := range cases {
+		req, err := http.NewRequest(c.method, ts.URL+c.path, c.body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.ctype != "" {
+			req.Header.Set("Content-Type", c.ctype)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s %s: status = %d, want 400", c.method, c.path, resp.StatusCode)
+		}
+	}
+}
+
+func TestOpenTripFilters_RendersPanel(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, `id="panel"`) {
+		t.Errorf("expected filters panel, got:\n%s", got)
+	}
+	// Plain open must NOT include an OOB results swap.
+	if strings.Contains(got, `hx-swap-oob`) {
+		t.Errorf("plain open should not include OOB swap, got:\n%s", got)
+	}
+}
+
+func TestSetTripFilterMode_UnknownTreatedAsInherit(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	resp, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"bogus"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	got := body(t, resp)
+	// Unknown mode -> inherit: the trip stays an inherit trip, so no override
+	// marker. We verify by querying the panel and checking the mode scope.
+	if strings.Contains(got, `data-mode="override"`) {
+		t.Errorf("unknown mode should resolve to inherit, got:\n%s", got)
+	}
+	if !strings.Contains(got, `data-mode="inherit"`) {
+		t.Errorf("expected inherit mode marker, got:\n%s", got)
+	}
+}
+
+func TestToggleTripResort_SeedsOverrideAndScopesOOB(t *testing.T) {
+	// Two trips so we can assert isolation.
+	ts := newTestServerWithCharts(t, []*dvc.ResortChart{minimalChart()})
+	defer ts.Close()
+	http.Post(ts.URL+"/trips", "", nil) // add a second trip
+
+	// Toggle resort TST off on trip 0 (currently inherit). This seeds override.
+	resp, err := http.Post(ts.URL+"/trips/0/filters/resorts/TST", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	got := body(t, resp)
+
+	// Panel header reflects override now (seeding flipped the mode).
+	if !strings.Contains(got, `data-mode="override"`) {
+		t.Errorf("expected override mode after toggling on inherit trip, got:\n%s", got)
+	}
+	// The affected trip's results are OOB-swapped, targeting trip-0-results.
+	if !strings.Contains(got, `id="trip-0-results"`) {
+		t.Errorf("expected OOB swap of trip-0-results, got:\n%s", got)
+	}
+	if !strings.Contains(got, `hx-swap-oob`) {
+		t.Errorf("expected hx-swap-oob attribute, got:\n%s", got)
+	}
+	// Affected trip's results changed: TST excluded -> no result row.
+	if strings.Contains(got, "<td>Test Resort</td>") {
+		t.Errorf("expected trip-0 results empty after excluding TST, got:\n%s", got)
+	}
+	// Isolation: the OTHER trip's results must NOT be in the response.
+	if strings.Contains(got, `id="trip-1-results"`) {
+		t.Errorf("expected only trip-0-results OOB-swapped, not trip-1, got:\n%s", got)
+	}
+}
+
+func TestToggleTripRoomType_URLDecodesSpace(t *testing.T) {
+	ts := newTestServerWithCharts(t, []*dvc.ResortChart{roomTypeChart()})
+	defer ts.Close()
+
+	// Match how the global room-type route is exercised: build the path with
+	// url.PathEscape so the space is encoded, the mux decodes it back.
+	name := url.PathEscape("ONE-BEDROOM VILLA")
+	resp, err := http.Post(ts.URL+"/trips/0/filters/roomtypes/"+name, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, `data-mode="override"`) {
+		t.Errorf("expected override after toggling room type, got:\n%s", got)
+	}
+	// The room type was excluded -> no result row for the villa.
+	if strings.Contains(got, "<td>Villa Resort</td>") {
+		t.Errorf("expected villa results empty after excluding room type, got:\n%s", got)
+	}
+}
+
+func TestResetTripFilters_BackToInherit(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	// Seed override by toggling a resort off, then reset.
+	http.Post(ts.URL+"/trips/0/filters/resorts/TST", "", nil)
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/trips/0/filters", nil)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, `data-mode="inherit"`) {
+		t.Errorf("expected inherit mode after reset, got:\n%s", got)
+	}
+	// Back to inherit -> global has no exclusions -> Test Resort row is back.
+	if !strings.Contains(got, "<td>Test Resort</td>") {
+		t.Errorf("expected Test Resort row restored after reset, got:\n%s", got)
+	}
+}
+
 func TestSavePlanAndLoad(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()

@@ -1,5 +1,5 @@
 {{define "filters"}}
-<aside id="panel" class="panel">
+<aside id="panel" class="panel"{{if .Scope.IsTrip}} data-mode="{{modeLabel .Scope.Mode}}"{{end}}>
   <header class="panel-header">
     <h2>Filters</h2>
     <button type="button" hx-get="/panel/close" hx-target="#panel" hx-swap="outerHTML">Close</button>

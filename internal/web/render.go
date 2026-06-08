@@ -201,5 +201,14 @@ func templateFuncs() template.FuncMap {
 			return v
 		},
 		"add1": func(i int) int { return i + 1 },
+		// modeLabel normalizes a FilterMode into a stable template label:
+		// the override constant stays "override", every other value (including
+		// the empty inherit zero value) renders as "inherit".
+		"modeLabel": func(m dvc.FilterMode) string {
+			if m == dvc.FilterModeOverride {
+				return "override"
+			}
+			return "inherit"
+		},
 	}
 }
