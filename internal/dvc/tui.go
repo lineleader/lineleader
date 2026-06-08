@@ -621,6 +621,7 @@ func (m tuiModel) filterHeader() string {
 // renderTrips renders the stacked per-trip result sections into b.
 func (m tuiModel) renderTrips(b *strings.Builder, sep string, headerStyle, activeStyle, errStyle lipgloss.Style) {
 	visible := m.visibleRowsPerTrip()
+	faintStyle := lipgloss.NewStyle().Faint(true)
 	colHeader := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
 		colResort, "RESORT",
 		colRoomType, "ROOM TYPE",
@@ -653,6 +654,11 @@ func (m tuiModel) renderTrips(b *strings.Builder, sep string, headerStyle, activ
 		)
 		if i == m.activeTripIdx {
 			tripHeader = activeStyle.Render(tripHeader)
+		}
+		if trip.Spec.FilterMode == FilterModeOverride {
+			tripHeader += "  " + activeStyle.Render("[filters: override]")
+		} else {
+			tripHeader += "  " + faintStyle.Render("[filters: inherit]")
 		}
 		b.WriteString(sep + "\n")
 		b.WriteString(tripHeader + "\n")

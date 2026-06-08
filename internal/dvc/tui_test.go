@@ -751,3 +751,41 @@ func TestTUIRender_TripPanelHeaderShowsScopeAndMode(t *testing.T) {
 		t.Errorf("trip panel header should mention inherit mode, got:\n%s", tv)
 	}
 }
+
+// TestTUIRender_TripHeaderShowsFilterModeBadge verifies the per-trip result
+// header shows a [filters: override] / [filters: inherit] badge per trip.
+func TestTUIRender_TripHeaderShowsFilterModeBadge(t *testing.T) {
+	m := newMultiTUIModel(t)
+	m.width = 120
+	m.height = 60
+	m.focused = 4
+
+	// Add a 2nd trip so we have trip 0 (override) and trip 1 (inherit).
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel)
+
+	// Force trip 0 into override via its panel.
+	m.activeTripIdx = 0
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'F', Mod: tea.ModShift, Text: "F"})
+	m = next.(tuiModel)
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	m = next.(tuiModel)
+	if m.snap.Trips[0].Spec.FilterMode != FilterModeOverride {
+		t.Fatalf("precondition: trip 0 should be override, got %q", m.snap.Trips[0].Spec.FilterMode)
+	}
+	if m.snap.Trips[1].Spec.FilterMode != FilterModeInherit {
+		t.Fatalf("precondition: trip 1 should be inherit, got %q", m.snap.Trips[1].Spec.FilterMode)
+	}
+
+	// Close the filter panel so the main table view (with trip headers) renders.
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(tuiModel)
+
+	v := m.View().Content
+	if !strings.Contains(v, "[filters: override]") {
+		t.Errorf("trip header should contain [filters: override], got:\n%s", v)
+	}
+	if !strings.Contains(v, "[filters: inherit]") {
+		t.Errorf("trip header should contain [filters: inherit], got:\n%s", v)
+	}
+}
