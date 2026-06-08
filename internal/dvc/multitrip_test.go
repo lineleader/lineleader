@@ -1,7 +1,6 @@
 package dvc
 
 import (
-	"strings"
 	"testing"
 	"time"
 )
@@ -16,7 +15,7 @@ func makeTrip(selectedPts int) Trip {
 	return t
 }
 
-// --- Group 1: pure accounting ---
+// --- Pure accounting helpers (free functions in planner.go) ---
 
 func TestSelectedPoints_NoSelections(t *testing.T) {
 	trips := []Trip{makeTrip(0), makeTrip(0)}
@@ -96,122 +95,133 @@ func TestStayEquals_DifferentFields(t *testing.T) {
 	}
 }
 
-// --- Group 2 & 3: recompute via the Planner ---
+// --- Multi-trip interaction scenarios (driven through the Planner) ---
 //
-// These behaviors (single-trip recompute, multi-trip shared budget) now live on
-// *Planner; planner_test.go covers them in depth. The view-layer checks below
-// drive a *Planner through the tuiModel and read back its Snapshot. A full
-// rewrite of this file against the Planner is fpl.14; these are minimal edits to
-// keep the suite green.
+// These exercise how trips share a single budget: a selection in one trip
+// reduces every OTHER trip's effective budget, and removing a trip re-balances
+// what's left. Single-trip recompute and the read API are covered in depth by
+// planner_test.go; here we focus on the cross-trip interaction, asserting
+// through the public Snapshot() projection.
 
-func newTwoTripModel() tuiModel {
-	m := NewTUIModel(PlannerOptions{
-		Charts: []*ResortChart{minimalChart()},
-		Defaults: Defaults{
-			From:      "2026-01-04",
-			To:        "2026-01-08",
-			Budget:    "200",
-			MinNights: "1",
-		},
-	})
-	// Add a second trip (clones trip 0's dates, min-nights reset to 1).
-	m.planner.AddTrip()
-	m.refresh()
-	return m
+// twoTripPlanner builds a Planner over the minimal chart with two trips on the
+// same Jan 4–8 2026 window and the given budget.
+func twoTripPlanner(budget string) *Planner {
+	p := newTestPlanner(budget)
+	p.AddTrip()
+	return p
 }
 
-func TestRecomputeAll_TwoTrips_ShareBudget(t *testing.T) {
-	m := newTwoTripModel()
-	if len(m.snap.Trips[0].Results) == 0 {
+// TestMultiTrip_SelectionReducesOtherTripBudget verifies that selecting a stay
+// in trip 0 lowers trip 1's EffectiveBudget by exactly the selected points,
+// while trip 0's own effective budget is unaffected by its own selection.
+func TestMultiTrip_SelectionReducesOtherTripBudget(t *testing.T) {
+	p := twoTripPlanner("200")
+	before := p.Snapshot()
+	if len(before.Trips[0].Results) == 0 {
 		t.Skip("no results for trip 0")
 	}
-	before1 := len(m.snap.Trips[1].Results)
+	if before.Trips[1].EffectiveBudget != 200 {
+		t.Fatalf("precondition: trip 1 EffectiveBudget = %d, want 200", before.Trips[1].EffectiveBudget)
+	}
 
-	// Select the most expensive result for trip 0.
-	lastIdx := len(m.snap.Trips[0].Results) - 1
-	last := m.snap.Trips[0].Results[lastIdx]
-	m.planner.ToggleSelection(0, lastIdx)
-	m.refresh()
+	// Select trip 0's most expensive result so the points are non-trivial.
+	lastIdx := len(before.Trips[0].Results) - 1
+	selPts := before.Trips[0].Results[lastIdx].Points
+	if selPts == 0 {
+		t.Skip("selected stay has 0 points; can't observe budget effect")
+	}
+	p.ToggleSelection(0, lastIdx)
 
-	// Trip 1 should have fewer or equal results after trip 0 commits points.
-	if last.Points > 0 && len(m.snap.Trips[1].Results) > before1 {
-		t.Errorf("trip 1 results grew after trip 0 selected %d pts: before=%d after=%d",
-			last.Points, before1, len(m.snap.Trips[1].Results))
+	after := p.Snapshot()
+	// Trip 0's own selection does not reduce its own effective budget.
+	if after.Trips[0].EffectiveBudget != 200 {
+		t.Errorf("trip 0 EffectiveBudget = %d, want 200 (own selection excluded)", after.Trips[0].EffectiveBudget)
+	}
+	// Trip 1's effective budget drops by the points trip 0 committed.
+	if want := 200 - selPts; after.Trips[1].EffectiveBudget != want {
+		t.Errorf("trip 1 EffectiveBudget = %d, want %d", after.Trips[1].EffectiveBudget, want)
+	}
+	// Global remaining drops too.
+	if want := 200 - selPts; after.Remaining != want {
+		t.Errorf("Remaining = %d, want %d", after.Remaining, want)
 	}
 }
 
-func TestRecomputeAll_Deselect_RestoresBudget(t *testing.T) {
-	m := newTwoTripModel()
-	if len(m.snap.Trips[0].Results) == 0 {
-		t.Skip("no results")
+// TestMultiTrip_DeselectRestoresOtherTripBudget verifies that deselecting in
+// trip 0 returns trip 1's effective budget to the full global budget.
+func TestMultiTrip_DeselectRestoresOtherTripBudget(t *testing.T) {
+	p := twoTripPlanner("200")
+	s := p.Snapshot()
+	if len(s.Trips[0].Results) == 0 {
+		t.Skip("no results for trip 0")
 	}
-	before1 := len(m.snap.Trips[1].Results)
+	lastIdx := len(s.Trips[0].Results) - 1
 
-	// Select then deselect the last result.
-	lastIdx := len(m.snap.Trips[0].Results) - 1
-	m.planner.ToggleSelection(0, lastIdx)
-	m.refresh()
-	m.planner.ToggleSelection(0, lastIdx)
-	m.refresh()
+	p.ToggleSelection(0, lastIdx) // select
+	p.ToggleSelection(0, lastIdx) // deselect same row
 
-	if len(m.snap.Trips[1].Results) != before1 {
-		t.Errorf("after deselect, trip 1 results = %d, want %d (restored)", len(m.snap.Trips[1].Results), before1)
+	after := p.Snapshot()
+	if after.Trips[0].Selected != nil {
+		t.Error("trip 0 Selected not cleared after deselect")
+	}
+	if after.Trips[1].EffectiveBudget != 200 {
+		t.Errorf("trip 1 EffectiveBudget = %d, want 200 (restored)", after.Trips[1].EffectiveBudget)
+	}
+	if after.Remaining != 200 {
+		t.Errorf("Remaining = %d, want 200 (restored)", after.Remaining)
 	}
 }
 
-func TestRecomputeAll_InvalidBudgetField(t *testing.T) {
-	m := newTwoTripModel()
-	m.planner.SetBudget("not-a-number")
-	m.refresh()
-	if m.snap.BudgetErr == "" {
+// TestMultiTrip_RemoveTripRebalancesBudget verifies that removing a trip that
+// holds a selection frees its points back to the remaining trips' budgets.
+func TestMultiTrip_RemoveTripRebalancesBudget(t *testing.T) {
+	p := twoTripPlanner("200")
+	s := p.Snapshot()
+	if len(s.Trips[0].Results) == 0 {
+		t.Skip("no results for trip 0")
+	}
+
+	// Trip 0 commits points, squeezing trip 1's effective budget.
+	lastIdx := len(s.Trips[0].Results) - 1
+	selPts := s.Trips[0].Results[lastIdx].Points
+	if selPts == 0 {
+		t.Skip("selected stay has 0 points; can't observe rebalance")
+	}
+	p.ToggleSelection(0, lastIdx)
+
+	squeezed := p.Snapshot()
+	if want := 200 - selPts; squeezed.Trips[1].EffectiveBudget != want {
+		t.Fatalf("precondition: trip 1 EffectiveBudget = %d, want %d", squeezed.Trips[1].EffectiveBudget, want)
+	}
+
+	// Removing trip 0 gives its points back: the surviving trip sees full budget.
+	p.RemoveTrip(0)
+
+	after := p.Snapshot()
+	if len(after.Trips) != 1 {
+		t.Fatalf("Trips = %d, want 1 after RemoveTrip", len(after.Trips))
+	}
+	if after.Trips[0].EffectiveBudget != 200 {
+		t.Errorf("surviving trip EffectiveBudget = %d, want 200 (rebalanced)", after.Trips[0].EffectiveBudget)
+	}
+	if after.Remaining != 200 {
+		t.Errorf("Remaining = %d, want 200 (rebalanced)", after.Remaining)
+	}
+}
+
+// TestMultiTrip_InvalidBudgetMarksAllTrips verifies an unparseable global
+// budget surfaces on the Snapshot and clears every trip's results.
+func TestMultiTrip_InvalidBudgetMarksAllTrips(t *testing.T) {
+	p := twoTripPlanner("200")
+	p.SetBudget("not-a-number")
+
+	s := p.Snapshot()
+	if s.BudgetErr == "" {
 		t.Error("expected Snapshot.BudgetErr for invalid budget, got empty")
 	}
-	for i, trip := range m.snap.Trips {
+	for i, trip := range s.Trips {
 		if len(trip.Results) != 0 {
 			t.Errorf("trip %d: expected no results for invalid budget, got %d", i, len(trip.Results))
 		}
-	}
-}
-
-// --- Group 5: View smoke tests ---
-
-func TestTUIView_ShowsAllTrips(t *testing.T) {
-	m := newTwoTripModel()
-	m.height = 40
-	m.width = 100
-	v := m.View()
-	out := v.Content
-	if !strings.Contains(out, "TRIP 1") {
-		t.Error("View missing 'TRIP 1'")
-	}
-	if !strings.Contains(out, "TRIP 2") {
-		t.Error("View missing 'TRIP 2'")
-	}
-}
-
-func TestTUIView_ShowsRemainingBudget(t *testing.T) {
-	m := newTwoTripModel()
-	m.height = 40
-	m.width = 100
-	v := m.View()
-	out := v.Content
-	if !strings.Contains(out, "Remaining:") {
-		t.Error("View missing 'Remaining:' counter")
-	}
-}
-
-func TestTUIView_ShowsSelectedMark(t *testing.T) {
-	m := newTwoTripModel()
-	m.height = 40
-	m.width = 100
-	if len(m.snap.Trips[0].Results) == 0 {
-		t.Skip("no results to select")
-	}
-	m.planner.ToggleSelection(0, 0)
-	m.refresh()
-	v := m.View()
-	out := v.Content
-	if !strings.Contains(out, "✓") {
-		t.Error("View missing '✓' mark for selected stay")
 	}
 }

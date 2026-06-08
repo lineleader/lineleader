@@ -788,6 +788,49 @@ func TestTUIRender_TripPanelHeaderShowsScopeAndMode(t *testing.T) {
 	}
 }
 
+// TestTUIView_ShowsAllTrips verifies the main view renders a header for every
+// trip the model holds.
+func TestTUIView_ShowsAllTrips(t *testing.T) {
+	m := newTestTUIModel(t)
+	m.focused = 4
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel)
+	m.width = 100
+	m.height = 40
+	out := m.View().Content
+	if !strings.Contains(out, "TRIP 1") {
+		t.Error("View missing 'TRIP 1'")
+	}
+	if !strings.Contains(out, "TRIP 2") {
+		t.Error("View missing 'TRIP 2'")
+	}
+}
+
+// TestTUIView_ShowsRemainingBudget verifies the remaining-budget counter renders.
+func TestTUIView_ShowsRemainingBudget(t *testing.T) {
+	m := newTestTUIModel(t)
+	m.width = 100
+	m.height = 40
+	if !strings.Contains(m.View().Content, "Remaining:") {
+		t.Error("View missing 'Remaining:' counter")
+	}
+}
+
+// TestTUIView_ShowsSelectedMark verifies a selected stay renders a ✓ mark.
+func TestTUIView_ShowsSelectedMark(t *testing.T) {
+	m := newTestTUIModel(t)
+	m.width = 100
+	m.height = 40
+	if len(m.snap.Trips[0].Results) == 0 {
+		t.Skip("no results to select")
+	}
+	m.planner.ToggleSelection(0, 0)
+	m.refresh()
+	if !strings.Contains(m.View().Content, "✓") {
+		t.Error("View missing '✓' mark for selected stay")
+	}
+}
+
 // TestTUIRender_TripHeaderShowsFilterModeBadge verifies the per-trip result
 // header shows a [filters: override] / [filters: inherit] badge per trip.
 func TestTUIRender_TripHeaderShowsFilterModeBadge(t *testing.T) {
