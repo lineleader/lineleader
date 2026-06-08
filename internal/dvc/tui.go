@@ -119,8 +119,8 @@ func (m *tuiModel) refresh() {
 }
 
 // rebuildFilterItems builds filterItems from the planner's FilterOptions for the
-// current filterTrip scope. This bead keeps the panel global-only (filterTrip is
-// always -1); per-trip scope wiring is fpl.11.
+// current filterTrip scope (-1 = global, >=0 = trip i). For an inherit trip the
+// rows reflect the effective (global) checks; a row toggle auto-seeds override.
 func (m *tuiModel) rebuildFilterItems() {
 	view := m.planner.FilterOptions(m.filterTrip)
 	var items []filterItem
@@ -141,6 +141,21 @@ func (m *tuiModel) rebuildFilterItems() {
 		})
 	}
 	m.filterItems = items
+}
+
+// openFilterPanel opens the filter panel scoped to tripIdx (-1 = global, >=0 =
+// trip i), rebuilds filterItems for that scope, and lands the cursor on a real
+// (non-separator) item.
+func (m *tuiModel) openFilterPanel(tripIdx int) {
+	m.filterTrip = tripIdx
+	m.rebuildFilterItems()
+	m.filterOpen = true
+	if m.filterCursor >= len(m.filterItems) {
+		m.filterCursor = 0
+	}
+	if m.filterCursor < len(m.filterItems) && m.filterItems[m.filterCursor].kind == "" {
+		m.filterCursor = m.nextFilterCursor(1)
+	}
 }
 
 // visibleRowsPerTrip returns how many result rows fit per trip section.
@@ -310,8 +325,11 @@ func (m tuiModel) updatePlans(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateFilters handles key presses while the filter panel is open. The panel is
-// global-only in this bead (filterTrip == -1).
+// updateFilters handles key presses while the filter panel is open. The panel
+// is scoped by m.filterTrip: -1 = global (toggles operate on the global config),
+// >=0 = a trip (toggles operate on that trip's per-trip filters, auto-flipping
+// inherit->override via the Planner's seeding; `i` toggles inherit/override and
+// `r` resets to inherit).
 func (m tuiModel) updateFilters(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "f", "esc":
@@ -320,17 +338,42 @@ func (m tuiModel) updateFilters(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.filterCursor = m.nextFilterCursor(-1)
 	case "down", "j":
 		m.filterCursor = m.nextFilterCursor(1)
+	case "i":
+		if m.filterTrip >= 0 && m.filterTrip < len(m.snap.Trips) {
+			mode := FilterModeOverride
+			if m.snap.Trips[m.filterTrip].Spec.FilterMode == FilterModeOverride {
+				mode = FilterModeInherit
+			}
+			m.planner.SetTripFilterMode(m.filterTrip, mode)
+			m.refresh()
+			m.rebuildFilterItems()
+		}
+	case "r":
+		if m.filterTrip >= 0 && m.filterTrip < len(m.snap.Trips) {
+			m.planner.ResetTripFilters(m.filterTrip)
+			m.refresh()
+			m.rebuildFilterItems()
+		}
 	case "space", "x":
 		if m.filterCursor < len(m.filterItems) {
 			item := m.filterItems[m.filterCursor]
-			switch item.kind {
-			case "resort":
-				if err := m.planner.ToggleGlobalResort(item.value); err != nil {
-					m.plansErr = err.Error()
+			if m.filterTrip < 0 {
+				switch item.kind {
+				case "resort":
+					if err := m.planner.ToggleGlobalResort(item.value); err != nil {
+						m.plansErr = err.Error()
+					}
+				case "roomtype":
+					if err := m.planner.ToggleGlobalRoomType(item.value); err != nil {
+						m.plansErr = err.Error()
+					}
 				}
-			case "roomtype":
-				if err := m.planner.ToggleGlobalRoomType(item.value); err != nil {
-					m.plansErr = err.Error()
+			} else {
+				switch item.kind {
+				case "resort":
+					m.planner.ToggleTripResort(m.filterTrip, item.value)
+				case "roomtype":
+					m.planner.ToggleTripRoomType(m.filterTrip, item.value)
 				}
 			}
 			m.refresh()
@@ -351,16 +394,9 @@ func (m tuiModel) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.plansCursor = 0
 		}
 	case "f":
-		m.filterTrip = -1
-		m.rebuildFilterItems()
-		m.filterOpen = true
-		// Ensure cursor lands on a real item.
-		if m.filterCursor >= len(m.filterItems) {
-			m.filterCursor = 0
-		}
-		if m.filterCursor < len(m.filterItems) && m.filterItems[m.filterCursor].kind == "" {
-			m.filterCursor = m.nextFilterCursor(1)
-		}
+		m.openFilterPanel(-1)
+	case "F":
+		m.openFilterPanel(m.activeTripIdx)
 	case "up", "k":
 		if m.offsets[i] > 0 {
 			m.offsets[i]--
@@ -511,7 +547,10 @@ func (m tuiModel) renderPlans(b *strings.Builder, sep string, headerStyle, activ
 // renderFilters renders the filter panel into b.
 func (m tuiModel) renderFilters(b *strings.Builder, sep string, headerStyle, activeStyle, faintStyle lipgloss.Style) {
 	b.WriteString(sep + "\n")
-	b.WriteString(headerStyle.Render("FILTERS") + "\n")
+	b.WriteString(headerStyle.Render(m.filterHeader()) + "\n")
+	if m.filterTrip >= 0 && m.filterMode() == FilterModeInherit {
+		b.WriteString(faintStyle.Render("  (inheriting global — toggling a row overrides this trip)") + "\n")
+	}
 	b.WriteString(sep + "\n")
 
 	visible := m.visibleRowsPerTrip() * len(m.snap.Trips)
@@ -545,7 +584,38 @@ func (m tuiModel) renderFilters(b *strings.Builder, sep string, headerStyle, act
 
 	b.WriteString(sep + "\n")
 	excluded := countExcluded(m.filterItems)
-	b.WriteString(fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle  │  f/esc: close", excluded))
+	footer := fmt.Sprintf("%d excluded  │  ↑↓/j/k: navigate  │  space/x: toggle", excluded)
+	if m.filterTrip >= 0 {
+		modeAction := "override"
+		if m.filterMode() == FilterModeOverride {
+			modeAction = "inherit"
+		}
+		footer += fmt.Sprintf("  │  i: %s  │  r: reset", modeAction)
+	}
+	footer += "  │  f/esc: close"
+	b.WriteString(footer)
+}
+
+// filterMode returns the FilterMode for the current panel scope. It is "" for
+// the global panel.
+func (m tuiModel) filterMode() FilterMode {
+	if m.filterTrip >= 0 && m.filterTrip < len(m.snap.Trips) {
+		return m.snap.Trips[m.filterTrip].Spec.FilterMode
+	}
+	return ""
+}
+
+// filterHeader returns the panel header line for the current scope, e.g.
+// "FILTERS — GLOBAL" or "FILTERS — TRIP 2 (override)".
+func (m tuiModel) filterHeader() string {
+	if m.filterTrip < 0 {
+		return "FILTERS — GLOBAL"
+	}
+	mode := "inherit"
+	if m.filterMode() == FilterModeOverride {
+		mode = "override"
+	}
+	return fmt.Sprintf("FILTERS — TRIP %d (%s)", m.filterTrip+1, mode)
 }
 
 // renderTrips renders the stacked per-trip result sections into b.
@@ -634,7 +704,7 @@ func (m tuiModel) renderTrips(b *strings.Builder, sep string, headerStyle, activ
 	}
 	var quitHint string
 	if m.focused == 4 {
-		quitHint = "enter: select  │  +/-: trips  │  [/]: switch trip  │  f: filters  │  p: plans  │  q: quit"
+		quitHint = "enter: select  │  +/-: trips  │  [/]: switch trip  │  f: filters  │  F: trip filters  │  p: plans  │  q: quit"
 	} else {
 		quitHint = "esc: stop editing  │  ctrl+c: quit"
 	}

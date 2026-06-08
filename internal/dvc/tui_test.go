@@ -2,6 +2,8 @@ package dvc
 
 import (
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -579,5 +581,173 @@ func TestTUIUpdate_SelectionDeductsFromOtherTrip(t *testing.T) {
 	if len(m.snap.Trips[1].Results) > resultsBefore {
 		t.Errorf("trip 1 results grew after trip 0 selection: before=%d after=%d",
 			resultsBefore, len(m.snap.Trips[1].Results))
+	}
+}
+
+// newMultiTUIModel builds a TUI model over twoResortCharts (resort codes AAA and
+// BBB) so per-trip filter toggles can be isolated and asserted.
+func newMultiTUIModel(t *testing.T) tuiModel {
+	t.Helper()
+	return NewTUIModel(PlannerOptions{
+		Charts:     twoResortCharts(),
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "500", MinNights: "1",
+		},
+	})
+}
+
+// TestTUIUpdate_LowerFOpensGlobalPanel verifies `f` opens the global panel
+// (filterTrip == -1) and builds items from FilterOptions(-1).
+func TestTUIUpdate_LowerFOpensGlobalPanel(t *testing.T) {
+	m := newMultiTUIModel(t)
+	m.focused = 4
+	m.activeTripIdx = 0
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	m = next.(tuiModel)
+	if !m.filterOpen {
+		t.Fatal("expected filter panel open after f")
+	}
+	if m.filterTrip != -1 {
+		t.Errorf("filterTrip = %d, want -1 (global)", m.filterTrip)
+	}
+	if len(m.filterItems) == 0 {
+		t.Error("expected filterItems to be built")
+	}
+}
+
+// TestTUIUpdate_ShiftFOpensTripPanel verifies `F` opens the panel scoped to the
+// active trip.
+func TestTUIUpdate_ShiftFOpensTripPanel(t *testing.T) {
+	m := newMultiTUIModel(t)
+	m.focused = 4
+	// Add a 2nd trip and make it active.
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel)
+	m.activeTripIdx = 1
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'F', Mod: tea.ModShift, Text: "F"})
+	m = next.(tuiModel)
+	if !m.filterOpen {
+		t.Fatal("expected filter panel open after F")
+	}
+	if m.filterTrip != 1 {
+		t.Errorf("filterTrip = %d, want 1 (active trip)", m.filterTrip)
+	}
+	if len(m.filterItems) == 0 {
+		t.Error("expected filterItems to be built for the trip scope")
+	}
+}
+
+// TestTUIUpdate_TripPanelToggleAutoOverridesAndIsolates verifies a row toggle in
+// an inherit trip panel auto-flips that trip to override and leaves OTHER trips
+// untouched.
+func TestTUIUpdate_TripPanelToggleAutoOverridesAndIsolates(t *testing.T) {
+	m := newMultiTUIModel(t)
+	m.focused = 4
+	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
+	m = next.(tuiModel)
+	m.activeTripIdx = 1
+
+	// Open trip-1 panel and toggle the first resort off.
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'F', Mod: tea.ModShift, Text: "F"})
+	m = next.(tuiModel)
+	m.filterCursor = 0
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	m = next.(tuiModel)
+
+	if m.snap.Trips[1].Spec.FilterMode != FilterModeOverride {
+		t.Errorf("trip 1 mode = %q, want override after row toggle", m.snap.Trips[1].Spec.FilterMode)
+	}
+	if m.snap.Trips[0].Spec.FilterMode != FilterModeInherit {
+		t.Errorf("trip 0 mode = %q, want inherit (isolated)", m.snap.Trips[0].Spec.FilterMode)
+	}
+	// Trip 1 now excludes the first resort (AAA); trip 0 does not.
+	if !slices.Contains(m.snap.Trips[1].EffectiveFilters.ExcludeResorts, "AAA") {
+		t.Errorf("trip 1 should exclude AAA, got %v", m.snap.Trips[1].EffectiveFilters.ExcludeResorts)
+	}
+	if slices.Contains(m.snap.Trips[0].EffectiveFilters.ExcludeResorts, "AAA") {
+		t.Errorf("trip 0 should NOT exclude AAA, got %v", m.snap.Trips[0].EffectiveFilters.ExcludeResorts)
+	}
+}
+
+// TestTUIUpdate_TripPanelITogglesMode verifies `i` toggles inherit<->override.
+func TestTUIUpdate_TripPanelITogglesMode(t *testing.T) {
+	m := newMultiTUIModel(t)
+	m.focused = 4
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'F', Mod: tea.ModShift, Text: "F"})
+	m = next.(tuiModel)
+	if m.snap.Trips[0].Spec.FilterMode != FilterModeInherit {
+		t.Fatalf("precondition: trip 0 should start inherit, got %q", m.snap.Trips[0].Spec.FilterMode)
+	}
+
+	// i -> override
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	m = next.(tuiModel)
+	if m.snap.Trips[0].Spec.FilterMode != FilterModeOverride {
+		t.Errorf("after i, mode = %q, want override", m.snap.Trips[0].Spec.FilterMode)
+	}
+
+	// i -> inherit
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	m = next.(tuiModel)
+	if m.snap.Trips[0].Spec.FilterMode != FilterModeInherit {
+		t.Errorf("after second i, mode = %q, want inherit", m.snap.Trips[0].Spec.FilterMode)
+	}
+}
+
+// TestTUIUpdate_TripPanelRResets verifies `r` resets an override trip to inherit.
+func TestTUIUpdate_TripPanelRResets(t *testing.T) {
+	m := newMultiTUIModel(t)
+	m.focused = 4
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'F', Mod: tea.ModShift, Text: "F"})
+	m = next.(tuiModel)
+
+	// Toggle a row to force override.
+	m.filterCursor = 0
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	m = next.(tuiModel)
+	if m.snap.Trips[0].Spec.FilterMode != FilterModeOverride {
+		t.Fatalf("precondition: trip 0 should be override, got %q", m.snap.Trips[0].Spec.FilterMode)
+	}
+
+	// r -> inherit
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	m = next.(tuiModel)
+	if m.snap.Trips[0].Spec.FilterMode != FilterModeInherit {
+		t.Errorf("after r, mode = %q, want inherit", m.snap.Trips[0].Spec.FilterMode)
+	}
+	if m.snap.Trips[0].Spec.Filters != nil {
+		t.Errorf("expected per-trip Filters cleared (nil) after reset, got %+v", *m.snap.Trips[0].Spec.Filters)
+	}
+}
+
+// TestTUIRender_TripPanelHeaderShowsScopeAndMode verifies renderFilters shows the
+// trip scope + mode in the header.
+func TestTUIRender_TripPanelHeaderShowsScopeAndMode(t *testing.T) {
+	m := newMultiTUIModel(t)
+	m.width = 100
+	m.height = 40
+	m.focused = 4
+
+	// Global panel header.
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	m = next.(tuiModel)
+	gv := m.View()
+	if !strings.Contains(gv.Content, "GLOBAL") {
+		t.Errorf("global panel header should mention GLOBAL, got:\n%s", gv.Content)
+	}
+
+	// Trip panel header.
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(tuiModel)
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'F', Mod: tea.ModShift, Text: "F"})
+	m = next.(tuiModel)
+	tv := m.View().Content
+	if !strings.Contains(tv, "TRIP 1") {
+		t.Errorf("trip panel header should mention TRIP 1, got:\n%s", tv)
+	}
+	if !strings.Contains(tv, "inherit") {
+		t.Errorf("trip panel header should mention inherit mode, got:\n%s", tv)
 	}
 }
