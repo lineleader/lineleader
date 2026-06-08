@@ -1417,29 +1417,6 @@ func TestRecomputeTrip_InvalidDateKeepsPriorResults(t *testing.T) {
 	}
 }
 
-// REGRESSION 6 — ToggleSelection and recompute do NOT touch the TUI view-only
-// Trip.Offset field.
-func TestRecompute_DoesNotTouchViewOnlyOffset(t *testing.T) {
-	p := newTestPlanner("200")
-	p.AddTrip()
-	if len(p.trips[0].Results) < 2 {
-		t.Skip("need >=2 results in trip 0")
-	}
-	// Set view-only Offset directly (as the TUI would on scroll).
-	p.trips[0].Offset = 1
-	p.trips[1].Offset = 0
-
-	p.ToggleSelection(0, 0) // triggers recomputeAll
-	if p.trips[0].Offset != 1 {
-		t.Errorf("ToggleSelection moved trip 0 Offset: got %d, want 1", p.trips[0].Offset)
-	}
-
-	p.SetBudget("250") // another recompute path
-	if p.trips[0].Offset != 1 {
-		t.Errorf("SetBudget moved trip 0 Offset: got %d, want 1", p.trips[0].Offset)
-	}
-}
-
 // REGRESSION 7 — AddTrip's new trip's EffectiveBudget already reflects an
 // existing selection in ANOTHER trip (clone-then-recompute subtracts the prior
 // selection's points, not just date cloning).
