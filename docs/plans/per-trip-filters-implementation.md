@@ -330,3 +330,29 @@ internal/web/
 4. **Backward compat:** point at an existing pre-feature `plans.json`; load a
    plan and confirm all trips behave as inherit (global filters applied).
 ```
+
+---
+
+## Backward compatibility
+
+**Forward-reading (old data, new code) — fully supported.** A `plans.json` or
+`config.json` written by a pre-feature binary (no `filter_mode` / `filters`
+keys) loads cleanly: the absent `filter_mode` deserializes to the zero value
+`FilterModeInherit` and `filters` to `nil`, so every legacy trip resolves as
+**inherit** with the global filters applied. This is proven by committed
+fixtures and an end-to-end load-path test:
+
+- `internal/dvc/testdata/legacy_plans.json` + `internal/dvc/testdata/legacy_config.json`
+- `internal/dvc/legacy_compat_test.go`
+  (`TestLegacyFixtures_PlanLoadsAsInherit`,
+  `TestLegacyFixtures_ConfigGlobalFiltersApply`), plus the inline-JSON
+  `TestLoadPlans_LegacyFileReadsAsInherit` and
+  `TestLoadPlan_LegacyJSONResolvesAsInherit`.
+
+**Accepted limitation (new data, old code).** A plan saved **with** a per-trip
+override by the new code, if opened by an **OLD** binary, silently loses the
+per-trip filters: the unknown `filter_mode` / `filters` JSON keys are ignored on
+read, so those trips fall back to inherit. This is acceptable because both UIs
+(TUI and web) ship together from the same binary — there is no mixed-version
+deployment in which an old binary reads new data. Documented here and to be
+called out in the PR description; not a blocker.
