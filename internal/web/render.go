@@ -3,7 +3,6 @@ package web
 import (
 	"fmt"
 	"html/template"
-	"strconv"
 	"time"
 
 	"github.com/lineleader/lineleader/internal/dvc"
@@ -46,6 +45,19 @@ type filtersView struct {
 	RoomTypes []roomTypeOption
 }
 
+// resortOption is one row in the filter panel's resort list.
+type resortOption struct {
+	Code    string
+	Name    string
+	Enabled bool
+}
+
+// roomTypeOption is one row in the filter panel's room-type list.
+type roomTypeOption struct {
+	Name    string
+	Enabled bool
+}
+
 type plansView struct {
 	Plans          []dvc.Plan
 	LoadedPlanName string
@@ -61,28 +73,31 @@ func stayKey(r dvc.StayResult) string {
 	)
 }
 
-// buildAppView projects Session state into a render-ready appView.
-// Caller must hold s.mu.
-func (s *Session) buildAppView() appView {
+// buildAppView projects a Planner Snapshot into a render-ready appView, layering
+// in the web's view-only collapsed flags. Caller must hold s.mu (so collapsed
+// and the snapshot stay consistent).
+func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 	v := appView{
-		Budget:         s.budget,
-		Remaining:      s.remainingBudget(),
-		LoadedPlanName: s.loadedPlanName,
-		Trips:          make([]tripView, len(s.trips)),
-	}
-	if _, err := strconv.Atoi(s.budget); err != nil {
-		v.BudgetErr = "invalid Budget"
+		Budget:         snap.Budget,
+		BudgetErr:      snap.BudgetErr,
+		Remaining:      snap.Remaining,
+		LoadedPlanName: snap.LoadedPlanName,
+		Trips:          make([]tripView, len(snap.Trips)),
 	}
 
-	globalBudget, _ := strconv.Atoi(s.budget)
-	for i, t := range s.trips {
+	for i := range snap.Trips {
+		t := snap.Trips[i]
+		collapsed := false
+		if i < len(s.collapsed) {
+			collapsed = s.collapsed[i]
+		}
 		tv := tripView{
 			Index:           i,
 			Spec:            t.Spec,
-			EffectiveBudget: s.budgetForTrip(globalBudget, i),
+			EffectiveBudget: t.EffectiveBudget,
 			Err:             t.Err,
 			HasSelection:    t.Selected != nil,
-			Collapsed:       t.Collapsed,
+			Collapsed:       collapsed,
 		}
 		var selKey string
 		if t.Selected != nil {
@@ -124,6 +139,22 @@ func (s *Session) buildAppView() appView {
 		v.Trips[i] = tv
 	}
 	return v
+}
+
+// toFiltersView adapts a Planner FilterOptionsView into the template's
+// filtersView, preserving the existing field names the templates render.
+func toFiltersView(opts dvc.FilterOptionsView) filtersView {
+	fv := filtersView{
+		Resorts:   make([]resortOption, len(opts.Resorts)),
+		RoomTypes: make([]roomTypeOption, len(opts.RoomTypes)),
+	}
+	for i, r := range opts.Resorts {
+		fv.Resorts[i] = resortOption{Code: r.Code, Name: r.Name, Enabled: r.Enabled}
+	}
+	for i, rt := range opts.RoomTypes {
+		fv.RoomTypes[i] = roomTypeOption{Name: rt.Name, Enabled: rt.Enabled}
+	}
+	return fv
 }
 
 // templateFuncs are helpers available inside templates.
