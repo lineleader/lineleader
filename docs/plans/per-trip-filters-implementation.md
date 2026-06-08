@@ -1,5 +1,8 @@
 # Per-Trip Filters — Implementation Plan
 
+> **Status: implemented.** Retained as a historical record of the build plan;
+> user-facing usage lives in the project [README](../../README.md).
+
 Companion to [per-trip-filters.md](./per-trip-filters.md) — turns the tech
 design into an ordered, dependency-aware build plan.
 
