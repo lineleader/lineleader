@@ -35,60 +35,82 @@ func TestParseDate(t *testing.T) {
 	}
 }
 
-// newTestTUIModel creates a model with the minimal chart and valid default field values.
-func newTestTUIModel() tuiModel {
-	m := newTUIModel([]*ResortChart{minimalChart()})
-	m.trips[0].Fields[0].value = "2026-01-04"
-	m.trips[0].Fields[1].value = "2026-01-08"
-	m.trips[0].Fields[2].value = "1"
-	m.budgetField.value = "100"
-	return m
+// newTestTUIModel creates a model with the minimal chart and valid default field
+// values. plansPath points at a temp file so plan-save tests never touch the
+// real config dir.
+func newTestTUIModel(t *testing.T) tuiModel {
+	t.Helper()
+	return NewTUIModel(PlannerOptions{
+		Charts:    []*ResortChart{minimalChart()},
+		PlansPath: filepath.Join(t.TempDir(), "plans.json"),
+		Defaults: Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    "100",
+			MinNights: "1",
+		},
+	})
 }
 
 func TestTUIRecompute_ValidParams(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll()
-	if m.trips[0].Err != "" {
-		t.Fatalf("unexpected error: %s", m.trips[0].Err)
+	m := newTestTUIModel(t)
+	if m.snap.Trips[0].Err != "" {
+		t.Fatalf("unexpected error: %s", m.snap.Trips[0].Err)
 	}
-	if len(m.trips[0].Results) == 0 {
+	if len(m.snap.Trips[0].Results) == 0 {
 		t.Error("expected results, got none")
 	}
 }
 
 func TestTUIRecompute_InvalidFromDate(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll() // prime with results
-	prev := len(m.trips[0].Results)
-	m.trips[0].Fields[0].value = "not-a-date"
-	m = m.recomputeAll()
-	if m.trips[0].Err == "" {
+	m := newTestTUIModel(t)
+	prev := len(m.snap.Trips[0].Results)
+	m.planner.SetTripField(0, 0, "not-a-date")
+	m.refresh()
+	if m.snap.Trips[0].Err == "" {
 		t.Error("expected validation error for invalid date, got empty")
 	}
-	if len(m.trips[0].Results) != prev {
-		t.Errorf("results changed on invalid input: was %d, now %d", prev, len(m.trips[0].Results))
+	if len(m.snap.Trips[0].Results) != prev {
+		t.Errorf("results changed on invalid input: was %d, now %d", prev, len(m.snap.Trips[0].Results))
 	}
 }
 
-func TestTUIRecompute_OffsetClamped(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll()
-	if len(m.trips[0].Results) == 0 {
+// TestTUIOffset_ClampedWhenResultsShrink verifies the view-only offset is clamped
+// back into range after a planner op shrinks a trip's results.
+func TestTUIOffset_ClampedWhenResultsShrink(t *testing.T) {
+	m := newTestTUIModel(t)
+	if len(m.snap.Trips[0].Results) == 0 {
 		t.Skip("no results with default params, skipping offset clamp test")
 	}
-	m.trips[0].Offset = len(m.trips[0].Results) - 1
-	m.budgetField.value = "9" // very tight budget — zero results from minimal chart (min rate = 10)
-	m = m.recomputeAll()
-	if len(m.trips[0].Results) > 0 && m.trips[0].Offset >= len(m.trips[0].Results) {
-		t.Errorf("offset %d not clamped; results len = %d", m.trips[0].Offset, len(m.trips[0].Results))
+	m.offsets[0] = len(m.snap.Trips[0].Results) - 1
+	m.planner.SetBudget("9") // very tight budget — zero results (min rate = 10)
+	m.refresh()
+	if len(m.snap.Trips[0].Results) > 0 && m.offsets[0] >= len(m.snap.Trips[0].Results) {
+		t.Errorf("offset %d not clamped; results len = %d", m.offsets[0], len(m.snap.Trips[0].Results))
 	}
-	if len(m.trips[0].Results) == 0 && m.trips[0].Offset != 0 {
-		t.Errorf("offset %d should be 0 when results are empty", m.trips[0].Offset)
+	if len(m.snap.Trips[0].Results) == 0 && m.offsets[0] != 0 {
+		t.Errorf("offset %d should be 0 when results are empty", m.offsets[0])
+	}
+}
+
+// TestTUIOffset_InvalidBudgetResetsOffset is a regression test for a slice-bounds
+// panic where clearing Results without resetting the scroll offset caused
+// View to slice results[8:0].
+func TestTUIOffset_InvalidBudgetResetsOffset(t *testing.T) {
+	m := newTestTUIModel(t)
+	if len(m.snap.Trips[0].Results) == 0 {
+		t.Skip("no results with default params")
+	}
+	m.offsets[0] = len(m.snap.Trips[0].Results) - 1 // scrolled to last row
+	m.planner.SetBudget("100{")                     // invalid — as if user typed '{'
+	m.refresh()
+	if m.offsets[0] != 0 {
+		t.Errorf("offset = %d after invalid budget; want 0 to prevent slice-bounds panic", m.offsets[0])
 	}
 }
 
 func TestTUIUpdate_TabCyclesFocus(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	if m.focused != 0 {
 		t.Fatalf("initial focused = %d, want 0", m.focused)
 	}
@@ -104,7 +126,7 @@ func TestTUIUpdate_TabCyclesFocus(t *testing.T) {
 }
 
 func TestTUIUpdate_ShiftTabCyclesBackward(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 2
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	m = next.(tuiModel)
@@ -114,7 +136,7 @@ func TestTUIUpdate_ShiftTabCyclesBackward(t *testing.T) {
 }
 
 func TestTUIUpdate_QuitFromTable(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 4 // table focus
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	if cmd == nil {
@@ -126,7 +148,7 @@ func TestTUIUpdate_QuitFromTable(t *testing.T) {
 }
 
 func TestTUIUpdate_EscMovesToTableFocus(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 2
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(tuiModel)
@@ -136,7 +158,7 @@ func TestTUIUpdate_EscMovesToTableFocus(t *testing.T) {
 }
 
 func TestTUIUpdate_QDoesNotQuitFromInputField(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 0
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	if cmd != nil {
@@ -145,7 +167,7 @@ func TestTUIUpdate_QDoesNotQuitFromInputField(t *testing.T) {
 }
 
 func TestTUIUpdate_CtrlCAlwaysQuits(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 0 // focused on an input field
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd == nil {
@@ -156,33 +178,37 @@ func TestTUIUpdate_CtrlCAlwaysQuits(t *testing.T) {
 	}
 }
 
+// TestTUIUpdate_TypingAppendsToField is an end-to-end Update -> Snapshot cycle:
+// keystrokes route through the planner and the cached snapshot reflects them.
 func TestTUIUpdate_TypingAppendsToField(t *testing.T) {
-	m := newTestTUIModel()
-	m.trips[0].Fields[0].value = ""
+	m := newTestTUIModel(t)
+	// Clear From, then type "20".
+	m.planner.SetTripField(0, 0, "")
+	m.refresh()
 	m.focused = 0
 	next, _ := m.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	m = next.(tuiModel)
 	next, _ = m.Update(tea.KeyPressMsg{Code: '0', Text: "0"})
 	m = next.(tuiModel)
-	if m.trips[0].Fields[0].value != "20" {
-		t.Errorf("field value = %q, want %q", m.trips[0].Fields[0].value, "20")
+	if got := m.snap.Trips[0].Spec.From; got != "20" {
+		t.Errorf("From value = %q, want %q", got, "20")
 	}
 }
 
 func TestTUIUpdate_BackspaceDeletesLastRune(t *testing.T) {
-	m := newTestTUIModel()
-	m.budgetField.value = "100"
+	m := newTestTUIModel(t)
+	m.planner.SetBudget("100")
+	m.refresh()
 	m.focused = 3 // budget field
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = next.(tuiModel)
-	if m.budgetField.value != "10" {
-		t.Errorf("after backspace, budget = %q, want %q", m.budgetField.value, "10")
+	if m.snap.Budget != "10" {
+		t.Errorf("after backspace, budget = %q, want %q", m.snap.Budget, "10")
 	}
 }
 
 func TestTUIUpdate_FOpensPanelWhenTableFocused(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll()
+	m := newTestTUIModel(t)
 	m.focused = 4 // table focus
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	m = next.(tuiModel)
@@ -192,22 +218,22 @@ func TestTUIUpdate_FOpensPanelWhenTableFocused(t *testing.T) {
 }
 
 func TestTUIUpdate_FDoesNotOpenPanelFromInputField(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 0
-	m.trips[0].Fields[0].value = ""
+	m.planner.SetTripField(0, 0, "")
+	m.refresh()
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	m = next.(tuiModel)
 	if m.filterOpen {
 		t.Error("f should not open filter panel when an input field is focused")
 	}
-	if m.trips[0].Fields[0].value != "f" {
-		t.Errorf("f should type into input field, got %q", m.trips[0].Fields[0].value)
+	if m.snap.Trips[0].Spec.From != "f" {
+		t.Errorf("f should type into input field, got %q", m.snap.Trips[0].Spec.From)
 	}
 }
 
 func TestTUIUpdate_FilterPanelEscCloses(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll()
+	m := newTestTUIModel(t)
 	m.focused = 4
 	m.filterOpen = true
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -218,163 +244,148 @@ func TestTUIUpdate_FilterPanelEscCloses(t *testing.T) {
 }
 
 func TestTUIUpdate_SpaceTogglesFilterItem(t *testing.T) {
-	chart := minimalChart() // ResortCode = "TST", RoomType = "STUDIO"
-	m := newTUIModel([]*ResortChart{chart})
-	m.trips[0].Fields[0].value = "2026-01-04"
-	m.trips[0].Fields[1].value = "2026-01-08"
-	m.trips[0].Fields[2].value = "1"
-	m.budgetField.value = "200"
-	m = m.withFilters(Config{})
-	m = m.recomputeAll()
+	m := NewTUIModel(PlannerOptions{
+		Charts:     []*ResortChart{minimalChart()}, // ResortCode = "TST"
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
 	m.focused = 4
-	m.filterOpen = true
+	// Open the filter panel via the table handler so filterItems are built.
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	m = next.(tuiModel)
 	m.filterCursor = 0 // first item should be the resort
 
-	resultsBefore := len(m.trips[0].Results)
+	resultsBefore := len(m.snap.Trips[0].Results)
 
-	// Toggle the resort off
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	// Toggle the resort off.
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	m = next.(tuiModel)
 
 	if m.filterItems[0].enabled {
 		t.Error("expected filterItems[0].enabled = false after space toggle")
 	}
-	if len(m.trips[0].Results) >= resultsBefore && resultsBefore > 0 {
+	if len(m.snap.Trips[0].Results) >= resultsBefore && resultsBefore > 0 {
 		t.Errorf("expected fewer results after excluding resort; before=%d after=%d",
-			resultsBefore, len(m.trips[0].Results))
+			resultsBefore, len(m.snap.Trips[0].Results))
 	}
 }
 
 func TestTUIUpdate_FilterPanelJKNavigation(t *testing.T) {
-	chart := minimalChart()
-	m := newTUIModel([]*ResortChart{chart})
-	m = m.withFilters(Config{})
+	m := newTestTUIModel(t)
 	m.focused = 4
-	m.filterOpen = true
-	m.filterCursor = 0
-
-	// j should move down (same as down arrow)
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	m = next.(tuiModel)
-	if m.filterCursor == 0 {
+	start := m.filterCursor
+
+	// j should move down (same as down arrow).
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m = next.(tuiModel)
+	if m.filterCursor == start {
 		t.Error("j should move filterCursor down")
 	}
-	afterJ := m.filterCursor
 
-	// k should move back up (same as up arrow)
+	// k should move back up.
 	next, _ = m.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	m = next.(tuiModel)
-	if m.filterCursor != 0 {
-		t.Errorf("k should move filterCursor back to 0, got %d (was %d after j)", m.filterCursor, afterJ)
+	if m.filterCursor != start {
+		t.Errorf("k should move filterCursor back to %d, got %d", start, m.filterCursor)
 	}
 }
 
 func TestTUIUpdate_FilterPanelXTogglesItem(t *testing.T) {
-	chart := minimalChart()
-	m := newTUIModel([]*ResortChart{chart})
-	m = m.withFilters(Config{})
-	m = m.recomputeAll()
+	m := NewTUIModel(PlannerOptions{
+		Charts:     []*ResortChart{minimalChart()},
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
 	m.focused = 4
-	m.filterOpen = true
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	m = next.(tuiModel)
 	m.filterCursor = 0
 
-	resultsBefore := len(m.trips[0].Results)
+	resultsBefore := len(m.snap.Trips[0].Results)
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = next.(tuiModel)
 
 	if m.filterItems[0].enabled {
 		t.Error("expected filterItems[0].enabled = false after x toggle")
 	}
-	if len(m.trips[0].Results) >= resultsBefore && resultsBefore > 0 {
+	if len(m.snap.Trips[0].Results) >= resultsBefore && resultsBefore > 0 {
 		t.Errorf("expected fewer results after excluding resort; before=%d after=%d",
-			resultsBefore, len(m.trips[0].Results))
+			resultsBefore, len(m.snap.Trips[0].Results))
 	}
 }
 
 func TestTUIUpdate_FiltersAppliedToResults(t *testing.T) {
-	chart := minimalChart() // ResortCode = "TST"
-	m := newTUIModel([]*ResortChart{chart})
-	m.trips[0].Fields[0].value = "2026-01-04"
-	m.trips[0].Fields[1].value = "2026-01-08"
-	m.trips[0].Fields[2].value = "1"
-	m.budgetField.value = "200"
-	cfg := Config{ExcludeResorts: []string{"TST"}}
-	m = m.withFilters(cfg)
-	m = m.recomputeAll()
-	if len(m.trips[0].Results) != 0 {
-		t.Errorf("expected 0 results with TST excluded, got %d", len(m.trips[0].Results))
-	}
-}
-
-// TestTUIRecompute_InvalidBudgetResetsOffset is a regression test for a panic
-// where typing an invalid character into the budget field (e.g. '{' instead of
-// '[') cleared Results without resetting Offset, causing View to slice
-// trip.Results[8:0].
-func TestTUIRecompute_InvalidBudgetResetsOffset(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll()
-	if len(m.trips[0].Results) == 0 {
-		t.Skip("no results with default params")
-	}
-	m.trips[0].Offset = len(m.trips[0].Results) - 1 // scrolled to last row
-
-	m.budgetField.value = "100{" // invalid — as if user typed '{' by mistake
-	m = m.recomputeAll()
-
-	if m.trips[0].Offset != 0 {
-		t.Errorf("Offset = %d after invalid budget; want 0 to prevent slice-bounds panic", m.trips[0].Offset)
+	m := NewTUIModel(PlannerOptions{
+		Charts: []*ResortChart{minimalChart()}, // ResortCode = "TST"
+		Global: Config{ExcludeResorts: []string{"TST"}},
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+	if len(m.snap.Trips[0].Results) != 0 {
+		t.Errorf("expected 0 results with TST excluded, got %d", len(m.snap.Trips[0].Results))
 	}
 }
 
 // --- Group 4: multi-trip key bindings ---
 
 func TestTUIUpdate_PlusAddsTrip(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 4
-	if len(m.trips) != 1 {
-		t.Fatalf("initial trips = %d, want 1", len(m.trips))
+	if len(m.snap.Trips) != 1 {
+		t.Fatalf("initial trips = %d, want 1", len(m.snap.Trips))
 	}
 	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
 	m = next.(tuiModel)
-	if len(m.trips) != 2 {
-		t.Errorf("after +, trips = %d, want 2", len(m.trips))
+	if len(m.snap.Trips) != 2 {
+		t.Errorf("after +, trips = %d, want 2", len(m.snap.Trips))
 	}
 	if m.activeTripIdx != 1 {
 		t.Errorf("activeTripIdx = %d, want 1", m.activeTripIdx)
 	}
+	if len(m.offsets) != 2 {
+		t.Errorf("offsets len = %d, want 2 after AddTrip", len(m.offsets))
+	}
 }
 
 func TestTUIUpdate_MinusRemovesTrip(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 4
-	// Add a second trip first.
 	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
 	m = next.(tuiModel)
-	if len(m.trips) != 2 {
-		t.Fatalf("expected 2 trips after +, got %d", len(m.trips))
+	if len(m.snap.Trips) != 2 {
+		t.Fatalf("expected 2 trips after +, got %d", len(m.snap.Trips))
 	}
 	next, _ = m.Update(tea.KeyPressMsg{Code: '-', Text: "-"})
 	m = next.(tuiModel)
-	if len(m.trips) != 1 {
-		t.Errorf("after -, trips = %d, want 1", len(m.trips))
+	if len(m.snap.Trips) != 1 {
+		t.Errorf("after -, trips = %d, want 1", len(m.snap.Trips))
+	}
+	if len(m.offsets) != 1 {
+		t.Errorf("offsets len = %d, want 1 after RemoveTrip", len(m.offsets))
 	}
 }
 
 func TestTUIUpdate_MinusNoopOnSingleTrip(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 4
 	next, _ := m.Update(tea.KeyPressMsg{Code: '-', Text: "-"})
 	m = next.(tuiModel)
-	if len(m.trips) != 1 {
-		t.Errorf("- on single trip should be a no-op; trips = %d", len(m.trips))
+	if len(m.snap.Trips) != 1 {
+		t.Errorf("- on single trip should be a no-op; trips = %d", len(m.snap.Trips))
 	}
 }
 
 func TestTUIUpdate_BracketSwitchesActiveTrip(t *testing.T) {
-	m := newTestTUIModel()
+	m := newTestTUIModel(t)
 	m.focused = 4
-	// Add second trip.
 	next, _ := m.Update(tea.KeyPressMsg{Code: '+', Text: "+"})
 	m = next.(tuiModel) // activeTripIdx = 1
 
@@ -401,151 +412,135 @@ func TestTUIUpdate_BracketSwitchesActiveTrip(t *testing.T) {
 }
 
 func TestTUIUpdate_EnterSelectsResult(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll()
+	m := newTestTUIModel(t)
 	m.focused = 4
-	if len(m.trips[0].Results) == 0 {
+	if len(m.snap.Trips[0].Results) == 0 {
 		t.Skip("no results to select")
 	}
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(tuiModel)
-	if m.trips[0].Selected == nil {
+	if m.snap.Trips[0].Selected == nil {
 		t.Error("expected Selected to be set after enter")
 	}
 }
 
 func TestTUIUpdate_EnterDeselectsResult(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.recomputeAll()
+	m := newTestTUIModel(t)
 	m.focused = 4
-	if len(m.trips[0].Results) == 0 {
+	if len(m.snap.Trips[0].Results) == 0 {
 		t.Skip("no results to select")
 	}
-	// Select.
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(tuiModel)
-	if m.trips[0].Selected == nil {
+	if m.snap.Trips[0].Selected == nil {
 		t.Fatal("expected Selected after first enter")
 	}
-	// Deselect.
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(tuiModel)
-	if m.trips[0].Selected != nil {
+	if m.snap.Trips[0].Selected != nil {
 		t.Error("expected Selected = nil after second enter (deselect)")
 	}
 }
 
-// --- Group 5: loaded plan tracking ---
+// --- Group 5: loaded plan tracking via the plans panel ---
 
-func TestApplyPlan_SetsLoadedPlanName(t *testing.T) {
-	m := newTestTUIModel()
-	m = m.applyPlan(Plan{
-		Name:   "spring-break",
-		Budget: "150",
-		Trips:  []TripSpec{{From: "2026-03-15", To: "2026-03-22", MinNights: "3"}},
-	})
-	if m.loadedPlanName != "spring-break" {
-		t.Errorf("loadedPlanName = %q, want %q", m.loadedPlanName, "spring-break")
+func TestPlansPanel_SaveSetsLoadedPlanName(t *testing.T) {
+	m := newTestTUIModel(t)
+	m.plansOpen = true
+	m.plansNaming = true
+	for _, r := range "summer" {
+		next, _ := m.Update(tea.KeyPressMsg{Text: string(r)})
+		m = next.(tuiModel)
 	}
-}
-
-func TestPlanRoundTrip_PreservesSelection(t *testing.T) {
-	m := newTestTUIModel()
-	checkIn, _ := ParseDate("2026-01-04")
-	checkOut, _ := ParseDate("2026-01-08")
-	sel := StayResult{
-		Resort:   "TST",
-		RoomType: "STUDIO",
-		View:     "R",
-		CheckIn:  checkIn,
-		CheckOut: checkOut,
-		Nights:   4,
-		Points:   40,
-	}
-	m.trips[0].Selected = &sel
-
-	plan := m.snapshotPlan("summer")
-	if plan.Trips[0].Selected == nil {
-		t.Fatal("snapshotPlan dropped the trip selection")
-	}
-
-	// Apply into a fresh model with no selection.
-	loaded := newTestTUIModel().applyPlan(plan)
-	if loaded.trips[0].Selected == nil {
-		t.Fatal("applyPlan did not restore the trip selection")
-	}
-	if loaded.trips[0].Selected.Resort != "TST" {
-		t.Errorf("restored selection resort = %q, want TST", loaded.trips[0].Selected.Resort)
-	}
-}
-
-func TestSavePlan_UpdatesLoadedPlanName(t *testing.T) {
-	m := newTestTUIModel()
-	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
-	m = m.savePlan("summer")
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(tuiModel)
 	if m.plansErr != "" {
 		t.Fatalf("unexpected save error: %s", m.plansErr)
 	}
-	if m.loadedPlanName != "summer" {
-		t.Errorf("loadedPlanName = %q, want %q", m.loadedPlanName, "summer")
+	if m.snap.LoadedPlanName != "summer" {
+		t.Errorf("LoadedPlanName = %q, want %q", m.snap.LoadedPlanName, "summer")
 	}
 }
 
-func TestDeleteLoadedPlan_ClearsLoadedPlanName(t *testing.T) {
-	m := newTestTUIModel()
-	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
-	m = m.savePlan("only-one")
-	if m.loadedPlanName != "only-one" {
-		t.Fatalf("setup: loadedPlanName = %q, want %q", m.loadedPlanName, "only-one")
+func TestPlansPanel_LoadAppliesPlan(t *testing.T) {
+	m := newTestTUIModel(t)
+	// Save the current state as a plan, then mutate, then load it back.
+	if err := m.planner.SavePlan("spring"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m.planner.SetTripField(0, 0, "2026-12-01")
+	m.refresh()
+
+	m.plansOpen = true
+	m.plansCursor = 0
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(tuiModel)
+
+	if m.snap.Trips[0].Spec.From != "2026-01-04" {
+		t.Errorf("after load, From = %q, want restored 2026-01-04", m.snap.Trips[0].Spec.From)
+	}
+	if m.snap.LoadedPlanName != "spring" {
+		t.Errorf("LoadedPlanName = %q, want spring", m.snap.LoadedPlanName)
+	}
+}
+
+func TestPlansPanel_DeleteLoadedClearsLoadedPlanName(t *testing.T) {
+	m := newTestTUIModel(t)
+	if err := m.planner.SavePlan("only-one"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m.refresh()
+	if m.snap.LoadedPlanName != "only-one" {
+		t.Fatalf("setup: LoadedPlanName = %q, want only-one", m.snap.LoadedPlanName)
 	}
 	m.plansOpen = true
 	m.plansCursor = 0
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	m = next.(tuiModel)
-	if m.loadedPlanName != "" {
-		t.Errorf("loadedPlanName = %q, want empty after deleting loaded plan", m.loadedPlanName)
+	if m.snap.LoadedPlanName != "" {
+		t.Errorf("LoadedPlanName = %q, want empty after deleting loaded plan", m.snap.LoadedPlanName)
 	}
 }
 
-func TestUpdateKey_OverwritesLoadedPlan(t *testing.T) {
-	m := newTestTUIModel()
-	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
-	m = m.savePlan("trip-a")
-	if len(m.plans) != 1 {
-		t.Fatalf("setup: plans len = %d, want 1", len(m.plans))
+func TestPlansPanel_UpdateOverwritesLoadedPlan(t *testing.T) {
+	m := newTestTUIModel(t)
+	if err := m.planner.SavePlan("trip-a"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m.refresh()
+	if len(m.planner.Plans()) != 1 {
+		t.Fatalf("setup: plans len = %d, want 1", len(m.planner.Plans()))
 	}
 
-	// Mutate a trip field in-place before pressing 'u'.
-	m.trips[0].Fields[0].value = "2026-12-01"
-
+	// Mutate a field, then press 'u' to upsert the loaded plan.
+	m.planner.SetTripField(0, 0, "2026-12-01")
+	m.refresh()
 	m.plansOpen = true
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
 	m = next.(tuiModel)
 
-	if len(m.plans) != 1 {
-		t.Errorf("plans len = %d, want 1 (u should upsert, not append)", len(m.plans))
+	plans := m.planner.Plans()
+	if len(plans) != 1 {
+		t.Errorf("plans len = %d, want 1 (u should upsert, not append)", len(plans))
 	}
-	if m.plans[0].Name != "trip-a" {
-		t.Errorf("plans[0].Name = %q, want %q", m.plans[0].Name, "trip-a")
+	if plans[0].Name != "trip-a" {
+		t.Errorf("plans[0].Name = %q, want trip-a", plans[0].Name)
 	}
-	if len(m.plans[0].Trips) == 0 || m.plans[0].Trips[0].From != "2026-12-01" {
-		t.Errorf("saved Trips[0].From = %+v, want From=2026-12-01", m.plans[0].Trips)
+	if len(plans[0].Trips) == 0 || plans[0].Trips[0].From != "2026-12-01" {
+		t.Errorf("saved Trips[0].From = %+v, want From=2026-12-01", plans[0].Trips)
 	}
 	if m.plansErr != "" {
 		t.Errorf("unexpected plansErr: %s", m.plansErr)
 	}
 }
 
-func TestUpdateKey_NoopWhenNoPlanLoaded(t *testing.T) {
-	m := newTestTUIModel()
-	m.plansPath = filepath.Join(t.TempDir(), "plans.json")
+func TestPlansPanel_UpdateNoopWhenNoPlanLoaded(t *testing.T) {
+	m := newTestTUIModel(t)
 	m.plansOpen = true
-
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
 	m = next.(tuiModel)
-
-	if len(m.plans) != 0 {
-		t.Errorf("plans len = %d, want 0 (u with nothing loaded should be a no-op)", len(m.plans))
+	if len(m.planner.Plans()) != 0 {
+		t.Errorf("plans len = %d, want 0 (u with nothing loaded should be a no-op)", len(m.planner.Plans()))
 	}
 	if m.plansErr != "" {
 		t.Errorf("unexpected plansErr: %s", m.plansErr)
@@ -553,14 +548,13 @@ func TestUpdateKey_NoopWhenNoPlanLoaded(t *testing.T) {
 }
 
 func TestTUIUpdate_SelectionDeductsFromOtherTrip(t *testing.T) {
-	chart := minimalChart()
-	m := newTUIModel([]*ResortChart{chart})
-	m.trips[0].Fields[0].value = "2026-01-04"
-	m.trips[0].Fields[1].value = "2026-01-08"
-	m.trips[0].Fields[2].value = "1"
-	m.budgetField.value = "200"
-	m = m.recomputeAll()
-	if len(m.trips[0].Results) == 0 {
+	m := NewTUIModel(PlannerOptions{
+		Charts: []*ResortChart{minimalChart()},
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+	if len(m.snap.Trips[0].Results) == 0 {
 		t.Skip("no results for trip 0")
 	}
 
@@ -570,23 +564,20 @@ func TestTUIUpdate_SelectionDeductsFromOtherTrip(t *testing.T) {
 	m = next.(tuiModel)
 	m.activeTripIdx = 0 // go back to trip 0
 
-	resultsBefore := len(m.trips[1].Results)
+	resultsBefore := len(m.snap.Trips[1].Results)
 
 	// Select a result on trip 0 — should reduce trip 1's effective budget.
-	m.focused = 4
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(tuiModel)
 
-	if m.trips[0].Selected == nil {
+	if m.snap.Trips[0].Selected == nil {
 		t.Fatal("expected trip 0 to have a selection")
 	}
-	selectedPts := m.trips[0].Selected.Points
-	if selectedPts == 0 {
+	if m.snap.Trips[0].Selected.Points == 0 {
 		t.Skip("selected stay has 0 points, can't test budget effect")
 	}
-	// Trip 1 should have fewer or equal results (budget shrank).
-	if len(m.trips[1].Results) > resultsBefore {
+	if len(m.snap.Trips[1].Results) > resultsBefore {
 		t.Errorf("trip 1 results grew after trip 0 selection: before=%d after=%d",
-			resultsBefore, len(m.trips[1].Results))
+			resultsBefore, len(m.snap.Trips[1].Results))
 	}
 }
