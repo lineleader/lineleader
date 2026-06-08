@@ -162,6 +162,10 @@ func (p *Planner) recomputeTrip(i, budget int) {
 	case err3 != nil:
 		t.Err = "invalid Min nights"
 		return
+	case minNights > MaxNights:
+		t.Err = fmt.Sprintf("min nights exceeds Disney's %d-night limit", MaxNights)
+		t.Results = nil
+		return
 	}
 
 	filters := EffectiveFilters(p.global, t.FilterMode, t.Filters)

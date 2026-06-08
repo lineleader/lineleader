@@ -96,6 +96,19 @@ func TestNewPlanner_SeedsOneTripWithResults(t *testing.T) {
 	}
 }
 
+func TestSetTripField_MinNightsOverMaxErrors(t *testing.T) {
+	p := newTestPlanner("200")
+	p.SetTripField(0, 2, "31") // one night past Disney's 30-night cap
+
+	tr := p.trips[0]
+	if tr.Err == "" {
+		t.Fatal("expected an error when min nights exceeds the 30-night cap, got none")
+	}
+	if tr.Results != nil {
+		t.Errorf("expected no results when min nights exceeds the cap, got %d", len(tr.Results))
+	}
+}
+
 func TestSetBudget_InvalidMarksAllTrips(t *testing.T) {
 	p := newTestPlanner("200")
 	p.AddTrip()
