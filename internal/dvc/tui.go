@@ -2,6 +2,7 @@ package dvc
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -529,6 +530,10 @@ func (m tuiModel) renderPlans(b *strings.Builder, sep string, headerStyle, activ
 			noun = "trips"
 		}
 		line := fmt.Sprintf("  %s  (%d %s, budget: %s)", p.Name, len(p.Trips), noun, p.Budget)
+		hasLocal := slices.ContainsFunc(p.Trips, func(s TripSpec) bool { return s.FilterMode == FilterModeOverride })
+		if hasLocal {
+			line += "  (some trip-local filters)"
+		}
 		if i == m.plansCursor && !m.plansNaming {
 			line = activeStyle.Render(line)
 		}

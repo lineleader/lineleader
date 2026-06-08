@@ -549,6 +549,42 @@ func TestPlansPanel_UpdateNoopWhenNoPlanLoaded(t *testing.T) {
 	}
 }
 
+// TestPlansPanel_HintsTripLocalFilters verifies the plans panel appends a
+// "(some trip-local filters)" hint to a plan that has any override TripSpec, and
+// omits it for an all-inherit plan.
+func TestPlansPanel_HintsTripLocalFilters(t *testing.T) {
+	m := newTestTUIModel(t)
+
+	// Plan with a trip-local override.
+	m.planner.SetTripFilterMode(0, FilterModeOverride)
+	if err := m.planner.SavePlan("haslocal"); err != nil {
+		t.Fatalf("save haslocal: %v", err)
+	}
+	// All-inherit plan.
+	m.planner.SetTripFilterMode(0, FilterModeInherit)
+	if err := m.planner.SavePlan("plain"); err != nil {
+		t.Fatalf("save plain: %v", err)
+	}
+
+	m.width = 80
+	m.height = 40
+	m.plansOpen = true
+	v := m.View().Content
+
+	hint := "(some trip-local filters)"
+	if strings.Count(v, hint) != 1 {
+		t.Errorf("expected exactly one %q hint, got %d, view:\n%s", hint, strings.Count(v, hint), v)
+	}
+	for _, line := range strings.Split(v, "\n") {
+		if strings.Contains(line, "plain") && strings.Contains(line, hint) {
+			t.Errorf("all-inherit plan line should not have hint, got:\n%s", line)
+		}
+		if strings.Contains(line, "haslocal") && !strings.Contains(line, hint) {
+			t.Errorf("override plan line should have hint, got:\n%s", line)
+		}
+	}
+}
+
 func TestTUIUpdate_SelectionDeductsFromOtherTrip(t *testing.T) {
 	m := NewTUIModel(PlannerOptions{
 		Charts: []*ResortChart{minimalChart()},
