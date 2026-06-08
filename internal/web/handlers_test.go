@@ -166,6 +166,31 @@ func TestSelect_CollapsesTrip(t *testing.T) {
 	}
 }
 
+func TestSelect_SetsCollapsedAndRendersApp(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	// Selecting a row goes through the Planner, then the web sets its view-only
+	// collapsed flag and re-renders the whole #app partial.
+	resp, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	// The app partial is rendered (#app root + budget bar present).
+	if !strings.Contains(got, `id="app"`) {
+		t.Errorf("expected #app root in select response, got:\n%s", got)
+	}
+	// The selected trip is collapsed (view-only state applied from the snapshot).
+	if !strings.Contains(got, `class="trip collapsed"`) {
+		t.Errorf("expected selected trip collapsed in app render, got:\n%s", got)
+	}
+	// The collapsed summary shows the selected room (selection survives render).
+	if !strings.Contains(got, "✓") && !strings.Contains(got, "Test Resort") {
+		t.Errorf("expected selection reflected in collapsed summary, got:\n%s", got)
+	}
+}
+
 func TestSavePlanAndLoad_RestoresSelection(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
