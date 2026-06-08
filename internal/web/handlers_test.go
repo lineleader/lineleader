@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -265,6 +266,30 @@ func roomTypeChart() *dvc.ResortChart {
 	}
 }
 
+// twoResortCharts returns two distinct resorts so seeding/isolation tests can
+// exclude one resort globally and a DIFFERENT one per trip, then assert both
+// exclusions hold.
+func twoResortCharts() []*dvc.ResortChart {
+	mk := func(name, code string) *dvc.ResortChart {
+		return &dvc.ResortChart{
+			ResortName: name,
+			ResortCode: code,
+			Year:       2026,
+			Columns: []dvc.Column{
+				{RoomType: "STUDIO", View: "R", Sleeps: 4},
+			},
+			Seasons: []dvc.Season{
+				{
+					Periods: []dvc.DateRange{{Start: "2026-01-01", End: "2026-01-31"}},
+					SunThu:  []int{10},
+					FriSat:  []int{14},
+				},
+			},
+		}
+	}
+	return []*dvc.ResortChart{mk("Alpha Resort", "ALP"), mk("Beta Resort", "BTA")}
+}
+
 func newTestServerWithCharts(t *testing.T, charts []*dvc.ResortChart) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
@@ -368,6 +393,61 @@ func TestSetTripFilterMode_UnknownTreatedAsInherit(t *testing.T) {
 	}
 }
 
+// TestSetTripFilterMode_OverrideSeedsThenInheritReverts verifies the mode switch
+// round-trip: mode=override seeds the trip's rows from the global checks (a
+// globally-excluded resort shows excluded), and mode=inherit clears the override
+// so the rows revert to the global view.
+func TestSetTripFilterMode_OverrideSeedsThenInheritReverts(t *testing.T) {
+	ts := newTestServerWithCharts(t, twoResortCharts())
+	defer ts.Close()
+
+	// Globally exclude ALP (BTA stays enabled).
+	if _, err := http.Post(ts.URL+"/filters/resorts/ALP", "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch trip 0 to override: rows must reflect global checks (ALP excluded).
+	resp, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	over := body(t, resp)
+	if !strings.Contains(over, `data-mode="override"`) {
+		t.Fatalf("expected override mode, got:\n%s", over)
+	}
+	assertResortExcluded(t, over, "Alpha Resort")
+	if !strings.Contains(over, "[✓] Beta Resort") {
+		t.Errorf("expected Beta Resort still checked after override seed, got:\n%s", over)
+	}
+
+	// Now exclude BTA per-trip so override diverges from global.
+	if _, err := http.Post(ts.URL+"/trips/0/filters/resorts/BTA", "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch back to inherit: the override clears and rows revert to the global
+	// view (ALP excluded, BTA back to enabled).
+	resp2, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"inherit"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inh := body(t, resp2)
+	if !strings.Contains(inh, `data-mode="inherit"`) {
+		t.Fatalf("expected inherit mode after revert, got:\n%s", inh)
+	}
+
+	// Re-open the panel to confirm reverted rows mirror global (BTA enabled again).
+	resp3, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	panel := body(t, resp3)
+	assertResortExcluded(t, panel, "Alpha Resort")
+	if !strings.Contains(panel, "[✓] Beta Resort") {
+		t.Errorf("expected Beta Resort re-enabled after revert to inherit, got:\n%s", panel)
+	}
+}
+
 func TestToggleTripResort_SeedsOverrideAndScopesOOB(t *testing.T) {
 	// Two trips so we can assert isolation.
 	ts := newTestServerWithCharts(t, []*dvc.ResortChart{minimalChart()})
@@ -402,6 +482,113 @@ func TestToggleTripResort_SeedsOverrideAndScopesOOB(t *testing.T) {
 	// Isolation: the OTHER trip's results must NOT be in the response.
 	if strings.Contains(got, `id="trip-1-results"`) {
 		t.Errorf("expected only trip-0-results OOB-swapped, not trip-1, got:\n%s", got)
+	}
+}
+
+// TestToggleTripResort_SeedsOverrideFromGlobal is the key seeding test: a resort
+// excluded GLOBALLY must remain excluded in a trip's override set after the first
+// per-trip toggle of a DIFFERENT resort. This proves the override was seeded from
+// the global filters, not started empty.
+func TestToggleTripResort_SeedsOverrideFromGlobal(t *testing.T) {
+	ts := newTestServerWithCharts(t, twoResortCharts())
+	defer ts.Close()
+
+	// Globally exclude ALP. Trip 0 inherits this, so ALP is excluded there too.
+	if _, err := http.Post(ts.URL+"/filters/resorts/ALP", "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// First per-trip toggle on inherit trip 0: exclude BTA. This seeds the
+	// override from the global set (which already excludes ALP), then adds BTA.
+	resp, err := http.Post(ts.URL+"/trips/0/filters/resorts/BTA", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if got := body(t, resp); !strings.Contains(got, `data-mode="override"`) {
+		t.Fatalf("expected trip to become override after toggle, got:\n%s", got)
+	}
+
+	// Open the trip's override panel and assert BOTH resorts are excluded. If the
+	// override had started empty (no seeding), ALP would show enabled ([✓]) again.
+	resp2, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	panel := body(t, resp2)
+	if !strings.Contains(panel, `data-mode="override"`) {
+		t.Fatalf("expected override panel, got:\n%s", panel)
+	}
+	assertResortExcluded(t, panel, "Alpha Resort")
+	assertResortExcluded(t, panel, "Beta Resort")
+}
+
+// assertResortExcluded checks the rendered panel shows the named resort as
+// excluded: an unchecked "[ ]" marker on that resort's button.
+func assertResortExcluded(t *testing.T, panel, resortName string) {
+	t.Helper()
+	if !strings.Contains(panel, "[ ] "+resortName) {
+		t.Errorf("expected %q to be excluded ([ ]) in panel, got:\n%s", resortName, panel)
+	}
+	if strings.Contains(panel, "[✓] "+resortName) {
+		t.Errorf("expected %q NOT to be checked ([✓]) in panel, got:\n%s", resortName, panel)
+	}
+}
+
+// tripResultsBlock extracts the HTML of the #trip-{i}-results div from a full
+// app render so per-trip assertions don't bleed across trips.
+func tripResultsBlock(t *testing.T, html string, i int) string {
+	t.Helper()
+	marker := `id="trip-` + strconv.Itoa(i) + `-results"`
+	start := strings.Index(html, marker)
+	if start == -1 {
+		t.Fatalf("trip-%d-results block not found in:\n%s", i, html)
+	}
+	rest := html[start:]
+	// Stop at the next trip's results block if present, else end of doc.
+	if next := strings.Index(rest[len(marker):], `id="trip-`); next != -1 {
+		return rest[:len(marker)+next]
+	}
+	return rest
+}
+
+// TestToggleTripResort_IsolatesOtherTrips verifies that excluding a resort on
+// trip 0 (override) leaves trip 1's results unchanged, observed through the full
+// app render at GET /.
+func TestToggleTripResort_IsolatesOtherTrips(t *testing.T) {
+	ts := newTestServerWithCharts(t, twoResortCharts())
+	defer ts.Close()
+	http.Post(ts.URL+"/trips", "", nil) // add a second trip (index 1)
+
+	// Exclude ALP on trip 0 only (seeds override on trip 0).
+	if _, err := http.Post(ts.URL+"/trips/0/filters/resorts/ALP", "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+
+	trip0 := tripResultsBlock(t, html, 0)
+	trip1 := tripResultsBlock(t, html, 1)
+
+	// Trip 0: Alpha excluded -> no Alpha row, Beta still present.
+	if strings.Contains(trip0, "<td>Alpha Resort</td>") {
+		t.Errorf("expected Alpha Resort excluded from trip 0, got:\n%s", trip0)
+	}
+	if !strings.Contains(trip0, "<td>Beta Resort</td>") {
+		t.Errorf("expected Beta Resort still in trip 0, got:\n%s", trip0)
+	}
+	// Trip 1: inherits global (no exclusions) -> BOTH resorts present, unchanged.
+	if !strings.Contains(trip1, "<td>Alpha Resort</td>") {
+		t.Errorf("expected Alpha Resort still in trip 1 (isolation), got:\n%s", trip1)
+	}
+	if !strings.Contains(trip1, "<td>Beta Resort</td>") {
+		t.Errorf("expected Beta Resort still in trip 1, got:\n%s", trip1)
 	}
 }
 
@@ -614,6 +801,55 @@ func TestGlobalFilterPanel_NoRegression(t *testing.T) {
 	// Global panel must not include the per-trip mode switch.
 	if strings.Contains(got, `/filters/mode`) {
 		t.Errorf("global panel should not have mode switch, got:\n%s", got)
+	}
+}
+
+// TestSavePlanAndLoad_RoundTripsOverrideTrip verifies a saved plan with one
+// override trip round-trips through SavePlan -> LoadPlan: after loading, the
+// trip is still override (asserted via the rendered per-trip panel) and its
+// per-trip exclusion is preserved. Uses t.TempDir() plans path via the helper.
+func TestSavePlanAndLoad_RoundTripsOverrideTrip(t *testing.T) {
+	ts := newTestServerWithCharts(t, twoResortCharts())
+	defer ts.Close()
+
+	// Make trip 0 an override trip that excludes BTA.
+	if _, err := http.Post(ts.URL+"/trips/0/filters/resorts/BTA", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	// Save the plan with that override.
+	if _, err := http.PostForm(ts.URL+"/plans", url.Values{"name": {"with-override"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reset trip 0 back to inherit to prove load actually restores override.
+	req, _ := http.NewRequest("DELETE", ts.URL+"/trips/0/filters", nil)
+	if _, err := ts.Client().Do(req); err != nil {
+		t.Fatal(err)
+	}
+	pre, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := body(t, pre); !strings.Contains(got, `data-mode="inherit"`) {
+		t.Fatalf("expected inherit before load, got:\n%s", got)
+	}
+
+	// Load the saved plan; trip 0 must come back as override.
+	if _, err := http.Post(ts.URL+"/plans/with-override/load", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(ts.URL + "/trips/0/filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	panel := body(t, resp)
+	if !strings.Contains(panel, `data-mode="override"`) {
+		t.Errorf("expected loaded trip to be override, got:\n%s", panel)
+	}
+	// The override's BTA exclusion survived the round-trip.
+	assertResortExcluded(t, panel, "Beta Resort")
+	if !strings.Contains(panel, "[✓] Alpha Resort") {
+		t.Errorf("expected Alpha Resort still enabled in loaded override, got:\n%s", panel)
 	}
 }
 
