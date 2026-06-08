@@ -494,6 +494,166 @@ func (p *Planner) LoadedPlanName() string {
 	return p.loadedPlanName
 }
 
+// Snapshot is a fully detached, render-ready projection of the Planner's state.
+// It is the stable read contract the TUI and web layers render from: the returned
+// Trips slice and each TripSnapshot.Results slice are freshly allocated so callers
+// may hold them across calls and even mutate them without affecting the Planner.
+type Snapshot struct {
+	Budget         string
+	BudgetErr      string
+	LoadedPlanName string
+	Remaining      int
+	GlobalFilters  Config
+	Trips          []TripSnapshot
+}
+
+// TripSnapshot is one trip's detached view within a Snapshot.
+type TripSnapshot struct {
+	// Spec carries the live From/To/MinNights and FilterMode/Filters so UIs can
+	// render badges/chips without extra calls. Filters is a pointer: nil for an
+	// inherit trip, a deep-copied per-trip set for an override trip.
+	Spec TripSpec
+	// EffectiveBudget is the trip's search budget: the global budget minus other
+	// trips' selections.
+	EffectiveBudget int
+	// EffectiveFilters is the resolved exclusion set (global for inherit, the
+	// trip's own for override).
+	EffectiveFilters FilterSet
+	Results          []StayResult
+	Selected         *StayResult
+	Err              string
+}
+
+// Snapshot returns a fully detached projection of the current state. It deep-
+// copies the Trips slice, each trip's Results, and each trip's Filters so the
+// caller shares no backing arrays with the Planner.
+func (p *Planner) Snapshot() Snapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	budget, err := strconv.Atoi(p.budget)
+	s := Snapshot{
+		Budget:         p.budget,
+		LoadedPlanName: p.loadedPlanName,
+		GlobalFilters: Config{
+			ExcludeResorts:   append([]string(nil), p.global.ExcludeResorts...),
+			ExcludeRoomTypes: append([]string(nil), p.global.ExcludeRoomTypes...),
+		},
+		Remaining: RemainingBudget(budget, p.trips),
+		Trips:     make([]TripSnapshot, len(p.trips)),
+	}
+	if err != nil {
+		s.BudgetErr = "invalid Budget"
+	}
+
+	for i := range p.trips {
+		t := &p.trips[i]
+		spec := TripSpec{
+			From:       t.Fields[0].value,
+			To:         t.Fields[1].value,
+			MinNights:  t.Fields[2].value,
+			Selected:   t.Selected,
+			FilterMode: t.FilterMode,
+		}
+		// Mirror snapshotPlan: a pointer to a deep copy for override, nil for
+		// inherit. EffectiveFilters is resolved from the live VALUE FilterSet.
+		if t.FilterMode == FilterModeOverride {
+			f := cloneFilterSet(t.Filters)
+			spec.Filters = &f
+		}
+		s.Trips[i] = TripSnapshot{
+			Spec:             spec,
+			EffectiveBudget:  BudgetForTrip(budget, p.trips, i),
+			EffectiveFilters: cloneFilterSet(EffectiveFilters(p.global, t.FilterMode, t.Filters)),
+			Results:          append([]StayResult(nil), t.Results...),
+			Selected:         t.Selected,
+			Err:              t.Err,
+		}
+	}
+	return s
+}
+
+// FilterOptionsView is the de-duplicated, sorted resort + room-type option lists
+// for one filter scope (global when TripIndex == -1, otherwise a trip).
+type FilterOptionsView struct {
+	TripIndex int        // -1 = global
+	Mode      FilterMode // inherit/override; "" for global
+	Resorts   []ResortOption
+	RoomTypes []RoomTypeOption
+}
+
+// ResortOption is one selectable resort in a FilterOptionsView.
+type ResortOption struct {
+	Code, Name string
+	Enabled    bool
+}
+
+// RoomTypeOption is one selectable room type in a FilterOptionsView.
+type RoomTypeOption struct {
+	Name    string
+	Enabled bool
+}
+
+// FilterOptions returns the resort + room-type option lists for the given scope,
+// de-duplicated and sorted across all charts (the logic both UIs duplicate
+// today). Enabled means "not excluded" by the resolved set:
+//   - tripIdx < 0 (global): excluded by p.global.
+//   - tripIdx in range: excluded by the trip's EFFECTIVE set, so an inherit trip
+//     shows the same checks as global and an override trip shows its own.
+//
+// Out-of-range tripIdx (>= len(trips)) is treated as global: the returned
+// TripIndex is -1 and Mode is "" — UIs asking for a stale/dropped trip degrade
+// to the global view rather than panicking.
+func (p *Planner) FilterOptions(tripIdx int) FilterOptionsView {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	view := FilterOptionsView{TripIndex: tripIdx}
+	var excluded FilterSet
+	if tripIdx < 0 || tripIdx >= len(p.trips) {
+		view.TripIndex = -1
+		view.Mode = ""
+		excluded = p.global.AsFilterSet()
+	} else {
+		t := &p.trips[tripIdx]
+		view.Mode = t.FilterMode
+		excluded = EffectiveFilters(p.global, t.FilterMode, t.Filters)
+	}
+
+	resortNames := map[string]string{} // code → full name
+	roomSeen := map[string]bool{}
+	var resortCodes, roomTypes []string
+	for _, c := range p.charts {
+		if _, seen := resortNames[c.ResortCode]; !seen {
+			resortNames[c.ResortCode] = c.ResortName
+			resortCodes = append(resortCodes, c.ResortCode)
+		}
+		for _, col := range c.Columns {
+			if !roomSeen[col.RoomType] {
+				roomSeen[col.RoomType] = true
+				roomTypes = append(roomTypes, col.RoomType)
+			}
+		}
+	}
+	slices.Sort(resortCodes)
+	slices.Sort(roomTypes)
+
+	for _, code := range resortCodes {
+		view.Resorts = append(view.Resorts, ResortOption{
+			Code:    code,
+			Name:    resortNames[code],
+			Enabled: !slices.Contains(excluded.ExcludeResorts, code),
+		})
+	}
+	for _, rt := range roomTypes {
+		view.RoomTypes = append(view.RoomTypes, RoomTypeOption{
+			Name:    rt,
+			Enabled: !slices.Contains(excluded.ExcludeRoomTypes, rt),
+		})
+	}
+	return view
+}
+
 // ToggleSelection flips the Selected stay for trip i at result row rowIdx. If
 // the row is already selected it deselects; otherwise it selects a copy. Out-of
 // range trip or row indices are no-ops. All trips are recomputed afterward

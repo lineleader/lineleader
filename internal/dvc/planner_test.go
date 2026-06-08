@@ -892,3 +892,259 @@ func TestToggleGlobalResort_SaveErrorReturnedButStateMutated(t *testing.T) {
 		t.Errorf("recompute did not run on save error: got %d results", len(p.trips[0].Results))
 	}
 }
+
+// --- Snapshot + FilterOptions read API (lineleader-fpl.8) ---
+
+// newMultiChartPlanner builds a Planner over twoResortCharts (resorts AAA/BBB,
+// room types STUDIO/VILLA) with two inherit trips, exercising de-dup + sort.
+func newMultiChartPlanner(t *testing.T, budget string) *Planner {
+	t.Helper()
+	p := NewPlanner(PlannerOptions{
+		Charts:     twoResortCharts(),
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		Defaults: Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    budget,
+			MinNights: "1",
+		},
+	})
+	return p
+}
+
+func TestSnapshot_BudgetErrorAndFields(t *testing.T) {
+	p := NewPlanner(PlannerOptions{
+		Charts:    []*ResortChart{minimalChart()},
+		PlansPath: filepath.Join(t.TempDir(), "plans.json"),
+		Defaults: Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    "not-a-number",
+			MinNights: "1",
+		},
+	})
+	if err := p.SavePlan("plan-a"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	s := p.Snapshot()
+	if s.Budget != "not-a-number" {
+		t.Errorf("Budget = %q, want %q", s.Budget, "not-a-number")
+	}
+	if s.BudgetErr != "invalid Budget" {
+		t.Errorf("BudgetErr = %q, want %q", s.BudgetErr, "invalid Budget")
+	}
+	if s.LoadedPlanName != "plan-a" {
+		t.Errorf("LoadedPlanName = %q, want %q", s.LoadedPlanName, "plan-a")
+	}
+
+	p.SetBudget("200")
+	s = p.Snapshot()
+	if s.BudgetErr != "" {
+		t.Errorf("BudgetErr = %q, want empty for valid budget", s.BudgetErr)
+	}
+}
+
+func TestSnapshot_RemainingAndEffectiveBudget(t *testing.T) {
+	p := newTestPlanner("200")
+	p.AddTrip()
+	// Select a stay in trip 0 so trip 1's effective budget is reduced.
+	p.ToggleSelection(0, 0)
+	selPts := p.trips[0].Selected.Points
+	if selPts == 0 {
+		t.Fatal("precondition: expected a non-zero selected points")
+	}
+
+	s := p.Snapshot()
+	if len(s.Trips) != 2 {
+		t.Fatalf("Trips = %d, want 2", len(s.Trips))
+	}
+	if want := 200 - selPts; s.Remaining != want {
+		t.Errorf("Remaining = %d, want %d", s.Remaining, want)
+	}
+	// Trip 0's own selection does not reduce its own effective budget.
+	if s.Trips[0].EffectiveBudget != 200 {
+		t.Errorf("Trips[0].EffectiveBudget = %d, want 200", s.Trips[0].EffectiveBudget)
+	}
+	// Trip 1's effective budget excludes trip 0's selection.
+	if want := 200 - selPts; s.Trips[1].EffectiveBudget != want {
+		t.Errorf("Trips[1].EffectiveBudget = %d, want %d", s.Trips[1].EffectiveBudget, want)
+	}
+	if s.Trips[0].Selected == nil {
+		t.Error("Trips[0].Selected = nil, want non-nil")
+	}
+}
+
+func TestSnapshot_SpecFilterModeAndEffectiveFilters(t *testing.T) {
+	p := newPerTripPlanner(t, Config{})
+	p.ToggleGlobalResort("GLOB") // global exclusion (inherit trip sees it)
+	p.ToggleTripResort(1, "TRIP") // trip 1 -> override seeded from global, plus TRIP
+
+	s := p.Snapshot()
+
+	// Trip 0 inherits: Mode empty, Spec.Filters nil, EffectiveFilters == global.
+	if s.Trips[0].Spec.FilterMode != FilterModeInherit {
+		t.Errorf("Trips[0].FilterMode = %q, want inherit", s.Trips[0].Spec.FilterMode)
+	}
+	if s.Trips[0].Spec.Filters != nil {
+		t.Errorf("Trips[0].Spec.Filters = %+v, want nil", s.Trips[0].Spec.Filters)
+	}
+	if !slices.Contains(s.Trips[0].EffectiveFilters.ExcludeResorts, "GLOB") {
+		t.Errorf("Trips[0].EffectiveFilters missing global GLOB: %+v", s.Trips[0].EffectiveFilters)
+	}
+
+	// Trip 1 override: Mode override, Spec.Filters non-nil with GLOB (seed) + TRIP.
+	if s.Trips[1].Spec.FilterMode != FilterModeOverride {
+		t.Errorf("Trips[1].FilterMode = %q, want override", s.Trips[1].Spec.FilterMode)
+	}
+	if s.Trips[1].Spec.Filters == nil {
+		t.Fatal("Trips[1].Spec.Filters = nil, want non-nil")
+	}
+	if !slices.Contains(s.Trips[1].EffectiveFilters.ExcludeResorts, "TRIP") {
+		t.Errorf("Trips[1].EffectiveFilters missing TRIP: %+v", s.Trips[1].EffectiveFilters)
+	}
+}
+
+func TestSnapshot_Detached(t *testing.T) {
+	p := newTestPlanner("200")
+	p.AddTrip()
+
+	s := p.Snapshot()
+	if len(s.Trips) != 2 || len(s.Trips[0].Results) == 0 {
+		t.Fatalf("precondition: trips=%d results=%d", len(s.Trips), len(s.Trips[0].Results))
+	}
+	internalResults := len(p.trips[0].Results)
+
+	// Mutate the returned Trips slice and a returned Results slice.
+	s.Trips = s.Trips[:1]
+	s.Trips[0].Results[0] = StayResult{Resort: "MUTATED"}
+	s.Trips[0].Spec.Filters = &FilterSet{ExcludeResorts: []string{"MUT"}}
+
+	// A later Planner op / snapshot must be unaffected.
+	p.SetBudget("200")
+	s2 := p.Snapshot()
+	if len(s2.Trips) != 2 {
+		t.Errorf("internal Trips len affected: got %d, want 2", len(s2.Trips))
+	}
+	if len(p.trips[0].Results) != internalResults {
+		t.Errorf("internal Results len changed: got %d, want %d", len(p.trips[0].Results), internalResults)
+	}
+	if p.trips[0].Results[0].Resort == "MUTATED" {
+		t.Error("mutating returned Results changed Planner internal state")
+	}
+	if p.trips[0].FilterMode != FilterModeInherit {
+		t.Error("mutating returned Spec changed Planner internal trip filters")
+	}
+}
+
+func TestFilterOptions_GlobalSortedDedupedAndEnabled(t *testing.T) {
+	p := newMultiChartPlanner(t, "200")
+	p.ToggleGlobalResort("AAA")
+	p.ToggleGlobalRoomType("STUDIO")
+
+	v := p.FilterOptions(-1)
+	if v.TripIndex != -1 {
+		t.Errorf("TripIndex = %d, want -1", v.TripIndex)
+	}
+	if v.Mode != "" {
+		t.Errorf("Mode = %q, want empty for global", v.Mode)
+	}
+
+	gotCodes := make([]string, len(v.Resorts))
+	for i, r := range v.Resorts {
+		gotCodes[i] = r.Code
+	}
+	wantCodes := []string{"AAA", "BBB"} // sorted, de-duped
+	if !slices.Equal(gotCodes, wantCodes) {
+		t.Errorf("resort codes = %v, want %v", gotCodes, wantCodes)
+	}
+
+	gotRooms := make([]string, len(v.RoomTypes))
+	for i, r := range v.RoomTypes {
+		gotRooms[i] = r.Name
+	}
+	wantRooms := []string{"STUDIO", "VILLA"} // sorted, de-duped
+	if !slices.Equal(gotRooms, wantRooms) {
+		t.Errorf("room types = %v, want %v", gotRooms, wantRooms)
+	}
+
+	// Enabled reflects global exclusions.
+	for _, r := range v.Resorts {
+		want := r.Code != "AAA"
+		if r.Enabled != want {
+			t.Errorf("resort %s Enabled = %v, want %v", r.Code, r.Enabled, want)
+		}
+	}
+	for _, r := range v.RoomTypes {
+		want := r.Name != "STUDIO"
+		if r.Enabled != want {
+			t.Errorf("room %s Enabled = %v, want %v", r.Name, r.Enabled, want)
+		}
+	}
+}
+
+func TestFilterOptions_InheritTripMatchesGlobal(t *testing.T) {
+	p := newMultiChartPlanner(t, "200")
+	p.AddTrip()
+	p.ToggleGlobalResort("AAA")
+
+	g := p.FilterOptions(-1)
+	trip := p.FilterOptions(1) // inherit
+	if trip.Mode != FilterModeInherit {
+		t.Errorf("inherit trip Mode = %q, want inherit", trip.Mode)
+	}
+	if trip.TripIndex != 1 {
+		t.Errorf("TripIndex = %d, want 1", trip.TripIndex)
+	}
+	for i := range g.Resorts {
+		if g.Resorts[i].Enabled != trip.Resorts[i].Enabled {
+			t.Errorf("resort %s: global Enabled=%v, inherit trip Enabled=%v",
+				g.Resorts[i].Code, g.Resorts[i].Enabled, trip.Resorts[i].Enabled)
+		}
+	}
+}
+
+func TestFilterOptions_OverrideTripReflectsOwnSet(t *testing.T) {
+	p := newMultiChartPlanner(t, "200")
+	p.AddTrip()
+	p.ToggleGlobalResort("AAA")  // global excludes AAA
+	p.ToggleTripResort(1, "BBB") // trip 1 override: seeded with AAA, plus BBB
+
+	v := p.FilterOptions(1)
+	if v.Mode != FilterModeOverride {
+		t.Errorf("Mode = %q, want override", v.Mode)
+	}
+	byCode := map[string]bool{}
+	for _, r := range v.Resorts {
+		byCode[r.Code] = r.Enabled
+	}
+	if byCode["AAA"] {
+		t.Error("AAA should be disabled (seeded from global) in override trip")
+	}
+	if byCode["BBB"] {
+		t.Error("BBB should be disabled (toggled) in override trip")
+	}
+}
+
+func TestFilterOptions_OutOfRangeTreatedAsGlobal(t *testing.T) {
+	p := newMultiChartPlanner(t, "200")
+	p.ToggleGlobalResort("AAA")
+
+	// Out-of-range tripIdx (>= len) is treated as global: TripIndex echoes -1.
+	v := p.FilterOptions(99)
+	g := p.FilterOptions(-1)
+	if v.TripIndex != -1 {
+		t.Errorf("out-of-range TripIndex = %d, want -1 (treated as global)", v.TripIndex)
+	}
+	if v.Mode != "" {
+		t.Errorf("out-of-range Mode = %q, want empty", v.Mode)
+	}
+	if len(v.Resorts) != len(g.Resorts) {
+		t.Fatalf("resort count = %d, want %d", len(v.Resorts), len(g.Resorts))
+	}
+	for i := range g.Resorts {
+		if v.Resorts[i] != g.Resorts[i] {
+			t.Errorf("resort %d = %+v, want %+v", i, v.Resorts[i], g.Resorts[i])
+		}
+	}
+}
