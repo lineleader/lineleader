@@ -1,8 +1,11 @@
 package dvc
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +91,102 @@ func TestSavePlans_CreatesParentDir(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("expected file to exist at %s: %v", path, err)
+	}
+}
+
+func TestTripSpec_MarshalInheritOmitsFilterFields(t *testing.T) {
+	spec := TripSpec{From: "2026-03-15", To: "2026-03-22", MinNights: "3"}
+
+	data, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	got := string(data)
+
+	if strings.Contains(got, "filter_mode") {
+		t.Errorf("inherit TripSpec JSON should not contain filter_mode: %s", got)
+	}
+	if strings.Contains(got, "filters") {
+		t.Errorf("inherit TripSpec JSON should not contain filters: %s", got)
+	}
+}
+
+func TestTripSpec_UnmarshalLegacyIsInherit(t *testing.T) {
+	legacy := `{"from":"2026-03-15","to":"2026-03-22","min_nights":"2"}`
+
+	var spec TripSpec
+	if err := json.Unmarshal([]byte(legacy), &spec); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if spec.FilterMode != FilterModeInherit {
+		t.Errorf("FilterMode = %q, want inherit (%q)", spec.FilterMode, FilterModeInherit)
+	}
+	if spec.Filters != nil {
+		t.Errorf("Filters = %+v, want nil", spec.Filters)
+	}
+}
+
+func TestTripSpec_OverrideRoundTrip(t *testing.T) {
+	spec := TripSpec{
+		From:       "2026-03-15",
+		To:         "2026-03-22",
+		MinNights:  "3",
+		FilterMode: FilterModeOverride,
+		Filters: &FilterSet{
+			ExcludeResorts:   []string{"VERO"},
+			ExcludeRoomTypes: []string{"THREE-BEDROOM GRAND VILLA"},
+		},
+	}
+
+	data, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var got TripSpec
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if !reflect.DeepEqual(got, spec) {
+		t.Errorf("round trip mismatch:\n got = %+v\nwant = %+v", got, spec)
+	}
+}
+
+func TestLoadPlans_LegacyFileReadsAsInherit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plans.json")
+	legacy := `{
+		"plans": [
+			{
+				"name": "spring-break",
+				"budget": "250",
+				"trips": [
+					{"from": "2026-03-15", "to": "2026-03-22", "min_nights": "3"},
+					{"from": "2026-07-01", "to": "2026-07-07", "min_nights": "2"}
+				]
+			}
+		]
+	}`
+	if err := os.WriteFile(path, []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	plans, err := LoadPlans(path)
+	if err != nil {
+		t.Fatalf("LoadPlans error: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("loaded %d plans, want 1", len(plans))
+	}
+	for i, trip := range plans[0].Trips {
+		if trip.FilterMode != FilterModeInherit {
+			t.Errorf("Trips[%d].FilterMode = %q, want inherit", i, trip.FilterMode)
+		}
+		if trip.Filters != nil {
+			t.Errorf("Trips[%d].Filters = %+v, want nil", i, trip.Filters)
+		}
 	}
 }
 

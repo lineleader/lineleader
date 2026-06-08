@@ -15,6 +15,13 @@ type TripSpec struct {
 	To        string      `json:"to"`
 	MinNights string      `json:"min_nights"`
 	Selected  *StayResult `json:"selected,omitempty"`
+	// FilterMode selects whether this trip inherits the global filters
+	// (zero value) or overrides them with its own Filters.
+	FilterMode FilterMode `json:"filter_mode,omitempty"`
+	// Filters holds the trip's own exclusions when FilterMode is override.
+	// It is a pointer so a zero/inherit TripSpec omits the key entirely:
+	// omitempty does not treat an empty struct value as empty.
+	Filters *FilterSet `json:"filters,omitempty"`
 }
 
 // Plan is a named, saveable set of trips plus the global budget and filter

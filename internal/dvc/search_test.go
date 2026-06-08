@@ -136,6 +136,58 @@ func TestSearch_ExcludeRoomType(t *testing.T) {
 	}
 }
 
+// longChart covers a full year with cheap nights, so a search is bounded only by
+// the stay-length cap rather than by budget or season gaps.
+func longChart() *ResortChart {
+	return &ResortChart{
+		ResortName: "Long Resort",
+		ResortCode: "LNG",
+		Year:       2026,
+		Columns: []Column{
+			{RoomType: "STUDIO", View: "R", Sleeps: 4},
+		},
+		Seasons: []Season{
+			{
+				Periods: []DateRange{
+					{Start: "2026-01-01", End: "2026-12-31"},
+				},
+				SunThu: []int{1},
+				FriSat: []int{1},
+			},
+		},
+	}
+}
+
+func TestSearch_CapsStayAtMaxNights(t *testing.T) {
+	chart := longChart()
+	start, _ := time.Parse("2006-01-02", "2026-01-01")
+	end, _ := time.Parse("2006-01-02", "2026-06-01") // ~150-night window
+
+	results := Search([]*ResortChart{chart}, SearchParams{
+		WindowStart: start,
+		WindowEnd:   end,
+		Budget:      10000, // high enough that budget never caps the stay
+		MinNights:   1,
+	})
+
+	if len(results) == 0 {
+		t.Fatal("expected results, got none")
+	}
+	maxFound := 0
+	for _, r := range results {
+		if r.Nights > MaxNights {
+			t.Errorf("stay exceeds Disney's %d-night max: %d nights (%s)",
+				MaxNights, r.Nights, r.CheckIn.Format("2006-01-02"))
+		}
+		if r.Nights > maxFound {
+			maxFound = r.Nights
+		}
+	}
+	if maxFound != MaxNights {
+		t.Errorf("expected longest stay to reach the %d-night cap, got %d", MaxNights, maxFound)
+	}
+}
+
 func TestSearch_SortedByPoints(t *testing.T) {
 	chart := minimalChart()
 	start, _ := time.Parse("2006-01-02", "2026-01-04")

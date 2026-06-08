@@ -1,0 +1,4 @@
+{
+  "exclude_resorts": [],
+  "exclude_room_types": ["STUDIO"]
+}

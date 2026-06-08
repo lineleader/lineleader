@@ -1,0 +1,13 @@
+{
+  "plans": [
+    {
+      "name": "legacy",
+      "budget": "200",
+      "trips": [
+        {"from": "2026-01-04", "to": "2026-01-08", "min_nights": "1"},
+        {"from": "2026-01-10", "to": "2026-01-14", "min_nights": "2"}
+      ],
+      "exclude_room_types": ["STUDIO"]
+    }
+  ]
+}

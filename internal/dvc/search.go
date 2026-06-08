@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// MaxNights is the longest stay Disney permits for a single reservation. Stays
+// longer than this are invalid, so Search never extends a stay past it — which
+// also bounds the search to MaxNights extensions per check-in date instead of
+// the full window length.
+const MaxNights = 30
+
 // isWeekend reports whether d is a Friday or Saturday (DVC FRI-SAT rate applies).
 func isWeekend(d time.Time) bool {
 	wd := d.Weekday()
@@ -82,6 +88,9 @@ func Search(charts []*ResortChart, params SearchParams) []StayResult {
 							Nights:   nights,
 							Points:   total,
 						})
+					}
+					if nights >= MaxNights {
+						break // Disney caps stays at MaxNights nights
 					}
 					checkOut = checkOut.Add(24 * time.Hour)
 				}

@@ -15,12 +15,17 @@
             hx-post="/trips/{{.Index}}/field"
             hx-target="#trip-{{.Index}}-results"
             hx-swap="outerHTML"
-            hx-trigger="input delay:200ms">
+            hx-trigger="change delay:300ms">
         <label>From <input name="from" type="text" value="{{.Spec.From}}" autocomplete="off"></label>
         <label>To <input name="to" type="text" value="{{.Spec.To}}" autocomplete="off"></label>
         <label>Min nights <input name="min_nights" type="text" value="{{.Spec.MinNights}}" autocomplete="off"></label>
       </form>
       <span class="trip-budget">[budget: {{.EffectiveBudget}} pts]</span>
+      <span class="filters-chip {{if .UsesOverride}}override{{else}}inherit{{end}}">[filters: {{if .UsesOverride}}override{{else}}inherit{{end}}]</span>
+      <button type="button" class="trip-filters"
+              hx-get="/trips/{{.Index}}/filters"
+              hx-target="#panel"
+              hx-swap="outerHTML">Filters</button>
     {{end}}
     <button type="button" class="trip-remove" hx-delete="/trips/{{.Index}}" hx-target="#app" hx-swap="outerHTML">×</button>
   </header>
@@ -30,6 +35,7 @@
 
 {{define "trip_summary"}}
 <span class="trip-summary">
+  <span class="filters-chip {{if .UsesOverride}}override{{else}}inherit{{end}}">[filters: {{if .UsesOverride}}override{{else}}inherit{{end}}]</span>
   {{if .Selected}}
     <span class="summary-dates">{{formatDate .Selected.CheckIn}} → {{formatDate .Selected.CheckOut}} ({{.Selected.Nights}}n)</span>
     <span class="summary-room">{{.Selected.Resort}} · {{.Selected.RoomType}}{{if .Selected.View}} · {{.Selected.View}}{{end}}</span>

@@ -1,5 +1,10 @@
 {{define "results"}}
 <div class="results" id="trip-{{.Index}}-results">
+  {{template "results_body" .}}
+</div>
+{{end}}
+
+{{define "results_body"}}
   {{if .Err}}
     <p class="err">{{.Err}}</p>
   {{else if eq (len .Results) 0}}
@@ -40,5 +45,10 @@
       </tbody>
     </table>
   {{end}}
+{{end}}
+
+{{define "results_oob"}}
+<div class="results" id="trip-{{.Index}}-results" hx-swap-oob="true">
+  {{template "results_body" .}}
 </div>
 {{end}}
