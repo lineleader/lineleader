@@ -67,6 +67,49 @@ func TestBuildAppView_PerTripFilterFields(t *testing.T) {
 	}
 }
 
+// A global FilterOptionsView (TripIndex == -1) projects a non-trip scope.
+func TestToFiltersView_GlobalScope(t *testing.T) {
+	fv := toFiltersView(dvc.FilterOptionsView{
+		TripIndex: -1,
+		Resorts:   []dvc.ResortOption{{Code: "TST", Name: "Test Resort", Enabled: true}},
+		RoomTypes: []dvc.RoomTypeOption{{Name: "Studio", Enabled: false}},
+	})
+	if fv.Scope.IsTrip {
+		t.Errorf("Scope.IsTrip = true, want false for global")
+	}
+	if len(fv.Resorts) != 1 || fv.Resorts[0].Code != "TST" || fv.Resorts[0].Name != "Test Resort" || !fv.Resorts[0].Enabled {
+		t.Errorf("Resorts = %+v, want one enabled TST/Test Resort", fv.Resorts)
+	}
+	if len(fv.RoomTypes) != 1 || fv.RoomTypes[0].Name != "Studio" || fv.RoomTypes[0].Enabled {
+		t.Errorf("RoomTypes = %+v, want one disabled Studio", fv.RoomTypes)
+	}
+}
+
+// A trip FilterOptionsView projects a trip scope carrying TripIndex and Mode.
+func TestToFiltersView_TripScope(t *testing.T) {
+	fv := toFiltersView(dvc.FilterOptionsView{
+		TripIndex: 1,
+		Mode:      dvc.FilterModeOverride,
+		Resorts:   []dvc.ResortOption{{Code: "TST", Name: "Test Resort", Enabled: false}},
+		RoomTypes: []dvc.RoomTypeOption{{Name: "Studio", Enabled: true}},
+	})
+	if !fv.Scope.IsTrip {
+		t.Errorf("Scope.IsTrip = false, want true for trip")
+	}
+	if fv.Scope.TripIndex != 1 {
+		t.Errorf("Scope.TripIndex = %d, want 1", fv.Scope.TripIndex)
+	}
+	if fv.Scope.Mode != dvc.FilterModeOverride {
+		t.Errorf("Scope.Mode = %q, want override", fv.Scope.Mode)
+	}
+	if len(fv.Resorts) != 1 || fv.Resorts[0].Enabled {
+		t.Errorf("Resorts = %+v, want one disabled resort (Enabled intact)", fv.Resorts)
+	}
+	if len(fv.RoomTypes) != 1 || !fv.RoomTypes[0].Enabled {
+		t.Errorf("RoomTypes = %+v, want one enabled room type (Enabled intact)", fv.RoomTypes)
+	}
+}
+
 // Budget/remaining/selection projection from the Snapshot is preserved.
 func TestBuildAppView_BudgetRemainingSelection(t *testing.T) {
 	s := newTestSession(t)

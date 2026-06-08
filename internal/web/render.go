@@ -43,7 +43,23 @@ type resultRow struct {
 	Selected bool
 }
 
+// filterScope tells the ONE filters template which panel it is rendering so it
+// can serve both the global filter panel and per-trip filter panels.
+//
+// Contract for templates (fpl.18/19):
+//   - .Scope.IsTrip selects the POST URLs: global "/filters/..." when false,
+//     per-trip "/trips/{.Scope.TripIndex}/filters/..." when true.
+//   - .Scope.Mode (only meaningful when IsTrip) drives the inherit/override
+//     switch and the disabled-rows-on-inherit hint. It is empty/ignored for
+//     the global panel.
+type filterScope struct {
+	IsTrip    bool
+	TripIndex int
+	Mode      dvc.FilterMode // inherit/override; empty/ignored when !IsTrip
+}
+
 type filtersView struct {
+	Scope     filterScope
 	Resorts   []resortOption
 	RoomTypes []roomTypeOption
 }
@@ -155,6 +171,11 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 // filtersView, preserving the existing field names the templates render.
 func toFiltersView(opts dvc.FilterOptionsView) filtersView {
 	fv := filtersView{
+		Scope: filterScope{
+			IsTrip:    opts.TripIndex >= 0,
+			TripIndex: opts.TripIndex,
+			Mode:      opts.Mode,
+		},
 		Resorts:   make([]resortOption, len(opts.Resorts)),
 		RoomTypes: make([]roomTypeOption, len(opts.RoomTypes)),
 	}
