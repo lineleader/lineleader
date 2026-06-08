@@ -26,6 +26,9 @@ type tripView struct {
 	HasSelection    bool
 	Collapsed       bool
 	Selected        *resultRow
+	FilterMode      dvc.FilterMode
+	UsesOverride    bool          // == (FilterMode == dvc.FilterModeOverride)
+	Filters         dvc.FilterSet // value type; the trip's own exclusions when overriding
 }
 
 type resultRow struct {
@@ -91,6 +94,10 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 		if i < len(s.collapsed) {
 			collapsed = s.collapsed[i]
 		}
+		var f dvc.FilterSet
+		if t.Spec.Filters != nil {
+			f = *t.Spec.Filters
+		}
 		tv := tripView{
 			Index:           i,
 			Spec:            t.Spec,
@@ -98,6 +105,9 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 			Err:             t.Err,
 			HasSelection:    t.Selected != nil,
 			Collapsed:       collapsed,
+			FilterMode:      t.Spec.FilterMode,
+			UsesOverride:    t.Spec.FilterMode == dvc.FilterModeOverride,
+			Filters:         f,
 		}
 		var selKey string
 		if t.Selected != nil {
