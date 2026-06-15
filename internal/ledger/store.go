@@ -56,6 +56,15 @@ func (s *Store) Close() error { return s.db.Close() }
 
 const dateLayout = "2006-01-02"
 
+// parseDate reads a stored date, tolerating either a bare date or a full RFC3339
+// timestamp (some SQLite tooling may write the latter).
+func parseDate(s string) (time.Time, error) {
+	if t, err := time.Parse(dateLayout, s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, s)
+}
+
 // AddContract inserts c and returns its new id.
 func (s *Store) AddContract(c Contract) (int64, error) {
 	res, err := s.db.Exec(
