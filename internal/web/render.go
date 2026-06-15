@@ -201,6 +201,39 @@ func templateFuncs() template.FuncMap {
 			return v
 		},
 		"add1": func(i int) int { return i + 1 },
+		"formatMonth": func(m time.Month) string {
+			return m.String()
+		},
+		// blankZero renders 0 as an empty cell so the ledger grid matches the
+		// spreadsheet's empty Allotted/Used columns.
+		"blankZero": func(n int) string {
+			if n == 0 {
+				return ""
+			}
+			return fmt.Sprintf("%d", n)
+		},
+		"deref": func(p *int64) int64 {
+			if p == nil {
+				return 0
+			}
+			return *p
+		},
+		// dict builds a map from alternating key/value pairs so a template can pass
+		// multiple named values into a sub-template invocation.
+		"dict": func(pairs ...any) (map[string]any, error) {
+			if len(pairs)%2 != 0 {
+				return nil, fmt.Errorf("dict: odd number of arguments")
+			}
+			m := make(map[string]any, len(pairs)/2)
+			for i := 0; i < len(pairs); i += 2 {
+				key, ok := pairs[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict: key %d is not a string", i)
+				}
+				m[key] = pairs[i+1]
+			}
+			return m, nil
+		},
 		// filterTitle builds the scope-aware panel header text, e.g.
 		// "Filters — Global" or "Filters — Trip 2 (override)" using 1-based
 		// trip numbering consistent with the rest of the UI.

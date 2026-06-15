@@ -1,0 +1,153 @@
+{{define "ledger_page"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lineleader — points ledger</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Points master ledger</h1>
+    <p><a href="/">← trip planner</a></p>
+    {{template "ledger_body" .}}
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "ledger_body"}}
+<div id="ledger-body" class="ledger-body">
+  {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+
+  <section class="ledger-summary">
+    <h2>Per use year</h2>
+    <table>
+      <thead><tr><th>Year</th><th>Allotted</th><th>Used</th><th>Net</th><th></th></tr></thead>
+      <tbody>
+        {{range .Summaries}}
+        <tr class="{{if .OverBorrowed}}over-borrowed{{end}}">
+          <td>{{.UseYear}}</td><td>{{.Allotted}}</td><td>{{.Used}}</td><td>{{.Net}}</td>
+          <td>{{if .OverBorrowed}}over-borrowed{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="5">No entries yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+    <p>Current balance: <strong class="{{if lt .Total 0}}negative{{end}}">{{.Total}}</strong></p>
+    <button type="button" hx-post="/ledger/distribute" hx-target="#ledger-body" hx-swap="outerHTML"
+            hx-confirm="Distribute next year's allotments for every contract?">Distribute next year</button>
+  </section>
+
+  <section class="ledger-entries">
+    <h2>Ledger</h2>
+    <table>
+      <thead>
+        <tr><th>Year</th><th>Date</th><th>Desc</th><th>Allotted</th><th>Used</th><th>Total</th><th>Tag</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{$kinds := .Kinds}}{{$contracts := .Contracts}}
+        {{range .Entries}}
+          {{if eq .ID $.EditID}}
+            {{template "entry_edit_row" (dict "E" . "Kinds" $kinds "Contracts" $contracts)}}
+          {{else}}
+            <tr class="{{if lt .RunningBalance 0}}negative{{end}}">
+              <td>{{.UseYear}}</td>
+              <td>{{formatDate .Date}}</td>
+              <td>{{.Desc}}</td>
+              <td>{{blankZero .Allotted}}</td>
+              <td>{{blankZero .Used}}</td>
+              <td>{{.RunningBalance}}</td>
+              <td>{{.Tag}}</td>
+              <td>
+                <button type="button" hx-get="/ledger/entries/{{.ID}}/edit" hx-target="#ledger-body" hx-swap="outerHTML">Edit</button>
+                <button type="button" hx-delete="/ledger/entries/{{.ID}}" hx-target="#ledger-body" hx-swap="outerHTML"
+                        hx-confirm="Delete this entry?">Delete</button>
+              </td>
+            </tr>
+          {{end}}
+        {{else}}
+          <tr><td colspan="8">No entries yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+
+    <h3>Add entry</h3>
+    {{template "entry_add_form" .}}
+  </section>
+
+  <section class="ledger-contracts">
+    <h2>Contracts</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Number</th><th>Resort</th><th>Points</th><th>Use year</th><th></th></tr></thead>
+      <tbody>
+        {{range .Contracts}}
+        <tr>
+          <td>{{.Name}}</td><td>{{.Number}}</td><td>{{viewOrDash .HomeResort}}</td>
+          <td>{{.AnnualPoints}}</td><td>{{formatMonth .UseYearMonth}}</td>
+          <td><button type="button" hx-delete="/ledger/contracts/{{.ID}}" hx-target="#ledger-body" hx-swap="outerHTML"
+                      hx-confirm="Delete contract {{.Name}}?">Delete</button></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6">No contracts yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+
+    <h3>Add contract</h3>
+    <form hx-post="/ledger/contracts" hx-target="#ledger-body" hx-swap="outerHTML">
+      <input name="name" type="text" placeholder="Name" required>
+      <input name="number" type="text" placeholder="Contract #">
+      <input name="resort" type="text" placeholder="Resort">
+      <input name="points" type="number" placeholder="Points" required>
+      <input name="use_year_month" type="text" placeholder="Use year month (Apr)" required>
+      <button type="submit">Add contract</button>
+    </form>
+  </section>
+</div>
+{{end}}
+
+{{define "entry_add_form"}}
+<form hx-post="/ledger/entries" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
+  <input name="date" type="date" required>
+  <input name="desc" type="text" placeholder="Description" required>
+  <input name="year" type="number" placeholder="Use year (auto)">
+  <select name="kind">
+    {{range .Kinds}}<option value="{{.}}">{{.}}</option>{{end}}
+  </select>
+  <input name="allotted" type="number" placeholder="Allotted">
+  <input name="used" type="number" placeholder="Used">
+  <input name="tag" type="text" placeholder="Tag">
+  <select name="contract">
+    <option value="">(no contract)</option>
+    {{range .Contracts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+  </select>
+  <button type="submit">Add</button>
+</form>
+{{end}}
+
+{{define "entry_edit_row"}}
+<tr class="editing">
+  <td colspan="8">
+    <form hx-post="/ledger/entries/{{.E.ID}}/update" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
+      <input name="year" type="number" value="{{.E.UseYear}}">
+      <input name="date" type="date" value="{{formatDate .E.Date}}" required>
+      <input name="desc" type="text" value="{{.E.Desc}}" required>
+      <select name="kind">
+        {{$k := .E.Kind}}{{range .Kinds}}<option value="{{.}}" {{if eq . $k}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+      <input name="allotted" type="number" value="{{.E.Allotted}}">
+      <input name="used" type="number" value="{{.E.Used}}">
+      <input name="tag" type="text" value="{{.E.Tag}}">
+      <select name="contract">
+        <option value="">(no contract)</option>
+        {{$cid := .E.ContractID}}{{range .Contracts}}<option value="{{.ID}}" {{if and $cid (eq .ID (deref $cid))}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <button type="submit">Save</button>
+      <button type="button" hx-post="/ledger/entries/edit/cancel" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
+    </form>
+  </td>
+</tr>
+{{end}}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/lineleader/lineleader/internal/dvc"
+	"github.com/lineleader/lineleader/internal/ledger"
 )
 
 //go:embed templates/*.html
@@ -23,6 +24,7 @@ type Options struct {
 	Plans      []dvc.Plan
 	PlansPath  string
 	Defaults   Defaults
+	Ledger     *ledger.Store // optional; when set, the /ledger pages are served
 }
 
 // Defaults are the initial trip-0 input values.
@@ -64,5 +66,18 @@ func NewServer(opts Options) http.Handler {
 	mux.HandleFunc("POST /plans/{name}/update", h.updatePlan)
 	mux.HandleFunc("DELETE /plans/{name}", h.deletePlan)
 	mux.HandleFunc("GET /panel/close", h.closePanel)
+
+	if opts.Ledger != nil {
+		lh := &ledgerHandlers{tmpl: tmpl, store: opts.Ledger}
+		mux.HandleFunc("GET /ledger", lh.page)
+		mux.HandleFunc("POST /ledger/entries", lh.addEntry)
+		mux.HandleFunc("GET /ledger/entries/{id}/edit", lh.editEntry)
+		mux.HandleFunc("POST /ledger/entries/{id}/update", lh.updateEntry)
+		mux.HandleFunc("POST /ledger/entries/edit/cancel", lh.cancelEdit)
+		mux.HandleFunc("DELETE /ledger/entries/{id}", lh.deleteEntry)
+		mux.HandleFunc("POST /ledger/contracts", lh.addContract)
+		mux.HandleFunc("DELETE /ledger/contracts/{id}", lh.deleteContract)
+		mux.HandleFunc("POST /ledger/distribute", lh.distribute)
+	}
 	return mux
 }

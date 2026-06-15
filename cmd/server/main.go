@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lineleader/lineleader/internal/dvc"
+	"github.com/lineleader/lineleader/internal/ledger"
 	"github.com/lineleader/lineleader/internal/web"
 )
 
@@ -16,6 +17,7 @@ func main() {
 	dataDir := flag.String("data-dir", "data/point-charts", "directory with JSON chart files")
 	configFile := flag.String("config", dvc.DefaultConfigPath(), "app config file (JSON)")
 	plansFile := flag.String("plans", dvc.DefaultPlansPath(), "plans file (JSON)")
+	ledgerFile := flag.String("ledger", ledger.DefaultLedgerPath(), "points ledger database (SQLite)")
 	addr := flag.String("addr", ":8080", "listen address")
 	flag.Parse()
 
@@ -36,6 +38,13 @@ func main() {
 
 	plans, _ := dvc.LoadPlans(*plansFile)
 
+	ledgerStore, err := ledger.Open(*ledgerFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "opening ledger %s: %v\n", *ledgerFile, err)
+		os.Exit(1)
+	}
+	defer ledgerStore.Close()
+
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	srv := web.NewServer(web.Options{
 		Charts:     charts,
@@ -43,6 +52,7 @@ func main() {
 		ConfigPath: *configFile,
 		Plans:      plans,
 		PlansPath:  *plansFile,
+		Ledger:     ledgerStore,
 		Defaults: web.Defaults{
 			From:      today.Format("2006-01-02"),
 			To:        today.AddDate(0, 0, 14).Format("2006-01-02"),
