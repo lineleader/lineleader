@@ -377,3 +377,28 @@ button:focus-visible {
     transition: none !important;
   }
 }
+
+/* ============================== Points ledger ============================== */
+.ledger-body section { margin-bottom: 1.6rem; }
+.ledger-body table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.ledger-body th,
+.ledger-body td {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+}
+.ledger-body th { color: var(--text-mute); font-size: var(--fs-sm); }
+.ledger-body tr.negative td,
+.ledger-body .negative { color: var(--danger); }
+.ledger-body tr.over-borrowed td { background: rgba(232, 160, 160, 0.12); }
+.ledger-body .entry-form {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.6rem;
+}
+.ledger-body .err { color: var(--danger); }
