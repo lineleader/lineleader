@@ -27,7 +27,10 @@ func main() {
 	case "list":
 		runList(os.Args[2:])
 	case "ledger":
-		runLedger(os.Args[2:])
+		if err := runLedger(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		printUsage()

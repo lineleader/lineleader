@@ -1,9 +1,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -14,33 +15,30 @@ import (
 const ledgerDateLayout = "2006-01-02"
 
 // runLedger dispatches the `dvc ledger <sub>` commands.
-func runLedger(args []string) {
+func runLedger(args []string, out io.Writer) error {
 	if len(args) < 1 {
-		ledgerUsage()
-		os.Exit(1)
+		return errors.New(ledgerUsage())
 	}
 	switch args[0] {
 	case "show":
-		runLedgerShow(args[1:])
+		return runLedgerShow(args[1:], out)
 	case "contracts":
-		runLedgerContracts(args[1:])
+		return runLedgerContracts(args[1:], out)
 	case "add":
-		runLedgerAdd(args[1:])
+		return runLedgerAdd(args[1:], out)
 	case "edit":
-		runLedgerEdit(args[1:])
+		return runLedgerEdit(args[1:], out)
 	case "delete":
-		runLedgerDelete(args[1:])
+		return runLedgerDelete(args[1:], out)
 	case "distribute":
-		runLedgerDistribute(args[1:])
+		return runLedgerDistribute(args[1:], out)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown ledger command: %s\n\n", args[0])
-		ledgerUsage()
-		os.Exit(1)
+		return fmt.Errorf("unknown ledger command: %s\n\n%s", args[0], ledgerUsage())
 	}
 }
 
-func ledgerUsage() {
-	fmt.Fprintln(os.Stderr, `dvc ledger — DVC points master ledger
+func ledgerUsage() string {
+	return `dvc ledger — DVC points master ledger
 
 Usage:
   dvc ledger show [--db PATH]
@@ -50,34 +48,38 @@ Usage:
                  [--allotted N] [--used N] [--tag TEXT] [--db PATH]
   dvc ledger edit --id N [same flags as add] [--db PATH]
   dvc ledger delete --id N [--db PATH]
-  dvc ledger distribute [--db PATH]`)
+  dvc ledger distribute [--db PATH]`
 }
 
 // openLedger opens the store at the --db path (added to fs) after parsing.
-func openLedger(dbPath string) *ledger.Store {
+func openLedger(dbPath string) (*ledger.Store, error) {
 	s, err := ledger.Open(dbPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger: opening %s: %v\n", dbPath, err)
-		os.Exit(1)
+		return nil, fmt.Errorf("ledger: opening %s: %w", dbPath, err)
 	}
-	return s
+	return s, nil
 }
 
-func runLedgerShow(args []string) {
-	fs := flag.NewFlagSet("ledger show", flag.ExitOnError)
+func runLedgerShow(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("ledger show", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
-	s := openLedger(*db)
+	s, err := openLedger(*db)
+	if err != nil {
+		return err
+	}
 	defer s.Close()
 
 	entries, err := s.ListEntries()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger show: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger show: %w", err)
 	}
 
-	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tYEAR\tDATE\tDESC\tALLOTTED\tUSED\tTOTAL\tTAG")
 	for _, e := range entries {
 		fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\n",
@@ -88,174 +90,200 @@ func runLedgerShow(args []string) {
 
 	summaries, err := s.UseYearSummaries()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger show: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger show: %w", err)
 	}
 	if len(summaries) > 0 {
-		fmt.Println("\nPer use year:")
-		st := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(out, "\nPer use year:")
+		st := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 		fmt.Fprintln(st, "YEAR\tALLOTTED\tUSED\tNET\t")
 		for _, y := range summaries {
-			flag := ""
+			flagStr := ""
 			if y.OverBorrowed {
-				flag = "OVER-BORROWED"
+				flagStr = "OVER-BORROWED"
 			}
-			fmt.Fprintf(st, "%d\t%d\t%d\t%d\t%s\n", y.UseYear, y.Allotted, y.Used, y.Net, flag)
+			fmt.Fprintf(st, "%d\t%d\t%d\t%d\t%s\n", y.UseYear, y.Allotted, y.Used, y.Net, flagStr)
 		}
 		st.Flush()
 	}
+	return nil
 }
 
-func runLedgerContracts(args []string) {
+func runLedgerContracts(args []string, out io.Writer) error {
 	if len(args) < 1 {
-		ledgerUsage()
-		os.Exit(1)
+		return errors.New(ledgerUsage())
 	}
 	switch args[0] {
 	case "list":
-		fs := flag.NewFlagSet("ledger contracts list", flag.ExitOnError)
+		fs := flag.NewFlagSet("ledger contracts list", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
 		db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
-		fs.Parse(args[1:])
-		s := openLedger(*db)
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		s, err := openLedger(*db)
+		if err != nil {
+			return err
+		}
 		defer s.Close()
 		contracts, err := s.ListContracts()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ledger contracts: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("ledger contracts: %w", err)
 		}
-		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 		fmt.Fprintln(tw, "ID\tNAME\tNUMBER\tRESORT\tPOINTS\tUSE-YEAR")
 		for _, c := range contracts {
 			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%d\t%s\n",
 				c.ID, c.Name, c.Number, c.HomeResort, c.AnnualPoints, c.UseYearMonth.String())
 		}
 		tw.Flush()
+		return nil
 	case "add":
-		fs := flag.NewFlagSet("ledger contracts add", flag.ExitOnError)
+		fs := flag.NewFlagSet("ledger contracts add", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
 		db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
 		name := fs.String("name", "", "contract name")
 		number := fs.String("number", "", "DVC contract/membership number")
 		resort := fs.String("resort", "", "home resort code")
 		points := fs.Int("points", 0, "annual points")
 		month := fs.String("use-year-month", "", "use year start month (e.g. Apr or 4)")
-		fs.Parse(args[1:])
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
 		if *name == "" || *points == 0 || *month == "" {
-			fmt.Fprintln(os.Stderr, "ledger contracts add: --name, --points, and --use-year-month are required")
-			os.Exit(1)
+			return errors.New("ledger contracts add: --name, --points, and --use-year-month are required")
 		}
 		m, err := parseMonth(*month)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ledger contracts add: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("ledger contracts add: %w", err)
 		}
-		s := openLedger(*db)
+		s, err := openLedger(*db)
+		if err != nil {
+			return err
+		}
 		defer s.Close()
 		id, err := s.AddContract(ledger.Contract{
 			Name: *name, Number: *number, HomeResort: *resort,
 			AnnualPoints: *points, UseYearMonth: m,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ledger contracts add: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("ledger contracts add: %w", err)
 		}
-		fmt.Printf("added contract %d (%s, %d pts, use year %s)\n", id, *name, *points, m)
+		fmt.Fprintf(out, "added contract %d (%s, %d pts, use year %s)\n", id, *name, *points, m)
+		return nil
 	default:
-		ledgerUsage()
-		os.Exit(1)
+		return errors.New(ledgerUsage())
 	}
 }
 
-func runLedgerAdd(args []string) {
-	fs := flag.NewFlagSet("ledger add", flag.ExitOnError)
+func runLedgerAdd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("ledger add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
 	f := entryFlags(fs)
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if *f.date == "" || *f.desc == "" {
-		fmt.Fprintln(os.Stderr, "ledger add: --date and --desc are required")
-		os.Exit(1)
+		return errors.New("ledger add: --date and --desc are required")
 	}
 	e, err := f.toEntry()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger add: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger add: %w", err)
 	}
-	s := openLedger(*db)
+	s, err := openLedger(*db)
+	if err != nil {
+		return err
+	}
 	defer s.Close()
 	id, err := s.AddEntry(e)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger add: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger add: %w", err)
 	}
-	fmt.Printf("added entry %d\n", id)
+	fmt.Fprintf(out, "added entry %d\n", id)
+	return nil
 }
 
-func runLedgerEdit(args []string) {
-	fs := flag.NewFlagSet("ledger edit", flag.ExitOnError)
+func runLedgerEdit(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("ledger edit", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
 	id := fs.Int64("id", 0, "entry id to edit")
 	f := entryFlags(fs)
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if *id == 0 {
-		fmt.Fprintln(os.Stderr, "ledger edit: --id is required")
-		os.Exit(1)
+		return errors.New("ledger edit: --id is required")
 	}
 	if *f.date == "" || *f.desc == "" {
-		fmt.Fprintln(os.Stderr, "ledger edit: --date and --desc are required")
-		os.Exit(1)
+		return errors.New("ledger edit: --date and --desc are required")
 	}
 	e, err := f.toEntry()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger edit: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger edit: %w", err)
 	}
 	e.ID = *id
-	s := openLedger(*db)
+	s, err := openLedger(*db)
+	if err != nil {
+		return err
+	}
 	defer s.Close()
 	if err := s.UpdateEntry(e); err != nil {
-		fmt.Fprintf(os.Stderr, "ledger edit: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger edit: %w", err)
 	}
-	fmt.Printf("updated entry %d\n", *id)
+	fmt.Fprintf(out, "updated entry %d\n", *id)
+	return nil
 }
 
-func runLedgerDelete(args []string) {
-	fs := flag.NewFlagSet("ledger delete", flag.ExitOnError)
+func runLedgerDelete(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("ledger delete", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
 	id := fs.Int64("id", 0, "entry id to delete")
-	fs.Parse(args)
-	if *id == 0 {
-		fmt.Fprintln(os.Stderr, "ledger delete: --id is required")
-		os.Exit(1)
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
-	s := openLedger(*db)
+	if *id == 0 {
+		return errors.New("ledger delete: --id is required")
+	}
+	s, err := openLedger(*db)
+	if err != nil {
+		return err
+	}
 	defer s.Close()
 	if err := s.DeleteEntry(*id); err != nil {
-		fmt.Fprintf(os.Stderr, "ledger delete: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger delete: %w", err)
 	}
-	fmt.Printf("deleted entry %d\n", *id)
+	fmt.Fprintf(out, "deleted entry %d\n", *id)
+	return nil
 }
 
-func runLedgerDistribute(args []string) {
-	fs := flag.NewFlagSet("ledger distribute", flag.ExitOnError)
+func runLedgerDistribute(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("ledger distribute", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
-	fs.Parse(args)
-	s := openLedger(*db)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	s, err := openLedger(*db)
+	if err != nil {
+		return err
+	}
 	defer s.Close()
 	created, err := s.DistributeNextYear()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger distribute: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("ledger distribute: %w", err)
 	}
 	if len(created) == 0 {
-		fmt.Println("nothing to distribute (already up to date)")
-		return
+		fmt.Fprintln(out, "nothing to distribute (already up to date)")
+		return nil
 	}
 	for _, e := range created {
-		fmt.Printf("distributed %d pts to use year %d (%s)\n", e.Allotted, e.UseYear, e.Desc)
+		fmt.Fprintf(out, "distributed %d pts to use year %d (%s)\n", e.Allotted, e.UseYear, e.Desc)
 	}
+	return nil
 }
 
 // entryFields holds the shared add/edit flag pointers.
