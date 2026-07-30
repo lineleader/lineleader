@@ -70,6 +70,32 @@ done
 use_year=$(query "SELECT use_year FROM entries WHERE date = '2025-02-21'")
 check "2025-02-21 (Jan-Mar) derives use year 2024, not 2025" "$use_year" "2024"
 
+# Every allocation row must be linked to a contract (regression guard: a
+# blank tag must not swallow the following --contract flag).
+unlinked_allocations=$(query "SELECT COUNT(*) FROM entries WHERE kind = 'allocation' AND contract_id IS NULL")
+check "no allocation rows are missing a contract link" "$unlinked_allocations" "0"
+
+# A "-" tag (2020-04-01 Point allocation) must become an empty string, not
+# leak an adjacent field.
+dash_tag=$(query "SELECT tag FROM entries WHERE date = '2020-04-01' AND description = 'Point allocation'")
+check "'-' tag normalizes to empty string" "$dash_tag" ""
+
+# Text tags survive trimmed as-is.
+bank_tag=$(query "SELECT tag FROM entries WHERE date = '2019-11-01'")
+check "text tag 'Bank' is kept" "$bank_tag" "Bank"
+
+# Allocation rows split correctly across the two contracts by points.
+c1_allocations=$(query "SELECT COUNT(*) FROM entries e JOIN contracts c ON c.id = e.contract_id WHERE e.kind = 'allocation' AND c.annual_points = 120")
+check "10 allocation rows linked to the 120pt contract" "$c1_allocations" "10"
+c2_allocations=$(query "SELECT COUNT(*) FROM entries e JOIN contracts c ON c.id = e.contract_id WHERE e.kind = 'allocation' AND c.annual_points = 150")
+check "7 allocation rows linked to the 150pt contract" "$c2_allocations" "7"
+
+single_use_count=$(query "SELECT COUNT(*) FROM entries WHERE kind = 'single_use'")
+check "2 single_use rows" "$single_use_count" "2"
+
+usage_count=$(query "SELECT COUNT(*) FROM entries WHERE kind = 'usage'")
+check "10 usage rows" "$usage_count" "10"
+
 echo "==> $pass passed, $fail failed"
 if [[ $fail -gt 0 ]]; then
   printf 'FAIL: %s\n' "${failures[@]}"
