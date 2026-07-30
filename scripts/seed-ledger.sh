@@ -352,7 +352,8 @@ add_contract() {
   local name="$1" points="$2"
   local -a cmd=("$dvc_bin" ledger contracts add --db "$db" --name "$name" --points "$points" --use-year-month Apr)
   if [[ $dry_run -eq 1 ]]; then
-    printf 'DRY-RUN: %q ' "${cmd[@]}" >&2
+    printf 'DRY-RUN:' >&2
+    printf ' %q' "${cmd[@]}" >&2
     printf '\n' >&2
     echo "<id>"
     return 0
@@ -390,7 +391,8 @@ while IFS=$'\x1f' read -r use_year date desc kind allotted used tag contract_num
   fi
 
   if [[ $dry_run -eq 1 ]]; then
-    printf 'DRY-RUN: %q ' "${cmd[@]}"
+    printf 'DRY-RUN:'
+    printf ' %q' "${cmd[@]}"
     printf '\n'
   else
     "${cmd[@]}" >/dev/null
