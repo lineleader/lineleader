@@ -222,8 +222,7 @@ print(int(values[1][2]))
   c2_points="$(echo "$points_out" | sed -n '2p')"
 fi
 
-# --- transform the Ledger rows into dvc-ready fields (tab separated) ---
-# shellcheck disable=SC2016 # this is a python heredoc, not a bash expansion
+# --- transform the Ledger rows into dvc-ready fields (unit-separated) ---
 transform_py='
 import json, re, sys
 
