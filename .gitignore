@@ -1,5 +1,10 @@
 bin/*
 
+# direnv / local env — holds AUTH_SECRET and LINELEADER_TOKEN. This repo is
+# public; never commit these.
+.envrc
+.env
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
