@@ -42,11 +42,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
-          # type=semver on a `vX.Y.Z` tag push yields the semver tag itself
-          # plus, by default (flavor latest=auto), a `latest` tag. On a
-          # workflow_dispatch run with no tag ref, only `latest` applies.
+          # {{raw}}, not {{version}}: {{version}} normalizes semver and
+          # strips the leading `v`, publishing :0.1.0 for tag v0.1.0. The
+          # homelab convention keeps the prefix (wall-e:v0.3.2,
+          # random-motivation:v0.0.6), and scripts/release.sh and
+          # deploy/percival/docker-compose.yml both reference :vX.Y.Z.
+          # A `latest` tag is added too, via the default flavor latest=auto.
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{raw}}
 
       - name: Build and push
         uses: docker/build-push-action@v6
