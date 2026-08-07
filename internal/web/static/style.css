@@ -424,3 +424,44 @@ button:focus-visible {
   margin-top: 0.6rem;
 }
 .ledger-body .err { color: var(--danger); }
+
+/* ============================== Narrow viewport ============================== */
+@media (max-width: 640px) {
+  :root {
+    --fs-base: 1rem;  /* TV-legible base is too large on a phone */
+    --fs-lg:   1.25rem;
+  }
+
+  body { flex-direction: column; }
+  #app { padding: 0.9rem; }
+
+  /* Side panel (Filters/Plans) takes the full width instead of a fixed
+     400px column, and no longer forces a full-height viewport slab. */
+  #panel.panel { width: 100%; height: auto; max-height: 80vh; }
+
+  /* Budget bar + button row wrap onto multiple lines instead of
+     overflowing the viewport. */
+  .bar { flex-wrap: wrap; }
+  .bar .actions { width: 100%; }
+  .bar .actions button,
+  .bar .actions .btn-link { flex: 1 1 auto; text-align: center; }
+
+  /* Trip card: from/to/min-nights form stacks vertically, full width. */
+  .trip { padding: 0.85rem 1rem; }
+  .trip-form { flex-direction: column; align-items: stretch; gap: 0.6rem; }
+  .trip-form label { justify-content: space-between; gap: 0.6rem; }
+  .trip-form input { width: 100%; }
+
+  /* Comfortable tap targets. */
+  button, .btn-link { padding: 0.55rem 0.9rem; }
+  .trip-toggle, .trip-remove { padding: 0.45rem 0.55rem; }
+  .select-btn { min-width: 2.5rem; padding: 0.45rem 0.6rem; }
+
+  /* Results and ledger tables scroll horizontally in their own
+     container rather than squeezing columns unreadably thin. */
+  .results { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .results-table { min-width: 560px; }
+
+  .ledger-body section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ledger-body table { min-width: 520px; }
+}
