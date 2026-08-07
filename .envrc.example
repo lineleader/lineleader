@@ -1,0 +1,40 @@
+# Example direnv environment for lineleader.
+#
+#   cp .envrc.example .envrc && direnv allow
+#
+# .envrc itself is gitignored — this repo is public, and the real file holds
+# secrets. Never commit it.
+#
+# Nothing here is needed just to build or to run the trip planner against the
+# baked-in chart JSON; each section says what it unlocks.
+
+# --- Running the server locally (make dev) ---------------------------------
+# Postgres connection for the points ledger. `make dev` passes this through to
+# `go run`, and the ledger schema is applied idempotently on startup, so any
+# empty database works. `make test-db` will start a throwaway Postgres for you.
+export LEDGER_DSN="postgres://postgres:postgres@localhost:5432/lineleader?sslmode=disable"
+
+# The single shared login secret — it is both the web login password and the
+# CLI bearer token. Generate a real one with:
+#   openssl rand -base64 32
+# `make dev` also passes --insecure-cookies so the session cookie survives
+# plain http; real deployments keep Secure cookies and terminate TLS at the
+# reverse proxy.
+export AUTH_SECRET="devsecret"
+
+# --- Talking to a server with the dvc CLI ----------------------------------
+# `dvc ledger` is a thin HTTP client (internal/ledgerclient) — it never opens a
+# database directly. Resolution order is --server/--token flags, then these
+# env vars, then ~/.config/lineleader/client.json.
+#
+# Point at your own local server:
+export LINELEADER_SERVER="http://localhost:8080"
+# ...or at a deployed one, e.g. https://lineleader.io
+#
+# The token is the same value as AUTH_SECRET on whichever server you target.
+export LINELEADER_TOKEN="devsecret"
+
+# --- Running the integration tests -----------------------------------------
+# Tests that need real Postgres skip themselves unless this is set. Start a
+# throwaway instance with `make test-db`, which prints the matching DSN.
+# export LEDGER_TEST_DSN="postgres://postgres:test@localhost:5433/lineleader_test?sslmode=disable"
