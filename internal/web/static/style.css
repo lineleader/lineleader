@@ -465,3 +465,34 @@ button:focus-visible {
   .ledger-body section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .ledger-body table { min-width: 520px; }
 }
+
+/* ============================ Login page ============================ */
+.login-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.login-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2rem;
+  width: 100%;
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.login-form h1 {
+  margin: 0 0 0.4rem;
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  color: var(--primary);
+}
+.login-form label { color: var(--text-dim); font-weight: 600; }
+.login-form input { width: 100%; }
+.login-form button { align-self: flex-start; }

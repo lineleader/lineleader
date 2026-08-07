@@ -44,6 +44,15 @@ type Options struct {
 	PlansPath  string
 	Defaults   Defaults
 	Ledger     *ledger.Store // optional; when set, the /ledger pages are served
+
+	// AuthSecret gates the whole mux behind the single-secret auth scheme
+	// from docs/pitches/hosted-lineleader.md when non-empty. Empty means no
+	// auth at all — the zero value existing tests and local dev rely on.
+	AuthSecret string
+	// SecureCookies sets the Secure attribute on the session cookie. Leave
+	// false for plain-http local dev; true in any real deployment (TLS is
+	// terminated at the reverse proxy per the pitch).
+	SecureCookies bool
 }
 
 // Defaults are the initial trip-0 input values.
@@ -99,5 +108,13 @@ func NewServer(opts Options) http.Handler {
 		mux.HandleFunc("DELETE /ledger/contracts/{id}", lh.deleteContract)
 		mux.HandleFunc("POST /ledger/distribute", lh.distribute)
 	}
-	return mux
+
+	if opts.AuthSecret == "" {
+		return mux
+	}
+	ah := &authHandlers{tmpl: tmpl, secret: opts.AuthSecret, secureCookies: opts.SecureCookies}
+	mux.HandleFunc("GET /login", ah.loginPage)
+	mux.HandleFunc("POST /login", ah.loginSubmit)
+	mux.HandleFunc("POST /logout", ah.logout)
+	return authMiddleware(opts.AuthSecret)(mux)
 }
