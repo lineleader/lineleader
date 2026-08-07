@@ -34,11 +34,14 @@ services:
 
     # --- Docker-secret style alternative to the AUTH_SECRET env var above ---
     # Swap the `environment: AUTH_SECRET` line for a mounted secret file and
-    # pass `--auth-secret-file` via `command:`, e.g.:
+    # pass `--auth-secret-file` via `command:`. Compose `command:` appends to
+    # (does not replace) the image's ENTRYPOINT, so only the extra flag goes
+    # here — repeating --data-dir/--config/--plans would just duplicate what
+    # ENTRYPOINT already sets:
     #
     # secrets:
     #   - auth_secret
-    # command: ["--data-dir", "/app/data/point-charts", "--config", "/state/config.json", "--plans", "/state/plans.json", "--auth-secret-file", "/run/secrets/auth_secret"]
+    # command: ["--auth-secret-file", "/run/secrets/auth_secret"]
     #
     # (top-level, alongside `services:`)
     # secrets:
