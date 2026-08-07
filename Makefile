@@ -61,6 +61,22 @@ test-db-stop:
 seed-test: dvc
 	./scripts/seed-ledger_test.sh
 
+IMAGE := lineleader:local
+
+.PHONY: docker-build
+docker-build:
+	docker build -t $(IMAGE) .
+
+# Local smoke test only: publishes 8080 on the host and relies on
+# LEDGER_DSN/AUTH_SECRET already being set in the environment. Real
+# deployments use docker-compose.yml (no published port; reverse proxy
+# reaches the container over the compose network).
+.PHONY: docker-run
+docker-run: docker-build
+	docker run --rm -p 8080:8080 \
+		-e LEDGER_DSN="$(LEDGER_DSN)" -e AUTH_SECRET="$(AUTH_SECRET)" \
+		$(IMAGE)
+
 .PHONY: clean
 clean:
 	rm -rf bin/*
