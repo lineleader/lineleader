@@ -26,11 +26,7 @@ func dateParse(t *testing.T, s string) time.Time {
 func newLedgerTestServer(t *testing.T) (*httptest.Server, *ledger.Store) {
 	t.Helper()
 	dir := t.TempDir()
-	store, err := ledger.Open(filepath.Join(dir, "ledger.db"))
-	if err != nil {
-		t.Fatalf("Open ledger: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := ledger.OpenTest(t)
 	srv := NewServer(Options{
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		ConfigPath: filepath.Join(dir, "config.json"),
