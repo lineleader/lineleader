@@ -1,19 +1,13 @@
 package ledger
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "ledger.db"))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
+	return OpenTest(t)
 }
 
 func TestUseYearForDate(t *testing.T) {
@@ -91,8 +85,8 @@ func TestContractCRUD(t *testing.T) {
 }
 
 func TestOpenIsIdempotent(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ledger.db")
-	s1, err := Open(path)
+	dsn := OpenTestDSN(t)
+	s1, err := Open(dsn)
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
@@ -101,8 +95,8 @@ func TestOpenIsIdempotent(t *testing.T) {
 	}
 	s1.Close()
 
-	// Reopening the same file must not wipe data or fail on existing tables.
-	s2, err := Open(path)
+	// Reopening the same schema must not wipe data or fail on existing tables.
+	s2, err := Open(dsn)
 	if err != nil {
 		t.Fatalf("second Open: %v", err)
 	}
