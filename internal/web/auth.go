@@ -119,9 +119,13 @@ func sameOriginRequest(r *http.Request) bool {
 
 // safeNext validates a user-supplied ?next= redirect target: it must be a
 // single site-relative path, never an absolute or protocol-relative URL
-// (which would turn login into an open redirect).
+// (which would turn login into an open redirect). Backslashes are
+// rejected outright: several browsers normalize a leading "/\" the same
+// way as "//" when resolving a Location header, which would otherwise
+// let "/\evil.com" slip past the "//" check as a scheme-relative URL to
+// evil.com. No legitimate in-app path ever contains one.
 func safeNext(next string) string {
-	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.ContainsRune(next, '\\') {
 		return "/"
 	}
 	return next

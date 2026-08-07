@@ -276,3 +276,48 @@ func TestAuth_ExpiredOrGarbageCookie_TreatedAsUnauthenticated(t *testing.T) {
 		}
 	}
 }
+
+// TestSafeNext_RejectsBackslashPaths guards against a browser-normalization
+// bypass: some browsers treat a leading "/\" in a Location header the same
+// as "//" when resolving it, so "/\evil.com" would otherwise slip past the
+// "//" protocol-relative check as a scheme-relative redirect to evil.com.
+func TestSafeNext_RejectsBackslashPaths(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{`/\evil.com`, "/"},
+		{`/a\b`, "/"},
+		{"//evil.com", "/"},    // pre-existing protocol-relative guard, kept as a regression check
+		{"/ledger", "/ledger"}, // legitimate in-app path still passes through
+	}
+	for _, c := range cases {
+		if got := safeNext(c.in); got != c.want {
+			t.Errorf("safeNext(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestAuth_LoginBackslashNext_DoesNotRedirectOffSite exercises the same
+// guard end-to-end through POST /login, confirming a backslash-prefixed
+// next never reaches the Location header.
+func TestAuth_LoginBackslashNext_DoesNotRedirectOffSite(t *testing.T) {
+	ts := newAuthTestServer(t, "s3cret", false)
+	defer ts.Close()
+
+	client := noRedirectClient()
+	resp, err := client.PostForm(ts.URL+"/login", url.Values{
+		"password": {"s3cret"},
+		"next":     {`/\evil.com`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/" {
+		t.Fatalf("Location = %q, want /", loc)
+	}
+}
