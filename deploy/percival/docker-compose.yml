@@ -29,10 +29,14 @@ services:
       # (see deploy/README.md).
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set in dockhand}
     ports:
-      # Caddy on the `traefik` tailnet node reverse-proxies lineleader.dev
+      # Caddy on the `traefik` tailnet node reverse-proxies lineleader.io
       # to percival:8080 (see deploy/Caddyfile.snippet) — this publishes
       # the port on the host for that proxy to reach.
       - "8080:8080"
+      # Tighter alternative: bind only to percival's Tailscale IP, so the
+      # app is reachable over the tailnet (which is all Caddy needs) but
+      # not from the rest of the LAN. Swap for the line above to use it:
+      # - "100.119.145.113:8080:8080"
     volumes:
       # config.json / plans.json — the only state this container keeps
       # outside Postgres.

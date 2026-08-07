@@ -4,7 +4,7 @@ Deploys the lineleader server to `percival` (Tailscale IP
 `100.119.145.113`), managed there by dockhand from
 [`deploy/percival/docker-compose.yml`](percival/docker-compose.yml), fronted
 by Caddy on the `traefik` tailnet node
-([`deploy/Caddyfile.snippet`](Caddyfile.snippet)) at `lineleader.dev`.
+([`deploy/Caddyfile.snippet`](Caddyfile.snippet)) at `lineleader.io`.
 
 ## One-time setup
 
@@ -37,8 +37,27 @@ by Caddy on the `traefik` tailnet node
    openssl rand -base64 32
    ```
 
-4. **Add the Caddy block** from `deploy/Caddyfile.snippet` to the Caddy
+4. **Point DNS at the Caddy node.** The `traefik` tailnet node is a Google
+   Cloud VM with the public IP `34.29.51.143` (it already serves
+   `rss.c18l.com` and `mrshll.us`). Add an A record in Cloudflare:
+
+   ```
+   lineleader.io.  A  34.29.51.143   ; DNS only — grey cloud, not proxied
+   ```
+
+   Keep it DNS-only, matching `rss.c18l.com`; Caddy's ACME challenge needs
+   to reach the origin directly.
+
+5. **Add the Caddy block** from `deploy/Caddyfile.snippet` to the Caddy
    config on the `traefik` node, then reload Caddy.
+
+6. **Make sure percival can pull from GHCR.** Packages under the
+   `lineleader` org are private — `ghcr.io/lineleader/wall-e` returns 403
+   to an anonymous pull — so percival (or dockhand) needs registry
+   credentials. An existing org-scoped PAT login covers a new package in
+   the same org; otherwise either `docker login ghcr.io` on percival with a
+   `read:packages` PAT, or mark the `lineleader` package public in its
+   GitHub package settings after the first CI publish.
 
 ## Migrating the existing SQLite ledger
 
@@ -77,7 +96,7 @@ Point the `dvc` CLI (and any other lineleader CLI client) at the hosted
 server with either environment variables:
 
 ```bash
-export LINELEADER_SERVER=https://lineleader.dev
+export LINELEADER_SERVER=https://lineleader.io
 export LINELEADER_TOKEN=<the AUTH_SECRET>
 ```
 
@@ -85,7 +104,7 @@ or a config file at `~/.config/lineleader/client.json`:
 
 ```json
 {
-  "server_url": "https://lineleader.dev",
+  "server_url": "https://lineleader.io",
   "token": "<the AUTH_SECRET>"
 }
 ```
@@ -100,7 +119,7 @@ error — it just falls through to whatever's already resolved.
 ## Verifying
 
 ```bash
-curl https://lineleader.dev/healthz
+curl https://lineleader.io/healthz
 ```
 
 should return `ok`.

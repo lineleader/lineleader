@@ -4,11 +4,14 @@
 #
 # 100.119.145.113 is percival's Tailscale IP, where the lineleader
 # container publishes port 8080 (see deploy/percival/docker-compose.yml).
+# This node reaches percival over Tailscale, not the public internet.
 #
-# Swap `lineleader.dev` for `lineleader.io` below if preferred — it's a
-# one-line edit.
+# DNS prerequisite: lineleader.io must have an A record pointing at this
+# node's PUBLIC IP, 34.29.51.143, DNS-only (grey cloud) in Cloudflare —
+# the same pattern rss.c18l.com already uses. Caddy's ACME challenge fails
+# until that record resolves.
 
-lineleader.dev {
+lineleader.io {
     reverse_proxy 100.119.145.113:8080
 }
 
@@ -17,7 +20,7 @@ lineleader.dev {
 # internal/web/server.go) instead of just reacting to failed proxied
 # requests. Uncomment to use it in place of the block above:
 #
-# lineleader.dev {
+# lineleader.io {
 #     reverse_proxy 100.119.145.113:8080 {
 #         health_uri /healthz
 #     }
