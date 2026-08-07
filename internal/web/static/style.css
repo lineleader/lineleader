@@ -144,7 +144,29 @@ button:focus-visible {
   border-radius: 999px;
 }
 .bar .err { color: var(--danger); font-weight: 600; }
-.bar .actions { display: flex; gap: 0.6rem; }
+.bar .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+/* Nav link styled to match the button row it sits in. */
+.btn-link {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.85rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.12s var(--ease), background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.btn-link:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.btn-link:active { transform: translateY(0); box-shadow: none; }
+.btn-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
 
 /* "+ Add trip" — the primary call to action */
 .bar .actions button:last-child {
