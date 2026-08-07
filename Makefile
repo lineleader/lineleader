@@ -1,9 +1,14 @@
 .PHONY: dev
 dev:
-	# Requires a Postgres ledger DSN. LEDGER_DSN is picked up from the
-	# environment automatically (make passes it through to `go run`):
-	#   LEDGER_DSN=postgres://user:pass@localhost:5432/lineleader?sslmode=disable make dev
-	go run cmd/server/main.go
+	# Requires a Postgres ledger DSN and an auth secret. Both are picked up
+	# from the environment automatically (make passes them through to
+	# `go run`). Add --insecure-cookies so the session cookie works over
+	# plain http in local dev (real deployments keep Secure cookies, TLS
+	# terminates at the reverse proxy):
+	#   LEDGER_DSN=postgres://user:pass@localhost:5432/lineleader?sslmode=disable \
+	#   AUTH_SECRET=devsecret \
+	#   make dev
+	go run cmd/server/main.go --insecure-cookies
 
 .PHONY: all
 all: dev
