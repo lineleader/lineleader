@@ -1,0 +1,49 @@
+# Deployment compose file for the hosted LineLeader server
+# (docs/pitches/hosted-lineleader.md, "5. Ship it").
+#
+# No postgres service here on purpose: the points ledger lives in the
+# EXISTING home-lab Postgres instance, which already has its own backup
+# story. Point LEDGER_DSN at that instance; this compose file never starts
+# a database.
+#
+# TLS is not this file's job either — terminate it at the existing reverse
+# proxy in front of whatever host runs this container, then proxy plain
+# HTTP to the port exposed below.
+
+services:
+  lineleader:
+    build: .
+    # image: ghcr.io/lineleader/lineleader:latest  # once published, swap `build: .` for a tag
+    restart: unless-stopped
+    environment:
+      LEDGER_DSN: ${LEDGER_DSN}
+      # Simplest option: pass the shared auth secret straight through the
+      # environment. Fine for a single-host home-lab deployment where the
+      # environment itself is already trusted.
+      AUTH_SECRET: ${AUTH_SECRET}
+    volumes:
+      # config.json / plans.json are whole-file JSON rewrites — the only
+      # state this container keeps outside Postgres.
+      - state:/state
+    # Reverse-proxy setups typically don't publish this port on the host at
+    # all — the proxy reaches the container over the compose network
+    # instead. Uncomment to expose directly (e.g. proxying to the host's
+    # own IP, or for a local smoke test):
+    # ports:
+    #   - "8080:8080"
+
+    # --- Docker-secret style alternative to the AUTH_SECRET env var above ---
+    # Swap the `environment: AUTH_SECRET` line for a mounted secret file and
+    # pass `--auth-secret-file` via `command:`, e.g.:
+    #
+    # secrets:
+    #   - auth_secret
+    # command: ["--data-dir", "/app/data/point-charts", "--config", "/state/config.json", "--plans", "/state/plans.json", "--auth-secret-file", "/run/secrets/auth_secret"]
+    #
+    # (top-level, alongside `services:`)
+    # secrets:
+    #   auth_secret:
+    #     file: ./auth_secret.txt
+
+volumes:
+  state:
