@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,9 +10,9 @@ import (
 	"github.com/lineleader/lineleader/internal/ledger"
 )
 
-func testDBPath(t *testing.T) string {
+func testDSN(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(t.TempDir(), "ledger.db")
+	return ledger.OpenTestDSN(t)
 }
 
 func runLedgerT(t *testing.T, args ...string) (string, error) {
@@ -24,8 +23,8 @@ func runLedgerT(t *testing.T, args ...string) (string, error) {
 }
 
 func TestRunLedgerShowEmpty(t *testing.T) {
-	db := testDBPath(t)
-	out, err := runLedgerT(t, "show", "--db", db)
+	db := testDSN(t)
+	out, err := runLedgerT(t, "show", "--dsn", db)
 	if err != nil {
 		t.Fatalf("runLedger show: %v", err)
 	}
@@ -40,15 +39,15 @@ func TestRunLedgerShowEmpty(t *testing.T) {
 }
 
 func TestRunLedgerShowWithEntries(t *testing.T) {
-	db := testDBPath(t)
-	if _, err := runLedgerT(t, "add", "--db", db, "--date", "2026-04-01", "--desc", "Point allocation", "--kind", "allocation", "--allotted", "120"); err != nil {
+	db := testDSN(t)
+	if _, err := runLedgerT(t, "add", "--dsn", db, "--date", "2026-04-01", "--desc", "Point allocation", "--kind", "allocation", "--allotted", "120"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if _, err := runLedgerT(t, "add", "--db", db, "--date", "2026-05-01", "--desc", "RIV 2br Std", "--kind", "usage", "--used", "80"); err != nil {
+	if _, err := runLedgerT(t, "add", "--dsn", db, "--date", "2026-05-01", "--desc", "RIV 2br Std", "--kind", "usage", "--used", "80"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
-	out, err := runLedgerT(t, "show", "--db", db)
+	out, err := runLedgerT(t, "show", "--dsn", db)
 	if err != nil {
 		t.Fatalf("runLedger show: %v", err)
 	}
@@ -66,8 +65,8 @@ func TestRunLedgerShowWithEntries(t *testing.T) {
 }
 
 func TestRunLedgerContractsAddAndList(t *testing.T) {
-	db := testDBPath(t)
-	out, err := runLedgerT(t, "contracts", "add", "--db", db, "--name", "Point allocation", "--number", "1234567.000", "--resort", "VGF", "--points", "150", "--use-year-month", "Apr")
+	db := testDSN(t)
+	out, err := runLedgerT(t, "contracts", "add", "--dsn", db, "--name", "Point allocation", "--number", "1234567.000", "--resort", "VGF", "--points", "150", "--use-year-month", "Apr")
 	if err != nil {
 		t.Fatalf("contracts add: %v", err)
 	}
@@ -75,7 +74,7 @@ func TestRunLedgerContractsAddAndList(t *testing.T) {
 		t.Errorf("unexpected add output: %q", out)
 	}
 
-	out, err = runLedgerT(t, "contracts", "list", "--db", db)
+	out, err = runLedgerT(t, "contracts", "list", "--dsn", db)
 	if err != nil {
 		t.Fatalf("contracts list: %v", err)
 	}
@@ -90,9 +89,9 @@ func TestRunLedgerContractsAddAndList(t *testing.T) {
 }
 
 func TestRunLedgerAddEditDelete(t *testing.T) {
-	db := testDBPath(t)
+	db := testDSN(t)
 
-	out, err := runLedgerT(t, "add", "--db", db, "--date", "2026-04-01", "--desc", "Point allocation", "--kind", "allocation", "--allotted", "120")
+	out, err := runLedgerT(t, "add", "--dsn", db, "--date", "2026-04-01", "--desc", "Point allocation", "--kind", "allocation", "--allotted", "120")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -100,7 +99,7 @@ func TestRunLedgerAddEditDelete(t *testing.T) {
 		t.Errorf("unexpected add output: %q", out)
 	}
 
-	out, err = runLedgerT(t, "edit", "--db", db, "--id", "1", "--date", "2026-04-02", "--desc", "Point allocation (edited)", "--kind", "allocation", "--allotted", "125")
+	out, err = runLedgerT(t, "edit", "--dsn", db, "--id", "1", "--date", "2026-04-02", "--desc", "Point allocation (edited)", "--kind", "allocation", "--allotted", "125")
 	if err != nil {
 		t.Fatalf("edit: %v", err)
 	}
@@ -121,7 +120,7 @@ func TestRunLedgerAddEditDelete(t *testing.T) {
 	}
 	s.Close()
 
-	out, err = runLedgerT(t, "delete", "--db", db, "--id", "1")
+	out, err = runLedgerT(t, "delete", "--dsn", db, "--id", "1")
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -144,7 +143,7 @@ func TestRunLedgerAddEditDelete(t *testing.T) {
 }
 
 func TestRunLedgerDistribute(t *testing.T) {
-	db := testDBPath(t)
+	db := testDSN(t)
 
 	// DistributeNextYear targets time.Now().Year()+1, so seed the allocation at the
 	// current year and assert against year+1 rather than a hardcoded year — this must
@@ -153,15 +152,15 @@ func TestRunLedgerDistribute(t *testing.T) {
 	nextYear := thisYear + 1
 	seedDate := fmt.Sprintf("%04d-04-01", thisYear)
 
-	if _, err := runLedgerT(t, "contracts", "add", "--db", db, "--name", "Point allocation", "--points", "120", "--use-year-month", "Apr"); err != nil {
+	if _, err := runLedgerT(t, "contracts", "add", "--dsn", db, "--name", "Point allocation", "--points", "120", "--use-year-month", "Apr"); err != nil {
 		t.Fatalf("contracts add: %v", err)
 	}
 
-	if _, err := runLedgerT(t, "add", "--db", db, "--date", seedDate, "--desc", "Point allocation", "--kind", "allocation", "--allotted", "120", "--contract", "1"); err != nil {
+	if _, err := runLedgerT(t, "add", "--dsn", db, "--date", seedDate, "--desc", "Point allocation", "--kind", "allocation", "--allotted", "120", "--contract", "1"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
-	out, err := runLedgerT(t, "distribute", "--db", db)
+	out, err := runLedgerT(t, "distribute", "--dsn", db)
 	if err != nil {
 		t.Fatalf("distribute: %v", err)
 	}
@@ -193,7 +192,7 @@ func TestRunLedgerDistribute(t *testing.T) {
 	}
 
 	// Running distribute again is idempotent (no additional rows beyond next year).
-	out2, err := runLedgerT(t, "distribute", "--db", db)
+	out2, err := runLedgerT(t, "distribute", "--dsn", db)
 	if err != nil {
 		t.Fatalf("second distribute: %v", err)
 	}
@@ -217,32 +216,32 @@ func TestRunLedgerNoSubcommand(t *testing.T) {
 }
 
 func TestRunLedgerAddMissingRequiredFlags(t *testing.T) {
-	db := testDBPath(t)
-	_, err := runLedgerT(t, "add", "--db", db)
+	db := testDSN(t)
+	_, err := runLedgerT(t, "add", "--dsn", db)
 	if err == nil {
 		t.Fatal("expected an error when --date/--desc are missing, got nil")
 	}
 }
 
 func TestRunLedgerContractsAddMissingRequiredFlags(t *testing.T) {
-	db := testDBPath(t)
-	_, err := runLedgerT(t, "contracts", "add", "--db", db)
+	db := testDSN(t)
+	_, err := runLedgerT(t, "contracts", "add", "--dsn", db)
 	if err == nil {
 		t.Fatal("expected an error when required contract flags are missing, got nil")
 	}
 }
 
 func TestRunLedgerAddBadDateFormat(t *testing.T) {
-	db := testDBPath(t)
-	_, err := runLedgerT(t, "add", "--db", db, "--date", "not-a-date", "--desc", "whatever")
+	db := testDSN(t)
+	_, err := runLedgerT(t, "add", "--dsn", db, "--date", "not-a-date", "--desc", "whatever")
 	if err == nil {
 		t.Fatal("expected an error for a malformed --date, got nil")
 	}
 }
 
 func TestRunLedgerDeleteMissingID(t *testing.T) {
-	db := testDBPath(t)
-	_, err := runLedgerT(t, "delete", "--db", db)
+	db := testDSN(t)
+	_, err := runLedgerT(t, "delete", "--dsn", db)
 	if err == nil {
 		t.Fatal("expected an error when --id is missing, got nil")
 	}
