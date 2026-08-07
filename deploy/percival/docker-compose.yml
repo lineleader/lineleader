@@ -17,9 +17,18 @@ name: lineleader
 
 services:
   lineleader:
-    # dockhand bumps this line on every release (scripts/release.sh prints
-    # the exact tag to set after CI publishes it).
-    image: ghcr.io/lineleader/lineleader:v0.1.0
+    # The deployed version is a dockhand variable, not a pin in this repo —
+    # rolling out a release means changing LINELEADER_VERSION in dockhand,
+    # and this file never goes stale. scripts/release.sh prints the value
+    # to set once CI has published the image.
+    #
+    # Required form: an unset variable fails the deploy rather than
+    # silently resolving to `:` (an invalid tag). Use ${LINELEADER_VERSION:-v0.1.1}
+    # instead if you'd rather have a fallback default.
+    #
+    # Note the leading `v`: CI publishes v-prefixed tags (see
+    # .github/workflows/release.yml), matching wall-e / random-motivation.
+    image: ghcr.io/lineleader/lineleader:${LINELEADER_VERSION:?set LINELEADER_VERSION in dockhand, e.g. v0.1.1}
     restart: unless-stopped
     environment:
       # Host `postgresql` is the shared Postgres container's name on

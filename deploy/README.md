@@ -103,8 +103,17 @@ if the cutover needs to be undone.
 
 This tags and pushes; GitHub Actions then builds and publishes
 `ghcr.io/lineleader/lineleader:v0.1.0` (see
-`.github/workflows/release.yml`). Once the build finishes, bump the image
-tag in dockhand on percival to that version.
+`.github/workflows/release.yml`). Once the build finishes, roll it out by
+setting `LINELEADER_VERSION=v0.1.0` in dockhand and redeploying the stack.
+
+The compose file interpolates `LINELEADER_VERSION` into the image tag
+rather than pinning it, so releasing never requires a commit here. Both
+it and `AUTH_SECRET` use the required `${VAR:?...}` form — an unset
+variable fails the deploy loudly instead of resolving to an empty string.
+
+Image tags keep their leading `v` (`v0.1.0`, not `0.1.0`). The workflow
+uses metadata-action's `{{raw}}` for this; `{{version}}` would strip the
+prefix and produce a tag the compose file can't find.
 
 ## CLI clients
 

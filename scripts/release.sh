@@ -55,6 +55,11 @@ GitHub Actions is now building and publishing:
 Watch the build with:
     gh run watch
 
-Once it finishes, update the image tag in dockhand on percival to:
-    ghcr.io/lineleader/lineleader:$version
+Once it finishes, roll it out by setting this variable in dockhand on
+percival and redeploying the lineleader stack:
+
+    LINELEADER_VERSION=$version
+
+(deploy/percival/docker-compose.yml interpolates it into the image tag,
+so the compose file itself never needs editing.)
 EOF
