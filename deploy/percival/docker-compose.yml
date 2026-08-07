@@ -1,0 +1,56 @@
+# Deployment compose file for the `percival` homelab host, driven by
+# dockhand (compose-file driven, UI-managed — dockhand points at this file
+# and bumps the `image:` tag on each release; see scripts/release.sh and
+# deploy/README.md).
+#
+# This pulls a published image from GHCR; nothing is built on percival.
+# There is no postgres service here: this container joins the existing
+# shared Postgres that already runs on percival (see the `postgresql`
+# network below) and reaches it by container hostname. The ledger schema
+# self-applies on boot (internal/ledger.Store applies it idempotently) —
+# no separate migration step is needed here.
+
+services:
+  lineleader:
+    # dockhand bumps this line on every release (scripts/release.sh prints
+    # the exact tag to set after CI publishes it).
+    image: ghcr.io/lineleader/lineleader:v0.1.0
+    restart: unless-stopped
+    environment:
+      # UNCONFIRMED: network name `postgresql` and DB host `postgresql` are
+      # carried over from the prior CasaOS setup. Confirm both with
+      # `docker network ls` / `docker ps` on percival before relying on
+      # this, and correct the network block below and this DSN if they
+      # differ.
+      LEDGER_DSN: postgres://casaos:casaos@postgresql:5432/lineleader?sslmode=disable
+      # Fail loud rather than silently start unauthenticated: dockhand must
+      # set AUTH_SECRET in its own environment/secrets UI for this service.
+      # It is NOT committed here — generate with `openssl rand -base64 32`
+      # (see deploy/README.md).
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set in dockhand}
+    ports:
+      # Caddy on the `traefik` tailnet node reverse-proxies lineleader.dev
+      # to percival:8080 (see deploy/Caddyfile.snippet) — this publishes
+      # the port on the host for that proxy to reach.
+      - "8080:8080"
+    volumes:
+      # config.json / plans.json — the only state this container keeps
+      # outside Postgres.
+      - state:/state
+    # No healthcheck: the runtime image is distroless (no shell, no curl,
+    # no wget) so there's nothing here to shell out to. GET /healthz is
+    # checked from the outside instead, by the Caddy reverse proxy on the
+    # `traefik` node.
+    networks:
+      - default
+      - postgresql
+
+volumes:
+  state:
+
+networks:
+  # External network for the shared Postgres container already running on
+  # percival. UNCONFIRMED name — verify with `docker network ls` on
+  # percival and correct if it's not actually called `postgresql`.
+  postgresql:
+    external: true
