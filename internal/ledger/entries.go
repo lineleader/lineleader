@@ -8,7 +8,7 @@ func (s *Store) AddEntry(e Entry) (int64, error) {
 	err := s.db.QueryRow(
 		`INSERT INTO entries (use_year, date, description, kind, allotted, used, tag, contract_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-		e.UseYear, e.Date.Format(dateLayout), e.Desc, e.Kind, e.Allotted, e.Used, e.Tag, e.ContractID,
+		e.UseYear, e.Date.Format(DateLayout), e.Desc, e.Kind, e.Allotted, e.Used, e.Tag, e.ContractID,
 	).Scan(&id)
 	if err != nil {
 		return 0, err
@@ -60,7 +60,7 @@ func (s *Store) UpdateEntry(e Entry) error {
 		`UPDATE entries
 		 SET use_year = $1, date = $2, description = $3, kind = $4, allotted = $5, used = $6, tag = $7, contract_id = $8
 		 WHERE id = $9`,
-		e.UseYear, e.Date.Format(dateLayout), e.Desc, e.Kind, e.Allotted, e.Used, e.Tag, e.ContractID, e.ID,
+		e.UseYear, e.Date.Format(DateLayout), e.Desc, e.Kind, e.Allotted, e.Used, e.Tag, e.ContractID, e.ID,
 	)
 	return err
 }

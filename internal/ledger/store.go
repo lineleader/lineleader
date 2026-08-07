@@ -44,12 +44,10 @@ func (s *Store) Close() error { return s.db.Close() }
 // endpoint for reverse-proxy liveness checks.
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
-const dateLayout = "2006-01-02"
-
 // parseDate reads a stored date, tolerating either a bare date or a full RFC3339
 // timestamp (some tooling may write the latter).
 func parseDate(s string) (time.Time, error) {
-	if t, err := time.Parse(dateLayout, s); err == nil {
+	if t, err := time.Parse(DateLayout, s); err == nil {
 		return t, nil
 	}
 	return time.Parse(time.RFC3339, s)

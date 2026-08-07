@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/lineleader/lineleader/internal/ledger"
 )
-
-const ledgerDateLayout = "2006-01-02"
 
 // runLedger dispatches the `dvc ledger <sub>` commands.
 func runLedger(args []string, out io.Writer) error {
@@ -96,7 +93,7 @@ func runLedgerShow(args []string, out io.Writer) error {
 	fmt.Fprintln(tw, "ID\tYEAR\tDATE\tDESC\tALLOTTED\tUSED\tTOTAL\tTAG")
 	for _, e := range entries {
 		fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\n",
-			e.ID, e.UseYear, e.Date.Format(ledgerDateLayout), e.Desc,
+			e.ID, e.UseYear, e.Date.Format(ledger.DateLayout), e.Desc,
 			pointsCol(e.Allotted), pointsCol(e.Used), e.RunningBalance, e.Tag)
 	}
 	tw.Flush()
@@ -165,7 +162,7 @@ func runLedgerContracts(args []string, out io.Writer) error {
 		if *name == "" || *points == 0 || *month == "" {
 			return errors.New("ledger contracts add: --name, --points, and --use-year-month are required")
 		}
-		m, err := parseMonth(*month)
+		m, err := ledger.ParseMonth(*month)
 		if err != nil {
 			return fmt.Errorf("ledger contracts add: %w", err)
 		}
@@ -325,7 +322,7 @@ func entryFlags(fs *flag.FlagSet) entryFields {
 }
 
 func (f entryFields) toEntry() (ledger.Entry, error) {
-	d, err := time.Parse(ledgerDateLayout, *f.date)
+	d, err := time.Parse(ledger.DateLayout, *f.date)
 	if err != nil {
 		return ledger.Entry{}, fmt.Errorf("invalid --date: %w", err)
 	}
@@ -355,19 +352,4 @@ func pointsCol(n int) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", n)
-}
-
-// parseMonth accepts a month number (1-12) or an English month name/abbreviation.
-func parseMonth(s string) (time.Month, error) {
-	s = strings.TrimSpace(s)
-	for m := time.January; m <= time.December; m++ {
-		if strings.EqualFold(s, m.String()) || strings.EqualFold(s, m.String()[:3]) {
-			return m, nil
-		}
-	}
-	var n int
-	if _, err := fmt.Sscanf(s, "%d", &n); err == nil && n >= 1 && n <= 12 {
-		return time.Month(n), nil
-	}
-	return 0, fmt.Errorf("invalid month %q (use Apr, April, or 4)", s)
 }

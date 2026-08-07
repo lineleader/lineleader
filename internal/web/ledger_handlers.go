@@ -1,18 +1,14 @@
 package web
 
 import (
-	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/lineleader/lineleader/internal/ledger"
 )
-
-const ledgerDateLayout = "2006-01-02"
 
 // ledgerHandlers serves the /ledger page. It is independent of the trip-planner
 // Session and guards the store with its own mutex.
@@ -130,7 +126,7 @@ func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	month, err := parseMonth(r.FormValue("use_year_month"))
+	month, err := ledger.ParseMonth(r.FormValue("use_year_month"))
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -184,7 +180,7 @@ func parseEntryForm(r *http.Request, id int64) (ledger.Entry, error) {
 	if err := r.ParseForm(); err != nil {
 		return ledger.Entry{}, err
 	}
-	d, err := time.Parse(ledgerDateLayout, r.FormValue("date"))
+	d, err := time.Parse(ledger.DateLayout, r.FormValue("date"))
 	if err != nil {
 		return ledger.Entry{}, err
 	}
@@ -230,17 +226,4 @@ func atoi64Or(s string, def int64) int64 {
 		return n
 	}
 	return def
-}
-
-// parseMonth accepts a month number (1-12) or an English month name/abbreviation.
-func parseMonth(s string) (time.Month, error) {
-	for m := time.January; m <= time.December; m++ {
-		if strings.EqualFold(s, m.String()) || strings.EqualFold(s, m.String()[:3]) {
-			return m, nil
-		}
-	}
-	if n, err := strconv.Atoi(s); err == nil && n >= 1 && n <= 12 {
-		return time.Month(n), nil
-	}
-	return 0, fmt.Errorf("invalid month %q (use Apr, April, or 4)", s)
 }
