@@ -169,7 +169,7 @@ button:focus-visible {
 }
 
 /* "+ Add trip" — the primary call to action */
-.bar .actions button:last-child {
+.bar .actions button:last-of-type {
   background: var(--primary);
   color: var(--primary-ink);
   border-color: transparent;
