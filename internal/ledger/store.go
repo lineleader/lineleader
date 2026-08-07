@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"context"
 	"database/sql"
 	_ "embed"
 	"fmt"
@@ -38,6 +39,10 @@ func Open(dsn string) (*Store, error) {
 
 // Close releases the database handle.
 func (s *Store) Close() error { return s.db.Close() }
+
+// Ping verifies the database connection is alive. Used by the /healthz
+// endpoint for reverse-proxy liveness checks.
+func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 const dateLayout = "2006-01-02"
 

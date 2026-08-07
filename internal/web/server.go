@@ -10,6 +10,25 @@ import (
 	"github.com/lineleader/lineleader/internal/ledger"
 )
 
+// healthzHandler reports liveness for reverse-proxy health checks. It pings
+// the ledger database when one is configured.
+//
+// NOTE: intentionally left unauthenticated — a future auth task must exempt
+// /healthz from any auth middleware it adds.
+func healthzHandler(store *ledger.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store != nil {
+			if err := store.Ping(r.Context()); err != nil {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}
+}
+
 //go:embed templates/*.html
 var templatesFS embed.FS
 
@@ -44,6 +63,7 @@ func NewServer(opts Options) http.Handler {
 		session: NewSession(opts.Charts, opts.Config, opts.ConfigPath, opts.Plans, opts.PlansPath, opts.Defaults),
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", healthzHandler(opts.Ledger))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(sub))))
 	mux.HandleFunc("GET /", h.index)
 	mux.HandleFunc("POST /budget", h.updateBudget)
