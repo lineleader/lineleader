@@ -107,6 +107,21 @@ func NewServer(opts Options) http.Handler {
 		mux.HandleFunc("POST /ledger/contracts", lh.addContract)
 		mux.HandleFunc("DELETE /ledger/contracts/{id}", lh.deleteContract)
 		mux.HandleFunc("POST /ledger/distribute", lh.distribute)
+
+		// /api/v1/ledger/* — the JSON surface for the dvc CLI (and any other
+		// API client). See docs/pitches/hosted-lineleader.md, "3. JSON API
+		// for the ledger": one CLI to serve, so no OpenAPI, no hypermedia,
+		// /v1 is the only versioning.
+		apih := &apiHandlers{store: opts.Ledger}
+		mux.HandleFunc("GET /api/v1/ledger/entries", apih.listEntries)
+		mux.HandleFunc("POST /api/v1/ledger/entries", apih.addEntry)
+		mux.HandleFunc("PUT /api/v1/ledger/entries/{id}", apih.updateEntry)
+		mux.HandleFunc("DELETE /api/v1/ledger/entries/{id}", apih.deleteEntry)
+		mux.HandleFunc("GET /api/v1/ledger/contracts", apih.listContracts)
+		mux.HandleFunc("POST /api/v1/ledger/contracts", apih.addContract)
+		mux.HandleFunc("DELETE /api/v1/ledger/contracts/{id}", apih.deleteContract)
+		mux.HandleFunc("GET /api/v1/ledger/summaries", apih.summaries)
+		mux.HandleFunc("POST /api/v1/ledger/distribute", apih.distribute)
 	}
 
 	if opts.AuthSecret == "" {
