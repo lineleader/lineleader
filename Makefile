@@ -22,6 +22,20 @@ import: dvc
 test:
 	go test -v ./...
 
+# TEST_DB_DSN must match the container's exposed port/credentials below.
+TEST_DB_DSN := postgres://postgres:test@localhost:5433/lineleader_test?sslmode=disable
+
+.PHONY: test-db
+test-db:
+	docker run --rm -d --name lineleader-test-pg -p 5433:5432 \
+		-e POSTGRES_PASSWORD=test -e POSTGRES_DB=lineleader_test postgres:17-alpine
+	@echo "==> throwaway Postgres started; before running tests:"
+	@echo "    export LEDGER_TEST_DSN=$(TEST_DB_DSN)"
+
+.PHONY: test-db-stop
+test-db-stop:
+	docker stop lineleader-test-pg
+
 .PHONY: seed-test
 seed-test: dvc
 	./scripts/seed-ledger_test.sh
