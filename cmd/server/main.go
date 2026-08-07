@@ -17,9 +17,14 @@ func main() {
 	dataDir := flag.String("data-dir", "data/point-charts", "directory with JSON chart files")
 	configFile := flag.String("config", dvc.DefaultConfigPath(), "app config file (JSON)")
 	plansFile := flag.String("plans", dvc.DefaultPlansPath(), "plans file (JSON)")
-	ledgerFile := flag.String("ledger", ledger.DefaultLedgerPath(), "points ledger database (SQLite)")
+	ledgerDSN := flag.String("ledger-dsn", os.Getenv("LEDGER_DSN"), "points ledger Postgres DSN (or set LEDGER_DSN)")
 	addr := flag.String("addr", ":8080", "listen address")
 	flag.Parse()
+
+	if *ledgerDSN == "" {
+		fmt.Fprintln(os.Stderr, "ledger: no database DSN provided (use --ledger-dsn or set LEDGER_DSN)")
+		os.Exit(1)
+	}
 
 	charts, err := dvc.LoadAll(*dataDir)
 	if err != nil {
@@ -38,9 +43,9 @@ func main() {
 
 	plans, _ := dvc.LoadPlans(*plansFile)
 
-	ledgerStore, err := ledger.Open(*ledgerFile)
+	ledgerStore, err := ledger.Open(*ledgerDSN)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "opening ledger %s: %v\n", *ledgerFile, err)
+		fmt.Fprintf(os.Stderr, "opening ledger %s: %v\n", *ledgerDSN, err)
 		os.Exit(1)
 	}
 	defer ledgerStore.Close()

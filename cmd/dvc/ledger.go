@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -41,21 +42,33 @@ func ledgerUsage() string {
 	return `dvc ledger — DVC points master ledger
 
 Usage:
-  dvc ledger show [--db PATH]
-  dvc ledger contracts list [--db PATH]
-  dvc ledger contracts add --name NAME [--number N] [--resort CODE] --points N --use-year-month MON [--db PATH]
+  dvc ledger show [--dsn DSN]
+  dvc ledger contracts list [--dsn DSN]
+  dvc ledger contracts add --name NAME [--number N] [--resort CODE] --points N --use-year-month MON [--dsn DSN]
   dvc ledger add --date YYYY-MM-DD --desc TEXT [--year N] [--kind allocation|usage|bonus|single_use|adjustment]
-                 [--allotted N] [--used N] [--tag TEXT] [--db PATH]
-  dvc ledger edit --id N [same flags as add] [--db PATH]
-  dvc ledger delete --id N [--db PATH]
-  dvc ledger distribute [--db PATH]`
+                 [--allotted N] [--used N] [--tag TEXT] [--dsn DSN]
+  dvc ledger edit --id N [same flags as add] [--dsn DSN]
+  dvc ledger delete --id N [--dsn DSN]
+  dvc ledger distribute [--dsn DSN]
+
+DSN defaults to the LEDGER_DSN environment variable when --dsn is omitted.`
 }
 
-// openLedger opens the store at the --db path (added to fs) after parsing.
-func openLedger(dbPath string) (*ledger.Store, error) {
-	s, err := ledger.Open(dbPath)
+// defaultLedgerDSN is the --dsn flag default: the LEDGER_DSN environment
+// variable, or empty (openLedger then reports a clear error).
+func defaultLedgerDSN() string {
+	return os.Getenv("LEDGER_DSN")
+}
+
+// openLedger opens the store at the given Postgres DSN (from --dsn, added to
+// fs) after parsing.
+func openLedger(dsn string) (*ledger.Store, error) {
+	if dsn == "" {
+		return nil, errors.New("ledger: no database DSN provided (use --dsn or set LEDGER_DSN)")
+	}
+	s, err := ledger.Open(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("ledger: opening %s: %w", dbPath, err)
+		return nil, fmt.Errorf("ledger: opening %s: %w", dsn, err)
 	}
 	return s, nil
 }
@@ -63,12 +76,12 @@ func openLedger(dbPath string) (*ledger.Store, error) {
 func runLedgerShow(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("ledger show", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
+	dsn := fs.String("dsn", defaultLedgerDSN(), "ledger Postgres DSN (or set LEDGER_DSN)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	s, err := openLedger(*db)
+	s, err := openLedger(*dsn)
 	if err != nil {
 		return err
 	}
@@ -116,11 +129,11 @@ func runLedgerContracts(args []string, out io.Writer) error {
 	case "list":
 		fs := flag.NewFlagSet("ledger contracts list", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
-		db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
+		dsn := fs.String("dsn", defaultLedgerDSN(), "ledger Postgres DSN (or set LEDGER_DSN)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		s, err := openLedger(*db)
+		s, err := openLedger(*dsn)
 		if err != nil {
 			return err
 		}
@@ -140,7 +153,7 @@ func runLedgerContracts(args []string, out io.Writer) error {
 	case "add":
 		fs := flag.NewFlagSet("ledger contracts add", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
-		db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
+		dsn := fs.String("dsn", defaultLedgerDSN(), "ledger Postgres DSN (or set LEDGER_DSN)")
 		name := fs.String("name", "", "contract name")
 		number := fs.String("number", "", "DVC contract/membership number")
 		resort := fs.String("resort", "", "home resort code")
@@ -156,7 +169,7 @@ func runLedgerContracts(args []string, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("ledger contracts add: %w", err)
 		}
-		s, err := openLedger(*db)
+		s, err := openLedger(*dsn)
 		if err != nil {
 			return err
 		}
@@ -178,7 +191,7 @@ func runLedgerContracts(args []string, out io.Writer) error {
 func runLedgerAdd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("ledger add", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
+	dsn := fs.String("dsn", defaultLedgerDSN(), "ledger Postgres DSN (or set LEDGER_DSN)")
 	f := entryFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -191,7 +204,7 @@ func runLedgerAdd(args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("ledger add: %w", err)
 	}
-	s, err := openLedger(*db)
+	s, err := openLedger(*dsn)
 	if err != nil {
 		return err
 	}
@@ -207,7 +220,7 @@ func runLedgerAdd(args []string, out io.Writer) error {
 func runLedgerEdit(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("ledger edit", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
+	dsn := fs.String("dsn", defaultLedgerDSN(), "ledger Postgres DSN (or set LEDGER_DSN)")
 	id := fs.Int64("id", 0, "entry id to edit")
 	f := entryFlags(fs)
 	if err := fs.Parse(args); err != nil {
@@ -225,7 +238,7 @@ func runLedgerEdit(args []string, out io.Writer) error {
 		return fmt.Errorf("ledger edit: %w", err)
 	}
 	e.ID = *id
-	s, err := openLedger(*db)
+	s, err := openLedger(*dsn)
 	if err != nil {
 		return err
 	}
@@ -240,7 +253,7 @@ func runLedgerEdit(args []string, out io.Writer) error {
 func runLedgerDelete(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("ledger delete", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
+	dsn := fs.String("dsn", defaultLedgerDSN(), "ledger Postgres DSN (or set LEDGER_DSN)")
 	id := fs.Int64("id", 0, "entry id to delete")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -248,7 +261,7 @@ func runLedgerDelete(args []string, out io.Writer) error {
 	if *id == 0 {
 		return errors.New("ledger delete: --id is required")
 	}
-	s, err := openLedger(*db)
+	s, err := openLedger(*dsn)
 	if err != nil {
 		return err
 	}
@@ -263,11 +276,11 @@ func runLedgerDelete(args []string, out io.Writer) error {
 func runLedgerDistribute(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("ledger distribute", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	db := fs.String("db", ledger.DefaultLedgerPath(), "ledger database file")
+	dsn := fs.String("dsn", defaultLedgerDSN(), "ledger Postgres DSN (or set LEDGER_DSN)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	s, err := openLedger(*db)
+	s, err := openLedger(*dsn)
 	if err != nil {
 		return err
 	}
