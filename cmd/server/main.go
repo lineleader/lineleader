@@ -1,16 +1,30 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/lineleader/lineleader/internal/dvc"
 	"github.com/lineleader/lineleader/internal/ledger"
 	"github.com/lineleader/lineleader/internal/web"
+)
+
+// Timeouts sized for an htmx app: plain request/response cycles, no
+// streaming or long-poll connections to keep alive.
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+	shutdownTimeout   = 10 * time.Second
 )
 
 func main() {
@@ -45,10 +59,10 @@ func main() {
 
 	ledgerStore, err := ledger.Open(*ledgerDSN)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "opening ledger %s: %v\n", *ledgerDSN, err)
+		// Don't log *ledgerDSN — it can embed a password.
+		fmt.Fprintf(os.Stderr, "opening ledger: %v\n", err)
 		os.Exit(1)
 	}
-	defer ledgerStore.Close()
 
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	srv := web.NewServer(web.Options{
@@ -66,6 +80,40 @@ func main() {
 		},
 	})
 
-	log.Printf("lineleader web listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, srv))
+	httpServer := &http.Server{
+		Addr:              *addr,
+		Handler:           srv,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("lineleader web listening on %s", *addr)
+		serverErr <- httpServer.ListenAndServe()
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("listen: %v", err)
+		}
+	case sig := <-sigCh:
+		log.Printf("received %s, shutting down", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := httpServer.Shutdown(ctx); err != nil {
+			log.Printf("graceful shutdown: %v", err)
+		}
+	}
+
+	if err := ledgerStore.Close(); err != nil {
+		log.Printf("closing ledger: %v", err)
+	}
+	log.Printf("clean shutdown complete")
 }

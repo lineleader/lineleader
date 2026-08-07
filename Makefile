@@ -1,5 +1,8 @@
 .PHONY: dev
 dev:
+	# Requires a Postgres ledger DSN. LEDGER_DSN is picked up from the
+	# environment automatically (make passes it through to `go run`):
+	#   LEDGER_DSN=postgres://user:pass@localhost:5432/lineleader?sslmode=disable make dev
 	go run cmd/server/main.go
 
 .PHONY: all
