@@ -4,15 +4,16 @@ import "database/sql"
 
 // AddEntry inserts e and returns its new id.
 func (s *Store) AddEntry(e Entry) (int64, error) {
-	res, err := s.db.Exec(
+	var id int64
+	err := s.db.QueryRow(
 		`INSERT INTO entries (use_year, date, description, kind, allotted, used, tag, contract_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
 		e.UseYear, e.Date.Format(dateLayout), e.Desc, e.Kind, e.Allotted, e.Used, e.Tag, e.ContractID,
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 // ListEntries returns every entry ordered by (date, id) with RunningBalance computed
@@ -57,8 +58,8 @@ func (s *Store) ListEntries() ([]Entry, error) {
 func (s *Store) UpdateEntry(e Entry) error {
 	_, err := s.db.Exec(
 		`UPDATE entries
-		 SET use_year = ?, date = ?, description = ?, kind = ?, allotted = ?, used = ?, tag = ?, contract_id = ?
-		 WHERE id = ?`,
+		 SET use_year = $1, date = $2, description = $3, kind = $4, allotted = $5, used = $6, tag = $7, contract_id = $8
+		 WHERE id = $9`,
 		e.UseYear, e.Date.Format(dateLayout), e.Desc, e.Kind, e.Allotted, e.Used, e.Tag, e.ContractID, e.ID,
 	)
 	return err
@@ -66,6 +67,6 @@ func (s *Store) UpdateEntry(e Entry) error {
 
 // DeleteEntry removes the entry with the given id.
 func (s *Store) DeleteEntry(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM entries WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM entries WHERE id = $1`, id)
 	return err
 }

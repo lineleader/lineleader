@@ -85,7 +85,7 @@ func (s *Store) distributeUpTo(maxYear int) ([]Entry, error) {
 func (s *Store) latestAllocationYear(contractID int64) (int, bool, error) {
 	rows, err := s.db.Query(
 		`SELECT use_year FROM entries
-		 WHERE contract_id = ? AND kind = ?
+		 WHERE contract_id = $1 AND kind = $2
 		 ORDER BY use_year DESC LIMIT 1`, contractID, KindAllocation)
 	if err != nil {
 		return 0, false, err
@@ -105,7 +105,7 @@ func (s *Store) hasAllocationFor(contractID int64, useYear int) bool {
 	var n int
 	_ = s.db.QueryRow(
 		`SELECT COUNT(1) FROM entries
-		 WHERE contract_id = ? AND kind = ? AND use_year = ?`,
+		 WHERE contract_id = $1 AND kind = $2 AND use_year = $3`,
 		contractID, KindAllocation, useYear).Scan(&n)
 	return n > 0
 }
