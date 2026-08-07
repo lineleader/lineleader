@@ -9,26 +9,28 @@ by Caddy on the `traefik` tailnet node
 ## One-time setup
 
 1. **Create the `lineleader` database** on the shared Postgres container
-   already running on percival. The exact container name needs confirming
-   (`docker ps` on percival); assuming it's called `postgresql`:
+   (`postgresql`, running `postgres:15.17` on percival):
 
    ```bash
-   docker exec postgresql psql -U casaos -c 'CREATE DATABASE lineleader;'
+   ssh -t percival "sudo docker exec postgresql psql -U casaos -c 'CREATE DATABASE lineleader;'"
    ```
 
    No schema migration is needed after this — `internal/ledger.Store`
    applies the ledger schema idempotently on server startup.
 
-2. **Confirm the Postgres Docker network name.** `deploy/percival/docker-compose.yml`
-   assumes it's called `postgresql` (carried over from the prior CasaOS
-   setup) and declares it as an `external: true` network. Verify with:
+   The `casaos:casaos` credentials are inherited from the old CasaOS host.
+   If they no longer work, check the container's `POSTGRES_USER` /
+   `POSTGRES_PASSWORD` and update `LEDGER_DSN` in the compose file.
+
+2. **Networking is already settled**, but the naming is a trap worth
+   knowing: the shared Postgres *container* is named `postgresql` while
+   the Docker *network* it sits on is named `postgres` (singular). The
+   compose file joins the `postgres` network as `external: true` and
+   reaches the database at host `postgresql`. Re-check with:
 
    ```bash
-   docker network ls
-   docker ps
+   ssh -t percival 'sudo docker network inspect postgres --format "{{range .Containers}}{{.Name}} {{end}}"'
    ```
-
-   and correct the compose file if the name differs.
 
 3. **Generate an AUTH_SECRET** and set it in dockhand (as an environment
    variable/secret for the service — it is never committed to this repo):

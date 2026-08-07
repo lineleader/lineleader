@@ -10,6 +10,11 @@
 # self-applies on boot (internal/ledger.Store applies it idempotently) —
 # no separate migration step is needed here.
 
+# Pin the project name: it otherwise defaults to the parent directory
+# (`percival`), which would name the stack and its volume after the host
+# rather than the app (`percival_state` instead of `lineleader_state`).
+name: lineleader
+
 services:
   lineleader:
     # dockhand bumps this line on every release (scripts/release.sh prints
@@ -17,11 +22,11 @@ services:
     image: ghcr.io/lineleader/lineleader:v0.1.0
     restart: unless-stopped
     environment:
-      # UNCONFIRMED: network name `postgresql` and DB host `postgresql` are
-      # carried over from the prior CasaOS setup. Confirm both with
-      # `docker network ls` / `docker ps` on percival before relying on
-      # this, and correct the network block below and this DSN if they
-      # differ.
+      # Host `postgresql` is the shared Postgres container's name on
+      # percival (postgres:15.17), resolved by Docker DNS over the
+      # `postgres` network joined below. The casaos:casaos credentials are
+      # carried over from the prior CasaOS setup — still unverified against
+      # this instance.
       LEDGER_DSN: postgres://casaos:casaos@postgresql:5432/lineleader?sslmode=disable
       # Fail loud rather than silently start unauthenticated: dockhand must
       # set AUTH_SECRET in its own environment/secrets UI for this service.
@@ -47,14 +52,14 @@ services:
     # `traefik` node.
     networks:
       - default
-      - postgresql
+      - postgres
 
 volumes:
   state:
 
 networks:
-  # External network for the shared Postgres container already running on
-  # percival. UNCONFIRMED name — verify with `docker network ls` on
-  # percival and correct if it's not actually called `postgresql`.
-  postgresql:
+  # The shared Postgres container on percival sits on a network called
+  # `postgres` (singular) — note it does NOT match the container's own
+  # name, `postgresql`. Confirmed via `docker network ls` on percival.
+  postgres:
     external: true
