@@ -21,6 +21,19 @@ build:
 dvc:
 	go build -o bin/dvc ./cmd/dvc
 
+.PHONY: ledger-migrate
+ledger-migrate:
+	go build -o bin/ledger-migrate ./cmd/ledger-migrate
+
+# One-shot copy of the legacy SQLite ledger into Postgres. Target DSN must
+# be empty (no rows in contracts or entries) — this is a migration, not a
+# sync. Override SQLITE_PATH/LEDGER_DSN to point elsewhere.
+SQLITE_PATH := $(HOME)/.config/lineleader/ledger.db
+
+.PHONY: migrate-ledger
+migrate-ledger: ledger-migrate
+	./bin/ledger-migrate --sqlite $(SQLITE_PATH) --dsn "$(LEDGER_DSN)"
+
 .PHONY: import
 import: dvc
 	./bin/dvc import ~/Documents/DVC/point-charts/2026/VGF-2026.pdf
