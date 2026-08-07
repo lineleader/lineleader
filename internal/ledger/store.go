@@ -1,48 +1,34 @@
 package ledger
 
 import (
+	"context"
 	"database/sql"
 	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 //go:embed schema.sql
 var schema string
 
-// Store is a SQLite-backed handle to the points ledger.
+// Store is a Postgres-backed handle to the points ledger.
 type Store struct {
 	db *sql.DB
 }
 
-// DefaultLedgerPath returns the platform-appropriate path for the ledger database,
-// mirroring dvc.DefaultConfigPath.
-func DefaultLedgerPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = os.Getenv("HOME")
-	}
-	return filepath.Join(dir, "lineleader", "ledger.db")
-}
-
-// Open opens (creating if needed) the ledger database at path and applies the schema.
-func Open(path string) (*Store, error) {
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("creating ledger dir: %w", err)
-		}
-	}
-	db, err := sql.Open("sqlite", path)
+// Open opens a connection pool to the Postgres database identified by dsn
+// and applies the schema. Schema application is idempotent (CREATE TABLE /
+// INDEX IF NOT EXISTS), so it is safe to call on every process start.
+func Open(dsn string) (*Store, error) {
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+	if err := db.Ping(); err != nil {
 		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("connecting to ledger database: %w", err)
 	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -54,12 +40,14 @@ func Open(path string) (*Store, error) {
 // Close releases the database handle.
 func (s *Store) Close() error { return s.db.Close() }
 
-const dateLayout = "2006-01-02"
+// Ping verifies the database connection is alive. Used by the /healthz
+// endpoint for reverse-proxy liveness checks.
+func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 // parseDate reads a stored date, tolerating either a bare date or a full RFC3339
-// timestamp (some SQLite tooling may write the latter).
+// timestamp (some tooling may write the latter).
 func parseDate(s string) (time.Time, error) {
-	if t, err := time.Parse(dateLayout, s); err == nil {
+	if t, err := time.Parse(DateLayout, s); err == nil {
 		return t, nil
 	}
 	return time.Parse(time.RFC3339, s)
@@ -67,15 +55,16 @@ func parseDate(s string) (time.Time, error) {
 
 // AddContract inserts c and returns its new id.
 func (s *Store) AddContract(c Contract) (int64, error) {
-	res, err := s.db.Exec(
+	var id int64
+	err := s.db.QueryRow(
 		`INSERT INTO contracts (name, number, home_resort, annual_points, use_year_month)
-		 VALUES (?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 		c.Name, c.Number, c.HomeResort, c.AnnualPoints, int(c.UseYearMonth),
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 // ListContracts returns all contracts ordered by id.
@@ -105,8 +94,8 @@ func (s *Store) ListContracts() ([]Contract, error) {
 func (s *Store) UpdateContract(c Contract) error {
 	_, err := s.db.Exec(
 		`UPDATE contracts
-		 SET name = ?, number = ?, home_resort = ?, annual_points = ?, use_year_month = ?
-		 WHERE id = ?`,
+		 SET name = $1, number = $2, home_resort = $3, annual_points = $4, use_year_month = $5
+		 WHERE id = $6`,
 		c.Name, c.Number, c.HomeResort, c.AnnualPoints, int(c.UseYearMonth), c.ID,
 	)
 	return err
@@ -114,6 +103,6 @@ func (s *Store) UpdateContract(c Contract) error {
 
 // DeleteContract removes the contract with the given id.
 func (s *Store) DeleteContract(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM contracts WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM contracts WHERE id = $1`, id)
 	return err
 }

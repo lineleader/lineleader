@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS contracts (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name           TEXT    NOT NULL,
     number         TEXT    NOT NULL DEFAULT '',
     home_resort    TEXT    NOT NULL DEFAULT '',
@@ -8,15 +8,15 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 
 CREATE TABLE IF NOT EXISTS entries (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     use_year    INTEGER NOT NULL,
-    date        TEXT    NOT NULL,            -- RFC3339 date (YYYY-MM-DD)
+    date        TEXT    NOT NULL,            -- ISO date (YYYY-MM-DD)
     description TEXT    NOT NULL DEFAULT '',
     kind        TEXT    NOT NULL,
     allotted    INTEGER NOT NULL DEFAULT 0,
     used        INTEGER NOT NULL DEFAULT 0,
     tag         TEXT    NOT NULL DEFAULT '',
-    contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL
+    contract_id BIGINT REFERENCES contracts(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_entries_order ON entries(date, id);

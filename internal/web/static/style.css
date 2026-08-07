@@ -144,10 +144,32 @@ button:focus-visible {
   border-radius: 999px;
 }
 .bar .err { color: var(--danger); font-weight: 600; }
-.bar .actions { display: flex; gap: 0.6rem; }
+.bar .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+/* Nav link styled to match the button row it sits in. */
+.btn-link {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.85rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.12s var(--ease), background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.btn-link:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.btn-link:active { transform: translateY(0); box-shadow: none; }
+.btn-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
 
 /* "+ Add trip" — the primary call to action */
-.bar .actions button:last-child {
+.bar .actions button:last-of-type {
   background: var(--primary);
   color: var(--primary-ink);
   border-color: transparent;
@@ -402,3 +424,75 @@ button:focus-visible {
   margin-top: 0.6rem;
 }
 .ledger-body .err { color: var(--danger); }
+
+/* ============================== Narrow viewport ============================== */
+@media (max-width: 640px) {
+  :root {
+    --fs-base: 1rem;  /* TV-legible base is too large on a phone */
+    --fs-lg:   1.25rem;
+  }
+
+  body { flex-direction: column; }
+  #app { padding: 0.9rem; }
+
+  /* Side panel (Filters/Plans) takes the full width instead of a fixed
+     400px column, and no longer forces a full-height viewport slab. */
+  #panel.panel { width: 100%; height: auto; max-height: 80vh; }
+
+  /* Budget bar + button row wrap onto multiple lines instead of
+     overflowing the viewport. */
+  .bar { flex-wrap: wrap; }
+  .bar .actions { width: 100%; }
+  .bar .actions button,
+  .bar .actions .btn-link { flex: 1 1 auto; text-align: center; }
+
+  /* Trip card: from/to/min-nights form stacks vertically, full width. */
+  .trip { padding: 0.85rem 1rem; }
+  .trip-form { flex-direction: column; align-items: stretch; gap: 0.6rem; }
+  .trip-form label { justify-content: space-between; gap: 0.6rem; }
+  .trip-form input { width: 100%; }
+
+  /* Comfortable tap targets. */
+  button, .btn-link { padding: 0.55rem 0.9rem; }
+  .trip-toggle, .trip-remove { padding: 0.45rem 0.55rem; }
+  .select-btn { min-width: 2.5rem; padding: 0.45rem 0.6rem; }
+
+  /* Results and ledger tables scroll horizontally in their own
+     container rather than squeezing columns unreadably thin. */
+  .results { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .results-table { min-width: 560px; }
+
+  .ledger-body section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ledger-body table { min-width: 520px; }
+}
+
+/* ============================ Login page ============================ */
+.login-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.login-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2rem;
+  width: 100%;
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.login-form h1 {
+  margin: 0 0 0.4rem;
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  color: var(--primary);
+}
+.login-form label { color: var(--text-dim); font-weight: 600; }
+.login-form input { width: 100%; }
+.login-form button { align-self: flex-start; }

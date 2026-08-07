@@ -1,0 +1,22 @@
+{{define "login_page"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lineleader — log in</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="login-page">
+    <form class="login-form panel" method="post" action="/login">
+      <h1>lineleader</h1>
+      {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+      <input type="hidden" name="next" value="{{.Next}}">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus>
+      <button type="submit">Log in</button>
+    </form>
+  </main>
+</body>
+</html>
+{{end}}

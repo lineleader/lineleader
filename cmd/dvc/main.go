@@ -46,7 +46,7 @@ Usage:
   dvc search --from DATE --to DATE --budget N [--min-nights N] [--data-dir PATH]
   dvc tui    [--data-dir PATH]
   dvc list   [--data-dir PATH]
-  dvc ledger <show|contracts|add|edit|delete|distribute> [--db PATH] [flags]`)
+  dvc ledger <show|contracts|add|edit|delete|distribute> [--server URL] [--token TOKEN] [flags]`)
 }
 
 // runImport parses one or more PDF point chart files and saves them as JSON.
