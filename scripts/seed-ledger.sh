@@ -3,10 +3,12 @@
 # tab of the DVC Master Google Sheet.
 #
 # Usage:
-#   scripts/seed-ledger.sh [--dsn DSN] [--sheet-id ID] [--fixture FILE] [--dry-run] [--force]
+#   scripts/seed-ledger.sh [--server URL] [--token TOKEN] [--sheet-id ID] [--fixture FILE] [--dry-run] [--force]
 #
-#   --dsn       ledger Postgres DSN (default: the LEDGER_DSN environment
-#               variable, same default dvc itself uses)
+#   --server    lineleader server URL (default: the LINELEADER_SERVER
+#               environment variable, same default dvc itself uses)
+#   --token     auth token for the server (default: the LINELEADER_TOKEN
+#               environment variable, same default dvc itself uses)
 #   --sheet-id  Google Sheet id (default: the DVC Master sheet)
 #   --fixture   read the Ledger rows from a local JSON file instead of calling
 #               the Sheets API (this is what makes the script testable offline).
@@ -17,7 +19,8 @@
 #   --dry-run   print the `dvc` commands that would run; make no changes
 #   --force     allow seeding into a ledger that already has entries
 #
-# Data model (see cmd/dvc/ledger.go and internal/ledger):
+# Data model (see cmd/dvc/ledger.go, internal/ledgerclient, and the server's
+# /api/v1/ledger API in internal/web/api_handlers.go):
 #   Two API calls are made (both with valueRenderOption=UNFORMATTED_VALUE and
 #   dateTimeRenderOption=FORMATTED_STRING):
 #     1. Ledger!A2:G           -> entry rows (no header; A2 is the first data row)
@@ -49,7 +52,8 @@ DEFAULT_SHEET_ID="1f9X4EiG6QApCDAjy0MGV_pVsYjXIBAPIyhqvBouJmIk"
 FIXTURE_DEFAULT_C1_POINTS=120
 FIXTURE_DEFAULT_C2_POINTS=150
 
-dsn=""
+server=""
+token=""
 sheet_id="$DEFAULT_SHEET_ID"
 fixture=""
 dry_run=0
@@ -57,7 +61,7 @@ force=0
 
 usage() {
   cat <<'EOF'
-Usage: seed-ledger.sh [--dsn DSN] [--sheet-id ID] [--fixture FILE] [--dry-run] [--force]
+Usage: seed-ledger.sh [--server URL] [--token TOKEN] [--sheet-id ID] [--fixture FILE] [--dry-run] [--force]
 EOF
 }
 
@@ -71,9 +75,14 @@ require_value() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dsn)
+    --server)
       require_value "$1" "$#"
-      dsn="$2"
+      server="$2"
+      shift 2
+      ;;
+    --token)
+      require_value "$1" "$#"
+      token="$2"
       shift 2
       ;;
     --sheet-id)
@@ -119,14 +128,24 @@ if [[ -z "$fixture" ]]; then
   require_cmd gcloud
 fi
 
-# Resolve the ledger DSN the same way dvc itself would when --dsn is
-# omitted, so the "already seeded" check below inspects the right database.
-if [[ -z "$dsn" ]]; then
-  dsn="${LEDGER_DSN:-}"
+# Resolve the server URL/token the same way dvc itself would when
+# --server/--token are omitted, so the "already seeded" check below
+# inspects the right server.
+if [[ -z "$server" ]]; then
+  server="${LINELEADER_SERVER:-}"
 fi
-if [[ -z "$dsn" ]]; then
-  echo "seed-ledger: no database DSN provided (use --dsn or set LEDGER_DSN)" >&2
+if [[ -z "$server" ]]; then
+  echo "seed-ledger: no lineleader server configured (use --server or set LINELEADER_SERVER)" >&2
   exit 1
+fi
+if [[ -z "$token" ]]; then
+  token="${LINELEADER_TOKEN:-}"
+fi
+
+# dvc_flags is passed to every `dvc ledger` invocation below.
+dvc_flags=(--server "$server")
+if [[ -n "$token" ]]; then
+  dvc_flags+=(--token "$token")
 fi
 
 cleanup_files=()
@@ -147,14 +166,14 @@ fi
 
 # --- refuse to seed into a non-empty ledger unless --force ---
 # Counts entry rows straight from `dvc ledger show`'s table (the CLI is the
-# only thing that talks to the ledger now that it's Postgres, not a local
-# sqlite file we could poke directly): rows after the header line, up to
-# the blank line preceding the optional "Per use year:" section (or EOF
-# when the ledger is empty and there is no such section).
-existing_entries="$("$dvc_bin" ledger show --dsn "$dsn" | awk 'NR==1{next} /^$/{exit} {c++} END{print c+0}')"
+# only thing that talks to the ledger — over HTTP now, not a direct
+# database connection): rows after the header line, up to the blank line
+# preceding the optional "Per use year:" section (or EOF when the ledger is
+# empty and there is no such section).
+existing_entries="$("$dvc_bin" ledger show "${dvc_flags[@]}" | awk 'NR==1{next} /^$/{exit} {c++} END{print c+0}')"
 
 if [[ "$existing_entries" -gt 0 && $force -eq 0 ]]; then
-  echo "seed-ledger: ledger at $dsn already has $existing_entries entries; refusing to seed (pass --force to override)" >&2
+  echo "seed-ledger: ledger at $server already has $existing_entries entries; refusing to seed (pass --force to override)" >&2
   exit 1
 fi
 
@@ -346,7 +365,7 @@ add_contract() {
   # $1 = name, $2 = points; prints the contract id (or a placeholder in
   # --dry-run mode, since no command actually runs) on stdout.
   local name="$1" points="$2"
-  local -a cmd=("$dvc_bin" ledger contracts add --dsn "$dsn" --name "$name" --points "$points" --use-year-month Apr)
+  local -a cmd=("$dvc_bin" ledger contracts add "${dvc_flags[@]}" --name "$name" --points "$points" --use-year-month Apr)
   if [[ $dry_run -eq 1 ]]; then
     printf 'DRY-RUN:' >&2
     printf ' %q' "${cmd[@]}" >&2
@@ -380,7 +399,7 @@ while IFS=$'\x1f' read -r use_year date desc kind allotted used tag contract_num
     2) contract_id="$contract2_id" ;;
   esac
 
-  cmd=("$dvc_bin" ledger add --dsn "$dsn" --year "$use_year" --date "$date" --desc "$desc" \
+  cmd=("$dvc_bin" ledger add "${dvc_flags[@]}" --year "$use_year" --date "$date" --desc "$desc" \
     --kind "$kind" --allotted "$allotted" --used "$used" --tag "$tag")
   if [[ -n "$contract_id" ]]; then
     cmd+=(--contract "$contract_id")

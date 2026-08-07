@@ -58,7 +58,7 @@ test-db-stop:
 	docker stop lineleader-test-pg
 
 .PHONY: seed-test
-seed-test: dvc
+seed-test: dvc build
 	./scripts/seed-ledger_test.sh
 
 IMAGE := lineleader:local
