@@ -24,9 +24,9 @@ services:
     environment:
       # Host `postgresql` is the shared Postgres container's name on
       # percival (postgres:15.17), resolved by Docker DNS over the
-      # `postgres` network joined below. The casaos:casaos credentials are
-      # carried over from the prior CasaOS setup — still unverified against
-      # this instance.
+      # `postgres` network joined below. Confirmed working end to end:
+      # `psql postgres://casaos:casaos@postgresql:5432/...` connects from
+      # inside that network.
       LEDGER_DSN: postgres://casaos:casaos@postgresql:5432/lineleader?sslmode=disable
       # Fail loud rather than silently start unauthenticated: dockhand must
       # set AUTH_SECRET in its own environment/secrets UI for this service.

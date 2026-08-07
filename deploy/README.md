@@ -18,9 +18,23 @@ by Caddy on the `traefik` tailnet node
    No schema migration is needed after this — `internal/ledger.Store`
    applies the ledger schema idempotently on server startup.
 
-   The `casaos:casaos` credentials are inherited from the old CasaOS host.
-   If they no longer work, check the container's `POSTGRES_USER` /
-   `POSTGRES_PASSWORD` and update `LEDGER_DSN` in the compose file.
+   The `casaos:casaos` credentials are inherited from the old CasaOS host
+   and are confirmed working against this instance.
+
+   This Postgres reports a collation version mismatch (its data directory
+   was initialized under glibc 2.36; the host now provides 2.41). If the
+   new `lineleader` database reports it too, clear it immediately — this
+   is safe and instant while the database is still empty, and avoids
+   building any index under stale collation rules:
+
+   ```bash
+   ssh -t percival "sudo docker exec postgresql psql -U casaos -d lineleader \
+       -c 'ALTER DATABASE lineleader REFRESH COLLATION VERSION;'"
+   ```
+
+   The pre-existing databases on this instance (miniflux and others) are a
+   separate concern: they hold data indexed under the old rules and need
+   `REINDEX DATABASE` before their collation version is refreshed.
 
 2. **Networking is already settled**, but the naming is a trap worth
    knowing: the shared Postgres *container* is named `postgresql` while
