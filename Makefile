@@ -22,6 +22,10 @@ import: dvc
 test:
 	go test -v ./...
 
+.PHONY: seed-test
+seed-test: dvc
+	./scripts/seed-ledger_test.sh
+
 .PHONY: clean
 clean:
 	rm -rf bin/*

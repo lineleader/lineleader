@@ -140,3 +140,54 @@ seasonal date ranges automatically.
 - `pdftotext` (from [poppler-utils](https://poppler.freedesktop.org/)) must
   be installed for `dvc import`
 - Go 1.26+
+
+## Points Ledger
+
+Track DVC points over time — the "master ledger" of annual allotments and the
+trips that consume them. The ledger is a single chronological list whose running
+balance is derived: each row adds points (`Allotted`) or spends them (`Used`), and
+borrowing simply shows up as the running balance going negative until the next
+allotment restores it. It is stored in SQLite at
+`~/.config/lineleader/ledger.db` (override with `--db` on the CLI or `--ledger`
+on the server); all other data (charts, plans, config) stays in JSON.
+
+Each row has a **use year** (defaulted from the date, editable) so the app can
+roll entries up per use year — surfacing over/under-spend that a single pooled
+total hides. **Contracts** are templates (name, annual points, use year month)
+that drive the once-a-year *distribute* action, which posts next year's
+allotment for each contract. Running distribute again the same year is a no-op.
+
+### Web
+
+Run the server (`make dev`) and open <http://localhost:8080/ledger>. Add, edit,
+and delete entries; add contracts; and click **Distribute next year**. Negative
+balances and over-borrowed use years are flagged.
+
+### CLI
+
+```sh
+# Contracts (templates that drive `distribute`)
+./bin/dvc ledger contracts add --name "Point allocation" --number 1234567.000 \
+    --resort BLT --points 120 --use-year-month Apr
+./bin/dvc ledger contracts list
+
+# Entries — a usage just has --used; link allocations to a contract with --contract
+./bin/dvc ledger add --date 2026-04-01 --desc "Point allocation" \
+    --kind allocation --allotted 120 --contract 1
+./bin/dvc ledger add --date 2026-06-04 --desc "BLT studio TPV" --used 26 --tag Borrow
+./bin/dvc ledger add --date 2027-04-01 --desc "Single-use points" \
+    --kind single_use --allotted 24
+
+./bin/dvc ledger edit   --id 2 --date 2026-06-04 --desc "BLT studio (1br)" --used 40
+./bin/dvc ledger delete --id 3
+
+# Print the grid with running balance + per-use-year rollups
+./bin/dvc ledger show
+
+# Post next year's allotments for every contract (idempotent within the year)
+./bin/dvc ledger distribute
+```
+
+Entry kinds: `allocation`, `usage`, `bonus`, `single_use`, `adjustment`. The
+`--year` flag defaults to the year of `--date`; override it for points drawn
+from a banked or borrowed use year.
