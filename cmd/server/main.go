@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,10 +34,18 @@ func main() {
 	plansFile := flag.String("plans", dvc.DefaultPlansPath(), "plans file (JSON)")
 	ledgerDSN := flag.String("ledger-dsn", os.Getenv("LEDGER_DSN"), "points ledger Postgres DSN (or set LEDGER_DSN)")
 	addr := flag.String("addr", ":8080", "listen address")
+	authSecretFile := flag.String("auth-secret-file", "", "path to a file containing the shared auth secret (alternative to AUTH_SECRET; for mounted Docker secrets)")
+	insecureCookies := flag.Bool("insecure-cookies", false, "omit the Secure attribute on the session cookie (plain-http local dev only; never use in a real deployment)")
 	flag.Parse()
 
 	if *ledgerDSN == "" {
 		fmt.Fprintln(os.Stderr, "ledger: no database DSN provided (use --ledger-dsn or set LEDGER_DSN)")
+		os.Exit(1)
+	}
+
+	authSecret, err := resolveAuthSecret(*authSecretFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "auth: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -66,12 +75,14 @@ func main() {
 
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	srv := web.NewServer(web.Options{
-		Charts:     charts,
-		Config:     cfg,
-		ConfigPath: *configFile,
-		Plans:      plans,
-		PlansPath:  *plansFile,
-		Ledger:     ledgerStore,
+		Charts:        charts,
+		Config:        cfg,
+		ConfigPath:    *configFile,
+		Plans:         plans,
+		PlansPath:     *plansFile,
+		Ledger:        ledgerStore,
+		AuthSecret:    authSecret,
+		SecureCookies: !*insecureCookies,
 		Defaults: web.Defaults{
 			From:      today.Format("2006-01-02"),
 			To:        today.AddDate(0, 0, 14).Format("2006-01-02"),
@@ -116,4 +127,27 @@ func main() {
 		log.Printf("closing ledger: %v", err)
 	}
 	log.Printf("clean shutdown complete")
+}
+
+// resolveAuthSecret reads the single shared auth secret from a mounted
+// file (Docker-friendly) or the AUTH_SECRET env var, in that order. Per
+// docs/pitches/hosted-lineleader.md there is exactly one secret and no
+// users table — the server refuses to start without one rather than
+// silently serving unauthenticated.
+func resolveAuthSecret(secretFile string) (string, error) {
+	if secretFile != "" {
+		b, err := os.ReadFile(secretFile)
+		if err != nil {
+			return "", fmt.Errorf("reading --auth-secret-file %s: %w", secretFile, err)
+		}
+		secret := strings.TrimSpace(string(b))
+		if secret == "" {
+			return "", fmt.Errorf("--auth-secret-file %s is empty", secretFile)
+		}
+		return secret, nil
+	}
+	if secret := strings.TrimSpace(os.Getenv("AUTH_SECRET")); secret != "" {
+		return secret, nil
+	}
+	return "", errors.New("no auth secret provided (set AUTH_SECRET or --auth-secret-file)")
 }
