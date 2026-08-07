@@ -68,7 +68,7 @@ func Migrate(sqlitePath, pgDSN string) (Summary, error) {
 	// since Store's connection isn't exposed.
 	store, err := ledger.Open(pgDSN)
 	if err != nil {
-		return Summary{}, fmt.Errorf("opening postgres %s: %w", pgDSN, err)
+		return Summary{}, fmt.Errorf("opening postgres: %w", err)
 	}
 	if err := store.Close(); err != nil {
 		return Summary{}, fmt.Errorf("closing schema-setup connection: %w", err)
@@ -76,7 +76,7 @@ func Migrate(sqlitePath, pgDSN string) (Summary, error) {
 
 	pdb, err := sql.Open("pgx", pgDSN)
 	if err != nil {
-		return Summary{}, fmt.Errorf("opening postgres %s: %w", pgDSN, err)
+		return Summary{}, fmt.Errorf("opening postgres: %w", err)
 	}
 	defer pdb.Close()
 
