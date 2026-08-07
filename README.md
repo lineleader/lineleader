@@ -191,3 +191,60 @@ balances and over-borrowed use years are flagged.
 Entry kinds: `allocation`, `usage`, `bonus`, `single_use`, `adjustment`. The
 `--year` flag defaults to the year of `--date`; override it for points drawn
 from a banked or borrowed use year.
+
+## Deployment
+
+Hosted, single-user deployment per `docs/pitches/hosted-lineleader.md`. Chart
+JSON is baked into the image (`data/point-charts/`); the points ledger lives
+in an existing Postgres instance — this repo never runs its own database
+container in production.
+
+### Running it
+
+```sh
+LEDGER_DSN=postgres://user:pass@your-postgres-host:5432/lineleader?sslmode=disable \
+AUTH_SECRET=some-long-random-secret \
+docker compose up -d --build
+```
+
+- **`LEDGER_DSN`** (required) — Postgres connection string for the points
+  ledger. Points at your existing database; `docker-compose.yml` does not
+  start one.
+- **`AUTH_SECRET`** (required, one of two forms) — the single shared login
+  secret. Either set the env var directly, or mount it as a file and pass
+  `--auth-secret-file` (see the commented `secrets:` example in
+  `docker-compose.yml` for the Docker-secret variant).
+- A named volume (`state`) is mounted at `/state` inside the container for
+  `config.json`/`plans.json` — the only file state outside Postgres.
+- No port is published by default: the reverse proxy in front of this host
+  is expected to reach the container over the compose network (or the host
+  network, depending on your proxy setup) and terminate TLS itself. This
+  app never handles TLS or a public hostname directly — uncomment the
+  `ports:` block in `docker-compose.yml` only for a direct/local smoke
+  test.
+
+### Seeding the hosted ledger
+
+If you're moving from the old local SQLite ledger (`~/.config/lineleader/ledger.db`)
+to the hosted Postgres, run the one-shot migration once against an *empty*
+target database:
+
+```sh
+go run ./cmd/ledger-migrate \
+    --sqlite ~/.config/lineleader/ledger.db \
+    --dsn "$LEDGER_DSN"
+```
+
+It copies both the `contracts` and `entries` tables, preserving ids and the
+`entries.contract_id` foreign key. It refuses to run if the target already
+has ledger rows — it's a migration, not a sync — and leaves the old
+`ledger.db` untouched on disk as a rollback path. A `make migrate-ledger`
+target wraps the same command (see the Makefile for the `SQLITE_PATH`
+default).
+
+### Building the image directly
+
+```sh
+make docker-build   # docker build -t lineleader:local .
+make docker-run      # local smoke test only: publishes :8080 on the host
+```
