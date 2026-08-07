@@ -1,0 +1,24 @@
+# Paste this site block into the Caddy config on the `traefik` tailnet node
+# (100.105.59.51). Caddy handles TLS automatically via ACME for this
+# domain — no cert config needed here.
+#
+# 100.119.145.113 is percival's Tailscale IP, where the lineleader
+# container publishes port 8080 (see deploy/percival/docker-compose.yml).
+#
+# Swap `lineleader.dev` for `lineleader.io` below if preferred — it's a
+# one-line edit.
+
+lineleader.dev {
+    reverse_proxy 100.119.145.113:8080
+}
+
+# Optional variant: have Caddy actively health-check the upstream via
+# GET /healthz (the unauthenticated health endpoint — see
+# internal/web/server.go) instead of just reacting to failed proxied
+# requests. Uncomment to use it in place of the block above:
+#
+# lineleader.dev {
+#     reverse_proxy 100.119.145.113:8080 {
+#         health_uri /healthz
+#     }
+# }
