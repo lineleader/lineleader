@@ -490,7 +490,16 @@ button:focus-visible {
   max-width: 1100px;
   margin: 0 auto;
 }
-.ledger-body section { margin-bottom: 1.6rem; }
+/* Wide ledger tables (History's entry table in particular) must scroll
+   inside their own section rather than pushing the page wider — at any
+   viewport width, not just the narrow media query below. overflow-x:auto
+   is a no-op for the Recent view's activity list since it never overflows
+   horizontally, so no stray scrollbar appears there. */
+.ledger-body section {
+  margin-bottom: 1.6rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .ledger-body table {
   border-collapse: collapse;
   width: 100%;
@@ -696,7 +705,6 @@ button:focus-visible {
   .results { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .results-table { min-width: 560px; }
 
-  .ledger-body section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .ledger-body table { min-width: 520px; }
 
   /* Recent view's two-column split stacks; the left-border divider becomes a
