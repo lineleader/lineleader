@@ -99,6 +99,8 @@ func NewServer(opts Options) http.Handler {
 	if opts.Ledger != nil {
 		lh := &ledgerHandlers{tmpl: tmpl, store: opts.Ledger}
 		mux.HandleFunc("GET /ledger", lh.page)
+		mux.HandleFunc("GET /ledger/history", lh.history)
+		mux.HandleFunc("GET /ledger/contracts", lh.contracts)
 		mux.HandleFunc("POST /ledger/entries", lh.addEntry)
 		mux.HandleFunc("GET /ledger/entries/{id}/edit", lh.editEntry)
 		mux.HandleFunc("POST /ledger/entries/{id}/update", lh.updateEntry)

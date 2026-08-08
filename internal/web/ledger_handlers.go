@@ -18,6 +18,61 @@ type ledgerHandlers struct {
 	mu    sync.Mutex
 }
 
+// ledgerViewKind is the explicit view discriminator for /ledger's three
+// routes (Recent, History, Contracts). Every template that hosts a mutation
+// control (add/edit/update/delete/distribute) carries it as a "view" query
+// parameter on the control's hx-* URL, so a mutation handler knows which
+// view invoked it and renderBody can re-render that view's #ledger-body
+// fragment — the same swap-in-place target every view shares.
+type ledgerViewKind string
+
+const (
+	ledgerViewRecent    ledgerViewKind = "recent"
+	ledgerViewHistory   ledgerViewKind = "history"
+	ledgerViewContracts ledgerViewKind = "contracts"
+)
+
+// parseLedgerViewKind maps a "view" query-param value to its ledgerViewKind.
+// An absent or unrecognised value defaults to Recent, so a bare or
+// hand-made request still renders something coherent instead of erroring.
+func parseLedgerViewKind(s string) ledgerViewKind {
+	switch ledgerViewKind(s) {
+	case ledgerViewHistory:
+		return ledgerViewHistory
+	case ledgerViewContracts:
+		return ledgerViewContracts
+	default:
+		return ledgerViewRecent
+	}
+}
+
+// viewFromRequest reads the "view" discriminator off the request's query
+// string — the one place every mutation control (GET/POST/DELETE alike)
+// carries it, per parseLedgerViewKind's default-to-Recent contract.
+func viewFromRequest(r *http.Request) ledgerViewKind {
+	return parseLedgerViewKind(r.URL.Query().Get("view"))
+}
+
+// bodyTemplateName is the #ledger-body fragment template that renders this view.
+func (k ledgerViewKind) bodyTemplateName() string {
+	switch k {
+	case ledgerViewHistory:
+		return "history_body"
+	case ledgerViewContracts:
+		return "contracts_body"
+	default:
+		return "recent_body"
+	}
+}
+
+// ledgerPageData wraps the (unmodified) ledgerView with the view
+// discriminator so templates can render nav active-state and embed the
+// correct "view" query param into their own mutation URLs.
+type ledgerPageData struct {
+	ledgerView
+	View ledgerViewKind
+}
+
 func (h *ledgerHandlers) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, name, data); err != nil {
@@ -25,44 +80,68 @@ func (h *ledgerHandlers) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-// renderBody re-renders the #ledger-body fragment. Caller holds the lock.
-func (h *ledgerHandlers) renderBody(w http.ResponseWriter, editID int64, errMsg string) {
-	view, err := h.buildLedgerView(editID, errMsg)
+// renderBody re-renders the #ledger-body fragment for the given view. Caller
+// holds the lock.
+func (h *ledgerHandlers) renderBody(w http.ResponseWriter, view ledgerViewKind, editID int64, errMsg string) {
+	lv, err := h.buildLedgerView(editID, errMsg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.render(w, "ledger_body", view)
+	h.render(w, view.bodyTemplateName(), ledgerPageData{ledgerView: lv, View: view})
 }
 
-// page handles GET /ledger.
+// renderPage renders the full ledger_page shell for the given view. Caller
+// holds the lock.
+func (h *ledgerHandlers) renderPage(w http.ResponseWriter, view ledgerViewKind) {
+	lv, err := h.buildLedgerView(0, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.render(w, "ledger_page", ledgerPageData{ledgerView: lv, View: view})
+}
+
+// page handles GET /ledger — the Recent view.
 func (h *ledgerHandlers) page(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	view, err := h.buildLedgerView(0, "")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	h.render(w, "ledger_page", view)
+	h.renderPage(w, ledgerViewRecent)
 }
 
-// addEntry handles POST /ledger/entries.
+// history handles GET /ledger/history.
+func (h *ledgerHandlers) history(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.renderPage(w, ledgerViewHistory)
+}
+
+// contracts handles GET /ledger/contracts.
+func (h *ledgerHandlers) contracts(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.renderPage(w, ledgerViewContracts)
+}
+
+// addEntry handles POST /ledger/entries. It is hosted on both Recent and
+// History (their entry_add_form each carry their own "view" query param), so
+// the response must swap into whichever view invoked it.
 func (h *ledgerHandlers) addEntry(w http.ResponseWriter, r *http.Request) {
+	view := viewFromRequest(r)
 	e, err := parseEntryForm(r, 0)
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.renderBody(w, 0, err.Error())
+		h.renderBody(w, view, 0, err.Error())
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, err := h.store.AddEntry(e); err != nil {
-		h.renderBody(w, 0, err.Error())
+		h.renderBody(w, view, 0, err.Error())
 		return
 	}
-	h.renderBody(w, 0, "")
+	h.renderBody(w, view, 0, "")
 }
 
 // editEntry handles GET /ledger/entries/{id}/edit — re-render with that row in edit mode.
@@ -71,9 +150,10 @@ func (h *ledgerHandlers) editEntry(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	view := viewFromRequest(r)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.renderBody(w, id, "")
+	h.renderBody(w, view, id, "")
 }
 
 // updateEntry handles POST /ledger/entries/{id}/update.
@@ -82,27 +162,29 @@ func (h *ledgerHandlers) updateEntry(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	view := viewFromRequest(r)
 	e, err := parseEntryForm(r, id)
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.renderBody(w, id, err.Error())
+		h.renderBody(w, view, id, err.Error())
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.store.UpdateEntry(e); err != nil {
-		h.renderBody(w, id, err.Error())
+		h.renderBody(w, view, id, err.Error())
 		return
 	}
-	h.renderBody(w, 0, "")
+	h.renderBody(w, view, 0, "")
 }
 
 // cancelEdit handles POST /ledger/entries/edit/cancel — leave edit mode.
 func (h *ledgerHandlers) cancelEdit(w http.ResponseWriter, r *http.Request) {
+	view := viewFromRequest(r)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.renderBody(w, 0, "")
+	h.renderBody(w, view, 0, "")
 }
 
 // deleteEntry handles DELETE /ledger/entries/{id}.
@@ -111,17 +193,19 @@ func (h *ledgerHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	view := viewFromRequest(r)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.store.DeleteEntry(id); err != nil {
-		h.renderBody(w, 0, err.Error())
+		h.renderBody(w, view, 0, err.Error())
 		return
 	}
-	h.renderBody(w, 0, "")
+	h.renderBody(w, view, 0, "")
 }
 
 // addContract handles POST /ledger/contracts.
 func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
+	view := viewFromRequest(r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -130,7 +214,7 @@ func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.renderBody(w, 0, err.Error())
+		h.renderBody(w, view, 0, err.Error())
 		return
 	}
 	c := ledger.Contract{
@@ -143,10 +227,10 @@ func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, err := h.store.AddContract(c); err != nil {
-		h.renderBody(w, 0, err.Error())
+		h.renderBody(w, view, 0, err.Error())
 		return
 	}
-	h.renderBody(w, 0, "")
+	h.renderBody(w, view, 0, "")
 }
 
 // deleteContract handles DELETE /ledger/contracts/{id}.
@@ -155,24 +239,26 @@ func (h *ledgerHandlers) deleteContract(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	view := viewFromRequest(r)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.store.DeleteContract(id); err != nil {
-		h.renderBody(w, 0, err.Error())
+		h.renderBody(w, view, 0, err.Error())
 		return
 	}
-	h.renderBody(w, 0, "")
+	h.renderBody(w, view, 0, "")
 }
 
 // distribute handles POST /ledger/distribute.
 func (h *ledgerHandlers) distribute(w http.ResponseWriter, r *http.Request) {
+	view := viewFromRequest(r)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, err := h.store.DistributeNextYear(); err != nil {
-		h.renderBody(w, 0, err.Error())
+		h.renderBody(w, view, 0, err.Error())
 		return
 	}
-	h.renderBody(w, 0, "")
+	h.renderBody(w, view, 0, "")
 }
 
 // parseEntryForm builds an Entry from form values. id is set on the result (0 for add).

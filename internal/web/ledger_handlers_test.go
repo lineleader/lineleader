@@ -37,6 +37,10 @@ func newLedgerTestServer(t *testing.T) (*httptest.Server, *ledger.Store) {
 	return httptest.NewServer(srv), store
 }
 
+// TestLedgerPageRenders checks GET /ledger (the Recent view, and the
+// default landing page per wireframe 2a): balance/recent-activity content is
+// present, Contracts/History content is not, and the Recent nav link is the
+// one marked active.
 func TestLedgerPageRenders(t *testing.T) {
 	srv, _ := newLedgerTestServer(t)
 	defer srv.Close()
@@ -49,13 +53,123 @@ func TestLedgerPageRenders(t *testing.T) {
 		t.Fatalf("GET /ledger status = %d", resp.StatusCode)
 	}
 	got := body(t, resp)
-	for _, want := range []string{"Points master ledger", "id=\"ledger-body\"", "Add entry", "Add contract"} {
+	for _, want := range []string{
+		"Points ledger", "id=\"ledger-body\"", "Recent activity", "+ Add entry",
+		`href="/ledger" class="active"`,
+	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("page missing %q", want)
+			t.Errorf("page missing %q; got:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{"Add contract", "Per use year", "Distribute next year"} {
+		if strings.Contains(got, notWant) {
+			t.Errorf("Recent page should not contain History/Contracts content %q; got:\n%s", notWant, got)
 		}
 	}
 }
 
+// TestLedgerHistoryPageRenders checks GET /ledger/history: the per-use-year
+// summary, full entry ledger and Distribute next year button are present,
+// Recent/Contracts-only content is not, and History is the active nav link.
+func TestLedgerHistoryPageRenders(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Original",
+		Kind: ledger.KindAllocation, Allotted: 100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger/history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger/history status = %d", resp.StatusCode)
+	}
+	got := body(t, resp)
+	for _, want := range []string{
+		"Points ledger", "id=\"ledger-body\"", "Per use year", "Original",
+		"Distribute next year", "Add entry",
+		`href="/ledger/history" class="active"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("history page missing %q; got:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{"Recent activity", "Add contract"} {
+		if strings.Contains(got, notWant) {
+			t.Errorf("History page should not contain Recent/Contracts content %q; got:\n%s", notWant, got)
+		}
+	}
+}
+
+// TestLedgerContractsPageRenders checks GET /ledger/contracts: the contracts
+// table and add-contract form are present, Recent/History-only content is
+// not, and Contracts is the active nav link.
+func TestLedgerContractsPageRenders(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	if _, err := store.AddContract(ledger.Contract{Name: "BoardWalk", AnnualPoints: 150, UseYearMonth: time.April}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger/contracts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger/contracts status = %d", resp.StatusCode)
+	}
+	got := body(t, resp)
+	for _, want := range []string{
+		"Points ledger", "id=\"ledger-body\"", "BoardWalk", "Add contract",
+		`href="/ledger/contracts" class="active"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("contracts page missing %q; got:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{"Recent activity", "Per use year", "Distribute next year"} {
+		if strings.Contains(got, notWant) {
+			t.Errorf("Contracts page should not contain Recent/History content %q; got:\n%s", notWant, got)
+		}
+	}
+}
+
+// TestLedgerAddEntryDefaultsToRecentView documents the view discriminator's
+// default: a mutation request with no (or an unrecognised) "view" query
+// param renders the Recent body rather than erroring.
+func TestLedgerAddEntryDefaultsToRecentView(t *testing.T) {
+	srv, _ := newLedgerTestServer(t)
+	defer srv.Close()
+
+	form := url.Values{
+		"date":     {"2026-04-01"},
+		"desc":     {"Unscoped add"},
+		"kind":     {ledger.KindAllocation},
+		"allotted": {"120"},
+	}
+	resp, err := http.PostForm(srv.URL+"/ledger/entries", form) // no ?view=
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if !strings.Contains(out, "Recent activity") {
+		t.Errorf("missing ?view= should default to the Recent body; got:\n%s", out)
+	}
+}
+
+// TestLedgerAddAndDeleteEntry exercises "add" from the Recent view (its
+// entry_add_form's disclosure lives there) and "delete" from the History
+// view (delete-in-row only lives there), each with the ?view= that view's
+// real controls would send, and checks the response swaps into that view.
 func TestLedgerAddAndDeleteEntry(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
@@ -66,13 +180,16 @@ func TestLedgerAddAndDeleteEntry(t *testing.T) {
 		"kind":     {ledger.KindAllocation},
 		"allotted": {"120"},
 	}
-	resp, err := http.PostForm(srv.URL+"/ledger/entries", form)
+	resp, err := http.PostForm(srv.URL+"/ledger/entries?view=recent", form)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := body(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("add status = %d", resp.StatusCode)
+	}
+	if !strings.Contains(out, "Recent activity") {
+		t.Errorf("add from Recent should swap into the Recent body; got:\n%s", out)
 	}
 	if !strings.Contains(out, "Point allocation") {
 		t.Errorf("response missing the new entry; got:\n%s", out)
@@ -84,15 +201,21 @@ func TestLedgerAddAndDeleteEntry(t *testing.T) {
 	}
 	id := entries[0].ID
 
-	// Delete it.
-	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10), nil)
+	// Delete it, as the History view's row-delete button would.
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10)+"?view=history", nil)
 	dresp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body(t, dresp)
+	dout := body(t, dresp)
 	if dresp.StatusCode != http.StatusOK {
 		t.Fatalf("delete status = %d", dresp.StatusCode)
+	}
+	if !strings.Contains(dout, "Per use year") {
+		t.Errorf("delete from History should swap into the History body; got:\n%s", dout)
+	}
+	if strings.Contains(dout, "Point allocation") {
+		t.Errorf("deleted entry should no longer render; got:\n%s", dout)
 	}
 	entries, _ = store.ListEntries()
 	if len(entries) != 0 {
@@ -119,7 +242,7 @@ func TestLedgerEditEntryRendersFormRow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := http.Get(srv.URL + "/ledger/entries/" + strconv.FormatInt(id1, 10) + "/edit")
+	resp, err := http.Get(srv.URL + "/ledger/entries/" + strconv.FormatInt(id1, 10) + "/edit?view=history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +250,11 @@ func TestLedgerEditEntryRendersFormRow(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("edit status = %d, body:\n%s", resp.StatusCode, out)
 	}
+	if !strings.Contains(out, "Per use year") {
+		t.Errorf("edit should swap into the History body; got:\n%s", out)
+	}
 
-	wantUpdateAction := `hx-post="/ledger/entries/` + strconv.FormatInt(id1, 10) + `/update"`
+	wantUpdateAction := `hx-post="/ledger/entries/` + strconv.FormatInt(id1, 10) + `/update?view=history"`
 	if !strings.Contains(out, wantUpdateAction) {
 		t.Errorf("response missing edit-form action %q; got:\n%s", wantUpdateAction, out)
 	}
@@ -147,11 +273,11 @@ func TestLedgerEditEntryRendersFormRow(t *testing.T) {
 	if !strings.Contains(out, "Second entry") {
 		t.Errorf("response missing untouched row content; got:\n%s", out)
 	}
-	wantOtherEditLink := `hx-get="/ledger/entries/` + strconv.FormatInt(id2, 10) + `/edit"`
+	wantOtherEditLink := `hx-get="/ledger/entries/` + strconv.FormatInt(id2, 10) + `/edit?view=history"`
 	if !strings.Contains(out, wantOtherEditLink) {
 		t.Errorf("other row should still render its Edit button %q; got:\n%s", wantOtherEditLink, out)
 	}
-	wantOtherUpdateAction := `hx-post="/ledger/entries/` + strconv.FormatInt(id2, 10) + `/update"`
+	wantOtherUpdateAction := `hx-post="/ledger/entries/` + strconv.FormatInt(id2, 10) + `/update?view=history"`
 	if strings.Contains(out, wantOtherUpdateAction) {
 		t.Errorf("other row should not be rendered as an edit form; got:\n%s", out)
 	}
@@ -183,13 +309,16 @@ func TestLedgerUpdateEntryPersists(t *testing.T) {
 		"tag":      {"changed"},
 		"contract": {strconv.FormatInt(cid, 10)},
 	}
-	resp, err := http.PostForm(srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10)+"/update", form)
+	resp, err := http.PostForm(srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10)+"/update?view=history", form)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := body(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if !strings.Contains(out, "Per use year") {
+		t.Errorf("update should swap into the History body; got:\n%s", out)
 	}
 	if !strings.Contains(out, "Updated desc") {
 		t.Errorf("response missing updated desc; got:\n%s", out)
@@ -235,7 +364,7 @@ func TestLedgerUpdateEntryBadDateShowsError(t *testing.T) {
 		"desc": {"Should not persist"},
 		"kind": {ledger.KindBonus},
 	}
-	resp, err := http.PostForm(srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10)+"/update", form)
+	resp, err := http.PostForm(srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10)+"/update?view=history", form)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,6 +374,9 @@ func TestLedgerUpdateEntryBadDateShowsError(t *testing.T) {
 	}
 	if !strings.Contains(out, "err") {
 		t.Errorf("response should surface the parse error; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Per use year") {
+		t.Errorf("update error should still swap into the History body; got:\n%s", out)
 	}
 
 	entries, err := store.ListEntries()
@@ -276,7 +408,7 @@ func TestLedgerUpdateEntryStoreErrorShowsError(t *testing.T) {
 		"kind":     {ledger.KindBonus},
 		"contract": {"999999"},
 	}
-	resp, err := http.PostForm(srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10)+"/update", form)
+	resp, err := http.PostForm(srv.URL+"/ledger/entries/"+strconv.FormatInt(id, 10)+"/update?view=history", form)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +472,7 @@ func TestLedgerCancelEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := http.PostForm(srv.URL+"/ledger/entries/edit/cancel", nil)
+	resp, err := http.PostForm(srv.URL+"/ledger/entries/edit/cancel?view=history", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,10 +480,13 @@ func TestLedgerCancelEdit(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cancel status = %d, body:\n%s", resp.StatusCode, out)
 	}
+	if !strings.Contains(out, "Per use year") {
+		t.Errorf("cancel should swap into the History body; got:\n%s", out)
+	}
 	if strings.Contains(out, "editing") {
 		t.Errorf("cancel should restore normal row rendering; got:\n%s", out)
 	}
-	wantEditLink := `hx-get="/ledger/entries/` + strconv.FormatInt(id, 10) + `/edit"`
+	wantEditLink := `hx-get="/ledger/entries/` + strconv.FormatInt(id, 10) + `/edit?view=history"`
 	if !strings.Contains(out, wantEditLink) {
 		t.Errorf("cancel response missing normal Edit button %q; got:\n%s", wantEditLink, out)
 	}
@@ -368,13 +503,16 @@ func TestLedgerAddContract(t *testing.T) {
 		"points":         {"150"},
 		"use_year_month": {"April"},
 	}
-	resp, err := http.PostForm(srv.URL+"/ledger/contracts", form)
+	resp, err := http.PostForm(srv.URL+"/ledger/contracts?view=contracts", form)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := body(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("add contract status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if !strings.Contains(out, "Add contract") {
+		t.Errorf("add contract should swap into the Contracts body; got:\n%s", out)
 	}
 	if !strings.Contains(out, "BoardWalk") {
 		t.Errorf("response missing new contract; got:\n%s", out)
@@ -404,7 +542,7 @@ func TestLedgerAddContractBadMonth(t *testing.T) {
 		"points":         {"100"},
 		"use_year_month": {"Notamonth"},
 	}
-	resp, err := http.PostForm(srv.URL+"/ledger/contracts", form)
+	resp, err := http.PostForm(srv.URL+"/ledger/contracts?view=contracts", form)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +572,7 @@ func TestLedgerDeleteContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/ledger/contracts/"+strconv.FormatInt(cid, 10), nil)
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/ledger/contracts/"+strconv.FormatInt(cid, 10)+"?view=contracts", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -442,6 +580,9 @@ func TestLedgerDeleteContract(t *testing.T) {
 	out := body(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("delete contract status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if !strings.Contains(out, "Add contract") {
+		t.Errorf("delete contract should swap into the Contracts body; got:\n%s", out)
 	}
 	if strings.Contains(out, "Old Key") {
 		t.Errorf("response should no longer list deleted contract; got:\n%s", out)
@@ -469,13 +610,16 @@ func TestLedgerDistribute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := http.PostForm(srv.URL+"/ledger/distribute", nil)
+	resp, err := http.PostForm(srv.URL+"/ledger/distribute?view=history", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body(t, resp)
+	out := body(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("distribute status = %d", resp.StatusCode)
+	}
+	if !strings.Contains(out, "Per use year") {
+		t.Errorf("distribute should swap into the History body; got:\n%s", out)
 	}
 	entries, _ := store.ListEntries()
 	if len(entries) != 2 {
