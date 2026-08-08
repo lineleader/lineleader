@@ -13,7 +13,7 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <main>
+  <main class="ledger-page">
     {{template "ledger_header" (dict "Active" .View)}}
     {{if eq .View "history"}}{{template "history_body" .}}
     {{else if eq .View "contracts"}}{{template "contracts_body" .}}
