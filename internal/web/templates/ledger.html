@@ -1,3 +1,8 @@
+{{/* ledger_page is the shared HTML shell for all three /ledger routes. It
+     dispatches to the view-specific #ledger-body fragment template based on
+     .View (the ledgerViewKind discriminator) — the same value each view's
+     mutation controls carry as a "view" query param on their hx-* URL, so a
+     mutation response can swap back into the view that hosted it. */}}
 {{define "ledger_page"}}<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,15 +14,75 @@
 </head>
 <body>
   <main>
-    <h1>Points master ledger</h1>
-    <p><a href="/">← trip planner</a></p>
-    {{template "ledger_body" .}}
+    {{template "ledger_header" (dict "Active" .View)}}
+    {{if eq .View "history"}}{{template "history_body" .}}
+    {{else if eq .View "contracts"}}{{template "contracts_body" .}}
+    {{else}}{{template "recent_body" .}}
+    {{end}}
   </main>
 </body>
 </html>
 {{end}}
 
-{{define "ledger_body"}}
+{{/* ledger_header is the shared header + nav partial for all three views,
+     parameterised by which nav item is active via dict (per fpl.18/19's
+     established pattern for passing multiple values into a sub-template). */}}
+{{define "ledger_header"}}
+<div class="ledger-header">
+  <div class="ledger-header-left">
+    <h1 class="ledger-title">Points ledger</h1>
+    <a class="ledger-back" href="/">← trip planner</a>
+  </div>
+  <nav class="ledger-nav">
+    <a href="/ledger" class="{{if eq .Active "recent"}}active{{end}}">Recent</a>
+    <a href="/ledger/history" class="{{if eq .Active "history"}}active{{end}}">History</a>
+    <a href="/ledger/contracts" class="{{if eq .Active "contracts"}}active{{end}}">Contracts</a>
+  </nav>
+</div>
+{{end}}
+
+{{/* recent_body — the default /ledger view: balance + recent activity. */}}
+{{define "recent_body"}}
+<div id="ledger-body" class="ledger-body ledger-recent">
+  {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+
+  <div class="ledger-card ledger-recent-grid">
+    <section class="ledger-recent-activity">
+      <h2>Recent activity (last 20)</h2>
+      <ul class="recent-list">
+        {{range .Recent}}
+        <li class="recent-row"><span class="recent-desc">{{.DateLabel}} · {{.Desc}}</span><span class="recent-delta">{{.DeltaLabel}}</span></li>
+        {{else}}
+        <li class="recent-empty">No entries yet.</li>
+        {{end}}
+      </ul>
+      <details class="add-entry">
+        <summary>+ Add entry</summary>
+        {{template "entry_add_form" (dict "Kinds" .Kinds "Contracts" .Contracts "View" .View)}}
+      </details>
+    </section>
+    <aside class="ledger-recent-side">
+      <div class="balance-block">
+        <span class="balance-label">Balance</span>
+        <span class="balance-value {{if lt .Total 0}}negative{{end}}">{{.Total}}</span>
+      </div>
+      <div class="spent-by-year">
+        <h3>Spent by use year</h3>
+        <ul class="spent-list">
+          {{range .SpentByYear}}
+          <li><span>{{.UseYear}}</span><span>{{.Spent}} pts</span></li>
+          {{else}}
+          <li class="recent-empty">No data yet.</li>
+          {{end}}
+        </ul>
+      </div>
+    </aside>
+  </div>
+</div>
+{{end}}
+
+{{/* history_body — per-use-year summary + full entry ledger + distribute. */}}
+{{define "history_body"}}
 <div id="ledger-body" class="ledger-body">
   {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
 
@@ -37,7 +102,7 @@
       </tbody>
     </table>
     <p>Current balance: <strong class="{{if lt .Total 0}}negative{{end}}">{{.Total}}</strong></p>
-    <button type="button" hx-post="/ledger/distribute" hx-target="#ledger-body" hx-swap="outerHTML"
+    <button type="button" hx-post="/ledger/distribute?view=history" hx-target="#ledger-body" hx-swap="outerHTML"
             hx-confirm="Distribute next year's allotments for every contract?">Distribute next year</button>
   </section>
 
@@ -62,8 +127,8 @@
               <td>{{.RunningBalance}}</td>
               <td>{{.Tag}}</td>
               <td>
-                <button type="button" hx-get="/ledger/entries/{{.ID}}/edit" hx-target="#ledger-body" hx-swap="outerHTML">Edit</button>
-                <button type="button" hx-delete="/ledger/entries/{{.ID}}" hx-target="#ledger-body" hx-swap="outerHTML"
+                <button type="button" hx-get="/ledger/entries/{{.ID}}/edit?view=history" hx-target="#ledger-body" hx-swap="outerHTML">Edit</button>
+                <button type="button" hx-delete="/ledger/entries/{{.ID}}?view=history" hx-target="#ledger-body" hx-swap="outerHTML"
                         hx-confirm="Delete this entry?">Delete</button>
               </td>
             </tr>
@@ -75,8 +140,15 @@
     </table>
 
     <h3>Add entry</h3>
-    {{template "entry_add_form" .}}
+    {{template "entry_add_form" (dict "Kinds" .Kinds "Contracts" .Contracts "View" .View)}}
   </section>
+</div>
+{{end}}
+
+{{/* contracts_body — contracts table + add-contract form. */}}
+{{define "contracts_body"}}
+<div id="ledger-body" class="ledger-body">
+  {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
 
   <section class="ledger-contracts">
     <h2>Contracts</h2>
@@ -87,7 +159,7 @@
         <tr>
           <td>{{.Name}}</td><td>{{.Number}}</td><td>{{viewOrDash .HomeResort}}</td>
           <td>{{.AnnualPoints}}</td><td>{{formatMonth .UseYearMonth}}</td>
-          <td><button type="button" hx-delete="/ledger/contracts/{{.ID}}" hx-target="#ledger-body" hx-swap="outerHTML"
+          <td><button type="button" hx-delete="/ledger/contracts/{{.ID}}?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML"
                       hx-confirm="Delete contract {{.Name}}?">Delete</button></td>
         </tr>
         {{else}}
@@ -97,7 +169,7 @@
     </table>
 
     <h3>Add contract</h3>
-    <form hx-post="/ledger/contracts" hx-target="#ledger-body" hx-swap="outerHTML">
+    <form hx-post="/ledger/contracts?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">
       <input name="name" type="text" placeholder="Name" required>
       <input name="number" type="text" placeholder="Contract #">
       <input name="resort" type="text" placeholder="Resort">
@@ -109,8 +181,11 @@
 </div>
 {{end}}
 
+{{/* entry_add_form is shared by Recent (inside a <details> disclosure) and
+     History (under its "Add entry" heading). .View carries which one is
+     hosting it so the response swaps back into the right #ledger-body. */}}
 {{define "entry_add_form"}}
-<form hx-post="/ledger/entries" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
+<form hx-post="/ledger/entries?view={{.View}}" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
   <input name="date" type="date" required>
   <input name="desc" type="text" placeholder="Description" required>
   <input name="year" type="number" placeholder="Use year (auto)">
@@ -128,10 +203,12 @@
 </form>
 {{end}}
 
+{{/* entry_edit_row only ever renders inside History's entry table, so its
+     mutation controls hardcode ?view=history. */}}
 {{define "entry_edit_row"}}
 <tr class="editing">
   <td colspan="8">
-    <form hx-post="/ledger/entries/{{.E.ID}}/update" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
+    <form hx-post="/ledger/entries/{{.E.ID}}/update?view=history" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
       <input name="year" type="number" value="{{.E.UseYear}}">
       <input name="date" type="date" value="{{formatDate .E.Date}}" required>
       <input name="desc" type="text" value="{{.E.Desc}}" required>
@@ -146,7 +223,7 @@
         {{$cid := .E.ContractID}}{{range .Contracts}}<option value="{{.ID}}" {{if and $cid (eq .ID (deref $cid))}}selected{{end}}>{{.Name}}</option>{{end}}
       </select>
       <button type="submit">Save</button>
-      <button type="button" hx-post="/ledger/entries/edit/cancel" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
+      <button type="button" hx-post="/ledger/entries/edit/cancel?view=history" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
     </form>
   </td>
 </tr>
