@@ -747,6 +747,13 @@ button:focus-visible {
   padding: var(--sp-8);
   width: 100%;
   max-width: 22rem;
+  /* .panel (reused here for its surface styling) also carries
+     height: 100vh and overflow-y: auto for the trip planner's slide-in
+     panel — override both so the login card sits at its natural height
+     instead of filling the viewport, and doesn't gain a stray scroll
+     area. */
+  height: auto;
+  overflow-y: visible;
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
