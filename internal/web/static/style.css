@@ -501,6 +501,142 @@ button:focus-visible {
 }
 .ledger-body .err { color: var(--danger); }
 
+/* ---- Header + nav (shared across Recent/History/Contracts) ---- */
+.ledger-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+}
+.ledger-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+.ledger-title {
+  margin: 0;
+  color: var(--brand);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-black);
+}
+.ledger-back {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+}
+.ledger-back:hover { text-decoration: underline; }
+.ledger-nav {
+  display: flex;
+  gap: var(--sp-4);
+}
+.ledger-nav a {
+  color: var(--text-dim);
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+}
+.ledger-nav a.active {
+  color: var(--brand);
+  font-weight: var(--fw-bold);
+  text-decoration: underline;
+}
+
+/* ---- Recent view: two-column card ---- */
+.ledger-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-6);
+}
+.ledger-recent-grid {
+  display: grid;
+  grid-template-columns: 62fr 38fr;
+  gap: var(--sp-8);
+}
+.ledger-recent-side {
+  border-left: 1px solid var(--border);
+  padding-left: var(--sp-6);
+}
+
+.recent-list {
+  list-style: none;
+  margin: 0 0 var(--sp-4);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-variant-numeric: tabular-nums;
+}
+.recent-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.recent-desc { color: var(--text); }
+.recent-delta { font-weight: var(--fw-semibold); text-align: right; }
+.recent-empty { color: var(--text-mute); }
+
+.add-entry summary {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-weight: var(--fw-semibold);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.85rem;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast);
+}
+.add-entry summary::-webkit-details-marker { display: none; }
+.add-entry summary::marker { content: ""; }
+.add-entry summary:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.add-entry[open] summary { margin-bottom: var(--sp-3); }
+
+.balance-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-5);
+}
+.balance-label {
+  color: var(--text-mute);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+.balance-value {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-black);
+  color: var(--accent-ink);
+}
+
+.spent-by-year h3 {
+  margin: 0 0 var(--sp-2);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.spent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-variant-numeric: tabular-nums;
+}
+.spent-list li {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-dim);
+}
+.spent-list li span:last-child { font-weight: var(--fw-semibold); text-align: right; }
+
 /* ============================== Narrow viewport ============================== */
 @media (max-width: 640px) {
   :root {
@@ -542,6 +678,16 @@ button:focus-visible {
 
   .ledger-body section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .ledger-body table { min-width: 520px; }
+
+  /* Recent view's two-column split stacks; the left-border divider becomes a
+     top border instead so it doesn't leave a stray vertical line. */
+  .ledger-recent-grid { grid-template-columns: 1fr; gap: var(--sp-5); }
+  .ledger-recent-side {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: var(--sp-5);
+  }
 }
 
 /* ============================ Login page ============================ */
