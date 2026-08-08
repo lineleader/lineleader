@@ -290,7 +290,9 @@ button:focus-visible {
 
 .trip-budget {
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
+  /* --accent is a background token (yellow oklch 85%); text needs the ink
+     variant for contrast on the light surface. */
+  color: var(--accent-ink);
   font-weight: var(--fw-semibold);
 }
 /* Per-trip filter chip: bold for override, faint for inherit. */
