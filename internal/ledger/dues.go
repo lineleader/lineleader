@@ -1,5 +1,7 @@
 package ledger
 
+import "fmt"
+
 // DuesRate is one year's global $/pt dues rate. Dues are a single series
 // shared by every contract, not per-contract data.
 type DuesRate struct {
@@ -32,7 +34,20 @@ func (s *Store) ListDuesRates() ([]DuesRate, error) {
 
 // UpsertDuesRate inserts d.UseYear's rate, or overwrites it if that year is
 // already stored.
+//
+// d.Rate must be positive: a dues rate of 0 or less is nonsense (and,
+// unfiltered, would eventually reach a division in duesGrowth or
+// compoundDues and panic — see NewCostBasis's belt-and-braces filter for the
+// other side of that defense). d.UseYear only gets a loose sanity check — a
+// four-digit calendar year — since this table stores an open-ended series
+// and there's no real reason to hard-code a narrower operational range.
 func (s *Store) UpsertDuesRate(d DuesRate) error {
+	if d.Rate <= 0 {
+		return fmt.Errorf("UpsertDuesRate: rate must be positive, got %v", d.Rate)
+	}
+	if d.UseYear < 1000 || d.UseYear > 9999 {
+		return fmt.Errorf("UpsertDuesRate: use year %d is not a plausible calendar year", d.UseYear)
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO dues_rates (use_year, rate_micros) VALUES ($1, $2)
 		 ON CONFLICT (use_year) DO UPDATE SET rate_micros = EXCLUDED.rate_micros`,

@@ -207,6 +207,96 @@ func TestDuesForSparseSeries(t *testing.T) {
 	})
 }
 
+// TestNewCostBasisIgnoresNonPositiveDuesRates is the regression for a
+// division-by-zero panic: a stored dues_rates row with rate_micros <= 0
+// (UpsertDuesRate now rejects this at the store boundary, but NewCostBasis
+// must tolerate it anyway in case some other path — direct SQL, a future
+// API — inserts one) used to reach duesGrowth's
+// `divRound(int64(dues[yNext])*duesGrowthBase, int64(dues[y]))` as the
+// denominator and panic. NewCostBasis now filters non-positive rates out of
+// the dues map before anything divides by them, treating that year exactly
+// as if it were absent.
+func TestNewCostBasisIgnoresNonPositiveDuesRates(t *testing.T) {
+	// Without the filter, the (2021, 2022) pair would divide by
+	// dues[2021] == 0 while computing growthMicros and panic.
+	dues := []DuesRate{
+		{2020, 1_000_000},
+		{2021, 0},         // bogus row: must be treated as absent, not divided by
+		{2022, 1_210_000},
+	}
+	b := NewCostBasis(nil, dues)
+
+	// 2021 is gone from the stored years, so 2020 and 2022 (two years
+	// apart) are the only years left; no adjacent-year pair exists, so
+	// growthMicros falls back to flat (duesGrowthBase) and 2021 becomes an
+	// interior gap projected forward from 2020.
+	rate, projected := b.DuesFor(2021)
+	if rate != 1_000_000 || !projected {
+		t.Errorf("DuesFor(2021) = (%d, %v), want (1_000_000, true)", rate, projected)
+	}
+
+	// The exact stored years still price exactly.
+	if rate, projected := b.DuesFor(2020); rate != 1_000_000 || projected {
+		t.Errorf("DuesFor(2020) = (%d, %v), want (1_000_000, false)", rate, projected)
+	}
+	if rate, projected := b.DuesFor(2022); rate != 1_210_000 || projected {
+		t.Errorf("DuesFor(2022) = (%d, %v), want (1_210_000, false)", rate, projected)
+	}
+}
+
+// TestNewCostBasisAllDuesRatesNonPositive covers the extreme of the same
+// filter: every stored dues rate is non-positive, so the dues map ends up
+// empty and hasDues stays false — Known() must degrade to false exactly as
+// it does with zero stored dues rows, not panic or treat the basis as
+// priceable.
+func TestNewCostBasisAllDuesRatesNonPositive(t *testing.T) {
+	b := NewCostBasis([]Contract{contract2019}, []DuesRate{{2020, 0}, {2021, -5}})
+	if got := b.Known(); got {
+		t.Errorf("Known() = %v, want false (every dues rate was non-positive)", got)
+	}
+	if rate, projected := b.DuesFor(2020); rate != 0 || projected {
+		t.Errorf("DuesFor(2020) = (%d, %v), want (0, false)", rate, projected)
+	}
+}
+
+// TestNewCostBasisSingleValidDuesRateAmongZeros combines both defects into
+// one scenario close to the real bug report: a single genuinely valid dues
+// rate alongside a zero-rate row for a different year. DuesFor must still
+// project flat from the valid year without panicking.
+func TestNewCostBasisSingleValidDuesRateAmongZeros(t *testing.T) {
+	b := NewCostBasis(nil, []DuesRate{{2020, 0}, {2021, 1_000_000}})
+	if rate, projected := b.DuesFor(2022); rate != 1_000_000 || !projected {
+		t.Errorf("DuesFor(2022) = (%d, %v), want (1_000_000, true)", rate, projected)
+	}
+	if rate, projected := b.DuesFor(2021); rate != 1_000_000 || projected {
+		t.Errorf("DuesFor(2021) = (%d, %v), want (1_000_000, false)", rate, projected)
+	}
+}
+
+// TestCompoundDuesGuardsNonPositiveGrowth is the "belt and braces" case
+// documented on compoundDues: NewCostBasis's dues filter means growthMicros
+// should never actually be non-positive in practice (every rate it's
+// derived from is positive, and the no-pairs default is duesGrowthBase), but
+// compoundDues checks anyway rather than trust that invariant forever. A
+// CostBasis is built by hand here (same package) with growthMicros forced to
+// 0 to exercise that guard directly: dividing by it would panic; the guard
+// must return the base rate unchanged instead.
+func TestCompoundDuesGuardsNonPositiveGrowth(t *testing.T) {
+	b := CostBasis{
+		dues:         map[int]Micros{2020: 5_000_000},
+		firstYear:    2020,
+		lastYear:     2020,
+		growthMicros: 0,
+		hasDues:      true,
+	}
+	if rate, projected := b.DuesFor(2021); rate != 5_000_000 || !projected {
+		t.Errorf("DuesFor(2021) with growthMicros=0 = (%d, %v), want (5_000_000, true)", rate, projected)
+	}
+	if rate, projected := b.DuesFor(2019); rate != 5_000_000 || !projected {
+		t.Errorf("DuesFor(2019) with growthMicros=0 = (%d, %v), want (5_000_000, true)", rate, projected)
+	}
+}
+
 // TestCostBasisCost pins the two golden priced stays from the design doc
 // (a per-contract rate against a stored dues year, and a blended rate
 // against another stored dues year) plus the "not priceable" and

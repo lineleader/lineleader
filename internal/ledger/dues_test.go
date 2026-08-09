@@ -67,6 +67,42 @@ func TestDuesRateUpsertAndDelete(t *testing.T) {
 	}
 }
 
+// TestUpsertDuesRateRejectsBadInput covers the store-boundary validation: a
+// dues rate must be positive (Rate <= 0 would later reach compoundDues'
+// division and panic if it weren't filtered — see cost_test.go's
+// TestNewCostBasisIgnoresNonPositiveDuesRates for that belt-and-braces side)
+// and UseYear is loosely sanity-checked as a plausible calendar year. Every
+// case must return an error and leave the store untouched — no row for that
+// year at all, not even a zero-valued one.
+func TestUpsertDuesRateRejectsBadInput(t *testing.T) {
+	s := OpenTest(t)
+
+	cases := []struct {
+		name string
+		d    DuesRate
+	}{
+		{"zero rate", DuesRate{UseYear: 2099, Rate: 0}},
+		{"negative rate", DuesRate{UseYear: 2098, Rate: -1}},
+		{"implausible year", DuesRate{UseYear: 30000, Rate: 1_000_000}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := s.UpsertDuesRate(c.d); err == nil {
+				t.Fatalf("UpsertDuesRate(%+v) = nil error, want error", c.d)
+			}
+			got, err := s.ListDuesRates()
+			if err != nil {
+				t.Fatalf("ListDuesRates: %v", err)
+			}
+			for _, row := range got {
+				if row.UseYear == c.d.UseYear {
+					t.Fatalf("UpsertDuesRate(%+v) stored a row: %+v", c.d, row)
+				}
+			}
+		})
+	}
+}
+
 // TestDuesSeedDoesNotResurrectDeletion is the whole-table-guard regression:
 // seed.sql only inserts when dues_rates is entirely empty, so an operator
 // deleting one seeded year must see it stay gone across a restart (a second

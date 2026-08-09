@@ -57,6 +57,15 @@ func NewCostBasis(contracts []Contract, dues []DuesRate) CostBasis {
 	}
 
 	for _, d := range dues {
+		if d.Rate <= 0 {
+			// A non-positive dues rate cannot happen via UpsertDuesRate
+			// (which now rejects it), but tolerate it defensively anyway —
+			// some other path (direct SQL, a future API) could still insert
+			// one, and letting it into the map would later reach
+			// duesGrowth's or compoundDues' division as either operand and
+			// panic. Treat that year exactly as if it were absent.
+			continue
+		}
 		b.dues[d.UseYear] = d.Rate
 	}
 	if len(b.dues) > 0 {
@@ -160,8 +169,20 @@ func (b CostBasis) DuesFor(year int) (rate Micros, projected bool) {
 
 // compoundDues compounds dues[baseYear] forward steps years (steps may be
 // negative, meaning "divide backward" that many years), one year at a time.
+//
+// growthMicros should always be positive in practice — NewCostBasis only
+// ever derives it from positive stored dues rates, defaulting to
+// duesGrowthBase (never 0) when there's nothing to compute a ratio from —
+// but this is belt and braces: if some future change ever left it
+// non-positive, dividing by it below (the backward branch) would panic.
+// Returning the base rate unchanged is the same honesty trade-off DuesFor
+// already makes for flat growth: a defensible answer, still flagged
+// projected by the caller, rather than a crash.
 func (b CostBasis) compoundDues(baseYear, steps int) Micros {
 	rate := int64(b.dues[baseYear])
+	if b.growthMicros <= 0 {
+		return Micros(rate)
+	}
 	for range steps {
 		rate = divRound(rate*b.growthMicros, duesGrowthBase)
 	}
