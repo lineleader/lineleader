@@ -147,9 +147,12 @@ Track DVC points over time — the "master ledger" of annual allotments and the
 trips that consume them. The ledger is a single chronological list whose running
 balance is derived: each row adds points (`Allotted`) or spends them (`Used`), and
 borrowing simply shows up as the running balance going negative until the next
-allotment restores it. It is stored in SQLite at
-`~/.config/lineleader/ledger.db` (override with `--db` on the CLI or `--ledger`
-on the server); all other data (charts, plans, config) stays in JSON.
+allotment restores it. It is stored in Postgres, which the server connects to
+via `--ledger-dsn` (or the `LEDGER_DSN` env var); all other data (charts,
+plans, config) stays in JSON. The schema self-applies idempotently on boot, so
+pointing the server at an empty database is enough. If you still have the old
+SQLite ledger, see [Seeding the hosted ledger](#seeding-the-hosted-ledger) for
+the one-shot import.
 
 Each row has a **use year** (defaulted from the date, editable) so the app can
 roll entries up per use year — surfacing over/under-spend that a single pooled
@@ -164,6 +167,11 @@ and delete entries; add contracts; and click **Distribute next year**. Negative
 balances and over-borrowed use years are flagged.
 
 ### CLI
+
+The CLI does not open the database itself — it talks to a running server over
+HTTP. Point it at one with `--server`/`--token`, the `LINELEADER_SERVER`/
+`LINELEADER_TOKEN` env vars, or `server_url`/`token` in
+`~/.config/lineleader/client.json` (in that precedence order).
 
 ```sh
 # Contracts (templates that drive `distribute`)
