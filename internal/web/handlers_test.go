@@ -81,6 +81,59 @@ func TestIndex_RendersDefaults(t *testing.T) {
 	if !strings.Contains(got, "Test Resort") {
 		t.Errorf("expected fixture resort 'Test Resort' in initial render, got:\n%s", got)
 	}
+	// No ledger is configured (Options.Ledger == nil) — the planner must
+	// render byte-identically to its pre-cost self: no COST column, no
+	// dollar sign anywhere.
+	if strings.Contains(got, "COST") {
+		t.Errorf("expected no COST column with no ledger configured, got:\n%s", got)
+	}
+	if strings.Contains(got, "$") {
+		t.Errorf("expected no dollar sign anywhere with no ledger configured, got:\n%s", got)
+	}
+}
+
+// TestResultsTable_ShowsCostColumnWithLedger confirms that, once the ledger
+// has enough cost data to price a stay (a priced contract; seed.sql's dues
+// rates are already present on any freshly opened store), the results table
+// gains a COST column showing a priced $ figure, and selecting a stay
+// surfaces the same cost in the collapsed trip's summary-cost chip.
+func TestResultsTable_ShowsCostColumnWithLedger(t *testing.T) {
+	dir := t.TempDir()
+	store := ledger.OpenTest(t)
+	addPricedContract(t, store)
+	srv := NewServer(Options{
+		Charts:     []*dvc.ResortChart{minimalChart()},
+		ConfigPath: filepath.Join(dir, "config.json"),
+		PlansPath:  filepath.Join(dir, "plans.json"),
+		Ledger:     store,
+		Defaults:   Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
+	})
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, "COST") {
+		t.Errorf("expected a COST column header with ledger configured, got:\n%s", got)
+	}
+	if !strings.Contains(got, "$") {
+		t.Errorf("expected a priced $ figure in the results table, got:\n%s", got)
+	}
+
+	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	resp2, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := body(t, resp2)
+	if !strings.Contains(got2, `class="summary-cost"`) {
+		t.Errorf("expected a summary-cost chip in the collapsed trip summary, got:\n%s", got2)
+	}
 }
 
 func TestUpdateField_ReturnsResults(t *testing.T) {

@@ -21,6 +21,7 @@
           <th>CHECK-OUT</th>
           <th>NIGHTS</th>
           <th>PTS</th>
+          {{if .ShowCosts}}<th>COST</th>{{end}}
         </tr>
       </thead>
       <tbody>
@@ -40,6 +41,7 @@
           <td>{{formatDate .CheckOut}}</td>
           <td>{{.Nights}}</td>
           <td>{{.Points}}</td>
+          {{if $.ShowCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</td>{{end}}
         </tr>
         {{end}}
       </tbody>

@@ -30,6 +30,21 @@ type tripView struct {
 	FilterMode      dvc.FilterMode
 	UsesOverride    bool          // == (FilterMode == dvc.FilterModeOverride)
 	Filters         dvc.FilterSet // value type; the trip's own exclusions when overriding
+
+	// ShowCosts mirrors appView.ShowCosts (see its doc comment) — every
+	// dollar affordance on this trip's results table and collapsed summary
+	// chip is gated on it, so a nil-ledger server (as in ~20 existing
+	// planner tests) renders byte-identical HTML.
+	ShowCosts bool
+
+	// SelectedCostLabel is Selected.CostLabel, hoisted here so the
+	// collapsed trip_summary chip doesn't need to reach through a possibly
+	// nil Selected. Empty ("") when there's no selection, or ShowCosts is
+	// false, or the selection's cost couldn't be priced (see resultRow.cost).
+	SelectedCostLabel string
+	// SelectedCostProjected mirrors Selected.CostProjected; meaningless
+	// unless SelectedCostLabel is non-empty.
+	SelectedCostProjected bool
 }
 
 type resultRow struct {
@@ -42,6 +57,20 @@ type resultRow struct {
 	Nights   int
 	Points   int
 	Selected bool
+
+	// CostLabel is this stay's priced dollar cost (ledger.FormatUSD), ""
+	// when the trip's tripView.ShowCosts is false or the stay's points
+	// couldn't be priced (ledger.CostBasis.Cost's known=false case, e.g.
+	// Points <= 0). CostProjected mirrors the underlying dues rate's
+	// projected flag; meaningless unless CostLabel is non-empty. Only
+	// rendered under the ShowCosts guard.
+	CostLabel     string
+	CostProjected bool
+
+	// cost is the same value as CostLabel, unformatted, so appView's
+	// SelectedCostLabel (added in a later commit) can sum real cents
+	// across trips rather than parsing formatted dollar strings back apart.
+	cost ledger.Cents
 }
 
 // filterScope tells the ONE filters template which panel it is rendering so it
@@ -97,6 +126,15 @@ func stayKey(r dvc.StayResult) string {
 // in the web's view-only collapsed flags. Caller must hold s.mu (so collapsed
 // and the snapshot stay consistent).
 func (s *Session) buildAppView(snap dvc.Snapshot) appView {
+	// basis/showCosts gate every dollar affordance below. s.costs is always
+	// non-nil in practice (see NewSession), and Basis() is itself
+	// nil-store-safe, so this never needs its own nil check — a missing or
+	// not-yet-known ledger just means ok/basis.Known() come back false and
+	// showCosts stays false, matching the pre-cost rendering every existing
+	// planner test (Options.Ledger == nil) expects byte-for-byte.
+	basis, ok := s.costs.Basis()
+	showCosts := ok && basis.Known()
+
 	v := appView{
 		Budget:         snap.Budget,
 		BudgetErr:      snap.BudgetErr,
@@ -125,6 +163,7 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 			FilterMode:      t.Spec.FilterMode,
 			UsesOverride:    t.Spec.FilterMode == dvc.FilterModeOverride,
 			Filters:         f,
+			ShowCosts:       showCosts,
 		}
 		var selKey string
 		if t.Selected != nil {
@@ -143,6 +182,9 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 				Points:   r.Points,
 				Selected: selKey != "" && stayKey(r) == selKey,
 			}
+			if showCosts {
+				priceRow(&row, basis)
+			}
 			tv.Results[j] = row
 			if row.Selected {
 				sel := row
@@ -152,7 +194,7 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 		// If the trip has a selection that's not in the current results
 		// (e.g. filtered out), fall back to the stored Selected stay.
 		if tv.Selected == nil && t.Selected != nil {
-			tv.Selected = &resultRow{
+			sel := resultRow{
 				Resort:   t.Selected.Resort,
 				RoomType: t.Selected.RoomType,
 				View:     t.Selected.View,
@@ -162,10 +204,38 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 				Points:   t.Selected.Points,
 				Selected: true,
 			}
+			if showCosts {
+				priceRow(&sel, basis)
+			}
+			tv.Selected = &sel
+		}
+		if tv.Selected != nil {
+			tv.SelectedCostLabel = tv.Selected.CostLabel
+			tv.SelectedCostProjected = tv.Selected.CostProjected
 		}
 		v.Trips[i] = tv
 	}
 	return v
+}
+
+// priceRow prices row's Points at its CheckIn date's use year — see
+// ledger.UseYearForDate — against the blended rate (contractID nil: a
+// planner stay is never attributed to a specific contract, so the
+// portfolio-wide blended rate always applies). It sets row.cost, CostLabel
+// and CostProjected in place, and is a no-op (leaving them at their zero
+// values) when the stay's points can't be priced — CostBasis.Cost's own
+// known=false case, e.g. Points <= 0. Callers must already know
+// basis.Known() is true (see buildAppView's showCosts guard); calling this
+// otherwise is harmless but pointless, since Cost always reports known=false.
+func priceRow(row *resultRow, basis ledger.CostBasis) {
+	year := ledger.UseYearForDate(row.CheckIn, basis.UseYearMonth())
+	cost, projected, known := basis.Cost(row.Points, year, nil)
+	if !known {
+		return
+	}
+	row.cost = cost
+	row.CostLabel = ledger.FormatUSD(cost)
+	row.CostProjected = projected
 }
 
 // toFiltersView adapts a Planner FilterOptionsView into the template's

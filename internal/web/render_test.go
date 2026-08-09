@@ -3,8 +3,10 @@ package web
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/lineleader/lineleader/internal/dvc"
+	"github.com/lineleader/lineleader/internal/ledger"
 )
 
 // newTestSession builds a Session backed by a Planner over the minimal chart, so
@@ -26,6 +28,46 @@ func newTestSession(t *testing.T) *Session {
 		},
 		newCostProvider(nil),
 	)
+}
+
+// newTestSessionWithStore builds a Session identically to newTestSession but
+// backed by a real ledger.Store's costProvider (rather than the nil-store
+// one every other render_test.go helper uses), so buildAppView has cost
+// data to price results and selections against.
+func newTestSessionWithStore(t *testing.T, store *ledger.Store) *Session {
+	t.Helper()
+	dir := t.TempDir()
+	return NewSession(
+		[]*dvc.ResortChart{minimalChart()},
+		dvc.Config{},
+		filepath.Join(dir, "config.json"),
+		nil,
+		filepath.Join(dir, "plans.json"),
+		Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    "100",
+			MinNights: "1",
+		},
+		newCostProvider(store),
+	)
+}
+
+// addPricedContract adds a contract carrying enough cost data
+// (PricePerPointYear known) that CostBasis.Known() is true, given seed.sql's
+// dues rates are already present on any freshly opened store. The exact
+// rate isn't asserted by callers — only that some non-empty $ cost appears.
+func addPricedContract(t *testing.T, store *ledger.Store) {
+	t.Helper()
+	if _, err := store.AddContract(ledger.Contract{
+		Name:          "C1",
+		AnnualPoints:  100,
+		UseYearMonth:  time.January,
+		TermYears:     10,
+		PurchasePrice: 100_000_00, // $100,000.00
+	}); err != nil {
+		t.Fatalf("AddContract: %v", err)
+	}
 }
 
 // An inherit trip projects UsesOverride==false and the inherit FilterMode; an
@@ -142,5 +184,66 @@ func TestBuildAppView_BudgetRemainingSelection(t *testing.T) {
 	}
 	if v.Remaining != 100-t0.Selected.Points {
 		t.Errorf("Remaining = %d, want %d", v.Remaining, 100-t0.Selected.Points)
+	}
+}
+
+// TestBuildAppView_NoLedgerHidesCosts pins the nil-store byte-identical
+// contract: with no ledger configured (the newTestSession helper every
+// other test in this file uses), ShowCosts must be false everywhere and no
+// CostLabel ever gets populated — this is what lets every pre-existing
+// planner test go on rendering the same HTML with no edits.
+func TestBuildAppView_NoLedgerHidesCosts(t *testing.T) {
+	s := newTestSession(t)
+	s.reconcileCollapsed(s.p.Snapshot())
+
+	v := s.buildAppView(s.p.Snapshot())
+	for _, tr := range v.Trips {
+		if tr.ShowCosts {
+			t.Errorf("trip ShowCosts = true, want false with no ledger configured")
+		}
+		if tr.SelectedCostLabel != "" {
+			t.Errorf("trip SelectedCostLabel = %q, want empty with no ledger configured", tr.SelectedCostLabel)
+		}
+		for _, r := range tr.Results {
+			if r.CostLabel != "" {
+				t.Errorf("result CostLabel = %q, want empty with no ledger configured", r.CostLabel)
+			}
+		}
+	}
+}
+
+// TestBuildAppView_PricesResultsAndSelection confirms a Session backed by a
+// priced ledger (a contract with cost data, seed.sql's dues rates already
+// present) prices every result row and, once a stay is selected, the trip's
+// SelectedCostLabel.
+func TestBuildAppView_PricesResultsAndSelection(t *testing.T) {
+	store := ledger.OpenTest(t)
+	addPricedContract(t, store)
+
+	s := newTestSessionWithStore(t, store)
+	s.reconcileCollapsed(s.p.Snapshot())
+
+	v := s.buildAppView(s.p.Snapshot())
+	t0 := v.Trips[0]
+	if !t0.ShowCosts {
+		t.Fatalf("trip ShowCosts = false, want true (contract priced, dues seeded)")
+	}
+	if len(t0.Results) == 0 {
+		t.Fatalf("no results to price against the minimal chart")
+	}
+	for _, r := range t0.Results {
+		if r.CostLabel == "" {
+			t.Errorf("result row CostLabel empty, want a priced $ label for %+v", r)
+		}
+	}
+
+	s.p.ToggleSelection(0, 0)
+	v = s.buildAppView(s.p.Snapshot())
+	t0 = v.Trips[0]
+	if t0.SelectedCostLabel == "" {
+		t.Errorf("trip SelectedCostLabel empty after selection, want a priced $ label")
+	}
+	if t0.Selected == nil || t0.Selected.CostLabel != t0.SelectedCostLabel {
+		t.Errorf("trip SelectedCostLabel = %q, want to match Selected.CostLabel = %q", t0.SelectedCostLabel, t0.Selected.CostLabel)
 	}
 }

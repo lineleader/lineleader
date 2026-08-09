@@ -40,6 +40,7 @@
     <span class="summary-dates">{{formatDate .Selected.CheckIn}} → {{formatDate .Selected.CheckOut}} ({{.Selected.Nights}}n)</span>
     <span class="summary-room">{{.Selected.Resort}} · {{.Selected.RoomType}}{{if .Selected.View}} · {{.Selected.View}}{{end}}</span>
     <span class="summary-points">{{.Selected.Points}} pts</span>
+    {{if .ShowCosts}}<span class="summary-cost">{{.SelectedCostLabel}}{{if .SelectedCostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</span>{{end}}
   {{else}}
     <span class="summary-dates">{{.Spec.From}} → {{.Spec.To}} ({{.Spec.MinNights}}+ nights)</span>
     <span class="summary-room muted">no room selected</span>
