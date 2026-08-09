@@ -345,6 +345,10 @@ button:focus-visible {
 /* text-mute is too faint against surface-2 for a sustained-reading badge —
    step up to text-dim to keep contrast comfortable. */
 .trip-summary .summary-points.muted { color: var(--text-dim); background: var(--surface-2); }
+/* Cost sibling to summary-points: reads as secondary info alongside the
+   pts pill rather than a second pill bolted on — dim/semibold like
+   .trip-budget, not a filled badge. */
+.trip-summary .summary-cost { color: var(--text-dim); font-weight: var(--fw-semibold); }
 
 /* ============================ Results table ============================ */
 .results { margin-top: 0.9rem; }
@@ -367,6 +371,9 @@ button:focus-visible {
   text-transform: uppercase;
   border-bottom-width: 2px;
 }
+/* COST column: right-aligned so figures line up (tabular-nums already
+   applies table-wide via .results-table above). */
+.results-table td.cost { text-align: right; }
 .results-table tbody tr {
   transition: background var(--dur-fast);
   animation: fade-in-up 0.2s var(--ease) both;
@@ -477,6 +484,18 @@ button:focus-visible {
   }
 }
 
+/* ============================ Cost markers ============================ */
+/* Shared by the planner (results/trip/app) and the ledger views: flags a
+   cost figure that was computed from a projected (extrapolated) dues rate
+   rather than a stored one. */
+.est {
+  color: var(--text-mute);
+  cursor: help;
+  text-decoration: none;
+  font-size: 0.75em;
+  vertical-align: super;
+}
+
 /* ============================== Points ledger ============================== */
 /* Bare <main> is a shrink-to-fit flex item under body{display:flex} with no
    padding of its own (only #app carries that for the trip planner) — give
@@ -517,6 +536,13 @@ button:focus-visible {
 .ledger-body tr.negative td,
 .ledger-body .negative { color: var(--danger); }
 .ledger-body tr.over-borrowed td { background: var(--danger-tint); }
+
+/* ---- Cost columns (History, Contracts) ---- */
+.ledger-body td.cost { text-align: right; }
+.ledger-body tr.projected td { color: var(--text-mute); font-style: italic; }
+.ledger-body tfoot td { font-weight: var(--fw-bold); border-top: 2px solid var(--border); }
+.blended-rate { color: var(--text-dim); font-weight: var(--fw-semibold); }
+.cost-footnote { color: var(--text-mute); font-size: var(--fs-xs); }
 .ledger-body .entry-form {
   display: flex;
   gap: 0.4rem;
@@ -616,6 +642,7 @@ button:focus-visible {
 }
 .recent-desc { color: var(--text); }
 .recent-delta { font-weight: var(--fw-semibold); text-align: right; }
+.recent-cost { color: var(--text-mute); white-space: nowrap; }
 .recent-empty { color: var(--text-mute); }
 
 .add-entry summary {
@@ -654,6 +681,11 @@ button:focus-visible {
   font-weight: var(--fw-black);
   color: var(--accent-ink);
 }
+.balance-approx {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mute);
+  font-size: var(--fs-sm);
+}
 
 .spent-by-year h3 {
   margin: 0 0 var(--sp-2);
@@ -676,6 +708,9 @@ button:focus-visible {
   color: var(--text-dim);
 }
 .spent-list li span:last-child { font-weight: var(--fw-semibold); text-align: right; }
+/* Cost is secondary to the pts figure it follows — dim it back down even
+   though :last-child above would otherwise bold it. */
+.spent-list li span.spent-cost { color: var(--text-mute); font-weight: var(--fw-regular); }
 
 /* ============================== Narrow viewport ============================== */
 @media (max-width: 640px) {
@@ -715,9 +750,9 @@ button:focus-visible {
   /* Results and ledger tables scroll horizontally in their own
      container rather than squeezing columns unreadably thin. */
   .results { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .results-table { min-width: 560px; }
+  .results-table { min-width: 650px; } /* +90px: the new COST column */
 
-  .ledger-body table { min-width: 520px; }
+  .ledger-body table { min-width: 610px; } /* +90px: the new Cost column */
 
   /* Recent view's two-column split stacks; the left-border divider becomes a
      top border instead so it doesn't leave a stray vertical line. */
