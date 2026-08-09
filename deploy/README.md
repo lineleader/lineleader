@@ -95,6 +95,27 @@ has ledger rows — it's a one-shot migration, not a sync. The old
 `ledger.db` is left on disk untouched, so it doubles as the rollback path
 if the cutover needs to be undone.
 
+## Cost data
+
+Dues rates (the global `dues_rates` table) seed once on first boot, guarded
+at the table level — `internal/ledger/seed.sql` only inserts when the table
+is empty, so a year deleted through the Contracts view stays deleted across
+restarts; it is never resurrected.
+
+Contract purchase price, closing costs and term years are **not** seeded —
+they're user data and belong on the Contracts view. As an escape hatch for
+backfilling them without going through the UI, e.g. right after a fresh
+deploy or a `ledger-migrate` run:
+
+```sql
+UPDATE contracts SET term_years=44, purchase_price_cents=2940000, closing_costs_cents=58835 WHERE name='Point allocation';
+UPDATE contracts SET term_years=41, purchase_price_cents=3015000, closing_costs_cents=66500  WHERE name='Point allocation #2';
+```
+
+These match on `name`, so they're only safe when contract names are unique.
+The UI's inline contract edit (which matches on id) is the reliable path —
+reach for `psql` only when the UI isn't an option.
+
 ## Releasing
 
 ```bash

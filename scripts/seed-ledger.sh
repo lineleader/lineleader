@@ -19,6 +19,12 @@
 #   --dry-run   print the `dvc` commands that would run; make no changes
 #   --force     allow seeding into a ledger that already has entries
 #
+# The two contracts this script creates (`ledger contracts add` below) land
+# with no cost data — purchase price, closing costs and term years are not
+# an option on that CLI command. Fill them in on the Contracts view
+# (/ledger/contracts) afterward; no dollar figures appear anywhere until
+# then. See "Cost" in the README's Points Ledger section.
+#
 # Data model (see cmd/dvc/ledger.go, internal/ledgerclient, and the server's
 # /api/v1/ledger API in internal/web/api_handlers.go):
 #   Two API calls are made (both with valueRenderOption=UNFORMATTED_VALUE and

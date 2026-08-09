@@ -160,11 +160,47 @@ total hides. **Contracts** are templates (name, annual points, use year month)
 that drive the once-a-year *distribute* action, which posts next year's
 allotment for each contract. Running distribute again the same year is a no-op.
 
+### Cost
+
+Every point also carries a real dollar cost: the amortised acquisition cost of
+the contract it came from, plus that use year's dues.
+
+```
+stay_cost = points_used × ($/pt/year + dues $/pt for that use year)
+```
+
+`$/pt/year` is *derived, never stored* — `(purchase_price + closing_costs) /
+(annual_points × term_years)` — from each contract's purchase price, closing
+costs and term, entered (or backfilled) on the Contracts view. A usage entry
+prices against its own `contract_id`'s rate; when that's unset, or the linked
+contract has no cost data, it falls back to a blended rate weighted by annual
+points across every priced contract. Planner trips have no contract, so they
+always use the blended rate.
+
+Dues are a single global use-year → rate table (not per-contract), also
+managed from the Contracts view. Years beyond the last stored rate are
+projected forward from the mean year-over-year growth of the stored series,
+and any figure computed from a projected rate is marked with a `*` in the UI.
+
+`single_use` points are **not separately priced in v1**: they're purchased
+outside the pooled balance and carry no dues, but the ledger is one pooled
+balance with no way to know which stay actually drew them. v1 prices every
+point drawn at the contract/blended rate and attaches no cost to the
+`single_use` row itself — a small, deliberate distortion (see decision 5 in
+`docs/plans/stay-cost.md`).
+
+**No dollar figure appears anywhere — ledger or planner — until at least one
+contract has purchase price, closing costs and term years entered.** Until
+then the UI renders exactly as it did before this feature existed.
+
 ### Web
 
 Run the server (`make dev`) and open <http://localhost:8080/ledger>. Add, edit,
 and delete entries; add contracts; and click **Distribute next year**. Negative
-balances and over-borrowed use years are flagged.
+balances and over-borrowed use years are flagged. The Contracts view is also
+where a contract's purchase price, closing costs and term years are entered
+or edited, and where the dues rate table is managed — that's what turns cost
+figures on everywhere else in the app.
 
 ### CLI
 
