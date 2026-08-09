@@ -260,6 +260,84 @@ func TestBuildAppView_PricesResultsAndSelection(t *testing.T) {
 	}
 }
 
+// TestBuildAppView_SelectionMatchesOnPointsToo reproduces a real DVC search
+// collision: two rows identical in resort/room type/view/check-in/check-out
+// but different Points (e.g. a studio bookable at both a weekday and a
+// weekend point cost). Before stayKey included Points, both rows matched the
+// selected stay's key, so both rendered the checkmark and the result loop's
+// "last match wins" left tv.Selected pointing at the wrong (unselected) row —
+// its Points, and therefore its priced cost, disagreed with the actually
+// selected stay. stayKey must include Points so a selection identifies
+// exactly one row.
+func TestBuildAppView_SelectionMatchesOnPointsToo(t *testing.T) {
+	store := ledger.OpenTest(t)
+	addPricedContract(t, store)
+	s := newTestSessionWithStore(t, store)
+
+	checkIn := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	checkOut := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	cheap := dvc.StayResult{
+		Resort: "Disney's Animal Kingdom Villas", RoomType: "DELUXE STUDIO", View: "V",
+		CheckIn: checkIn, CheckOut: checkOut, Nights: 1, Points: 9,
+	}
+	pricey := dvc.StayResult{
+		Resort: "Disney's Animal Kingdom Villas", RoomType: "DELUXE STUDIO", View: "V",
+		CheckIn: checkIn, CheckOut: checkOut, Nights: 1, Points: 21,
+	}
+	selected := cheap
+	snap := dvc.Snapshot{
+		Budget:    "100",
+		Remaining: 100 - cheap.Points,
+		Trips: []dvc.TripSnapshot{
+			{
+				Results:  []dvc.StayResult{cheap, pricey},
+				Selected: &selected,
+			},
+		},
+	}
+
+	v := s.buildAppView(snap)
+	t0 := v.Trips[0]
+
+	selectedCount := 0
+	for _, r := range t0.Results {
+		if r.Selected {
+			selectedCount++
+		}
+	}
+	if selectedCount != 1 {
+		t.Fatalf("selectedCount = %d, want exactly 1 row marked Selected", selectedCount)
+	}
+
+	if t0.Selected == nil {
+		t.Fatalf("trip Selected = nil, want the cheap (9 pt) row")
+	}
+	if t0.Selected.Points != cheap.Points {
+		t.Errorf("trip Selected.Points = %d, want %d (the actually-selected row's points)", t0.Selected.Points, cheap.Points)
+	}
+
+	// Find each row's own priced CostLabel to confirm SelectedCostLabel
+	// tracks the cheap row, not the pricey collider.
+	var cheapLabel, priceyLabel string
+	for _, r := range t0.Results {
+		switch r.Points {
+		case cheap.Points:
+			cheapLabel = r.CostLabel
+		case pricey.Points:
+			priceyLabel = r.CostLabel
+		}
+	}
+	if cheapLabel == "" || priceyLabel == "" {
+		t.Fatalf("expected both colliding rows to be priced: cheap=%q pricey=%q", cheapLabel, priceyLabel)
+	}
+	if cheapLabel == priceyLabel {
+		t.Fatalf("cheap and pricey rows priced identically (%q); test can't distinguish them", cheapLabel)
+	}
+	if t0.SelectedCostLabel != cheapLabel {
+		t.Errorf("trip SelectedCostLabel = %q, want the cheap row's cost %q (got the collider's %q)", t0.SelectedCostLabel, cheapLabel, priceyLabel)
+	}
+}
+
 // TestBuildAppView_SumsSelectedCostAcrossTrips confirms appView's
 // SelectedCostLabel sums real cents across every trip's selection (see
 // resultRow.cost) and formats once at the end, rather than concatenating or

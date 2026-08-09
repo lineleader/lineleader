@@ -126,12 +126,25 @@ type plansView struct {
 	Err            string
 }
 
-// stayKey is the identity composite used to mark the selected result row.
+// stayKey is the identity composite used to mark the selected result row. It
+// includes Points because a real search can return two rows that are
+// otherwise identical (same resort/room type/view/check-in/check-out) but
+// priced at different point costs — without Points here, both rows collide
+// on the same key, both render the checkmark, and the "last match wins" loop
+// in buildAppView leaves tv.Selected pointing at the wrong row (see
+// TestBuildAppView_SelectionMatchesOnPointsToo). A stored Selected stay
+// (dvc.TripSpec.Selected / dvc.TripSnapshot.Selected) is always a full
+// dvc.StayResult with its own Points value copied from the row that was
+// selected — StayResult.Points has no omitempty and isn't a pointer, so it
+// round-trips through JSON (plans.json) unconditionally, including for
+// already-saved plans. There's no way for a stored selection to legitimately
+// lack Points.
 func stayKey(r dvc.StayResult) string {
-	return fmt.Sprintf("%s|%s|%s|%s|%s",
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%d",
 		r.Resort, r.RoomType, r.View,
 		r.CheckIn.Format("2006-01-02"),
 		r.CheckOut.Format("2006-01-02"),
+		r.Points,
 	)
 }
 
