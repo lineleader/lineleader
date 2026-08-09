@@ -50,8 +50,9 @@
     <section class="ledger-recent-activity">
       <h2>Recent activity (last 20)</h2>
       <ul class="recent-list">
+        {{$showCosts := .ShowCosts}}
         {{range .Recent}}
-        <li class="recent-row"><span class="recent-desc">{{.DateLabel}} · {{.Desc}}</span><span class="recent-delta">{{.DeltaLabel}}</span></li>
+        <li class="recent-row"><span class="recent-desc">{{.DateLabel}} · {{.Desc}}</span><span class="recent-delta">{{.DeltaLabel}}</span>{{if $showCosts}}<span class="recent-cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this year are projected, not actual">*</abbr>{{end}}</span>{{end}}</li>
         {{else}}
         <li class="recent-empty">No entries yet.</li>
         {{end}}
@@ -65,12 +66,13 @@
       <div class="balance-block">
         <span class="balance-label">Balance</span>
         <span class="balance-value {{if lt .Total 0}}negative{{end}}">{{.Total}}</span>
+        {{if .ShowCosts}}<span class="balance-approx">≈ {{.BalanceValueLabel}}</span>{{end}}
       </div>
       <div class="spent-by-year">
         <h3>Spent by use year</h3>
         <ul class="spent-list">
           {{range .SpentByYear}}
-          <li><span>{{.UseYear}}</span><span>{{.Spent}} pts</span></li>
+          <li><span>{{.UseYear}}</span><span>{{.Spent}} pts</span>{{if $.ShowCosts}}<span class="spent-cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for {{.UseYear}} are projected, not actual">*</abbr>{{end}}</span>{{end}}</li>
           {{else}}
           <li class="recent-empty">No data yet.</li>
           {{end}}

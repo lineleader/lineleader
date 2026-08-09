@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/lineleader/lineleader/internal/ledger"
 )
@@ -37,6 +38,14 @@ type ledgerView struct {
 	// entry) shown on the History view used a projected dues rate, driving
 	// the single shared footnote explaining the "*" marker.
 	CostFootnote bool
+
+	// BalanceValueLabel is the Recent view's "≈ $X" valuation of the
+	// current balance, priced at the blended rate (nil contract id — the
+	// balance is pooled across every contract, so no single contract's rate
+	// applies) and the current use year's dues. See balanceValueLabel for
+	// how it handles a negative (borrowed) balance. Meaningless (and not
+	// rendered) unless ShowCosts.
+	BalanceValueLabel string
 }
 
 // recentActivityLimit caps the Recent Activity list to the newest entries.
@@ -50,6 +59,13 @@ type recentEntryRow struct {
 	Desc       string
 	Delta      int    // Allotted - Used
 	DeltaLabel string // Delta with an explicit sign, e.g. "+150" / "-81" / "+0"
+
+	// CostLabel is the formatted dollar cost of this entry's Used points
+	// ("" when CostKnown is false — an allocation row, or CostBasis not
+	// Known()). CostProjected mirrors the underlying entry's flag. Only
+	// rendered under the page's ShowCosts guard.
+	CostLabel     string
+	CostProjected bool
 }
 
 // yearSpend is one row of the Spent by Use Year widget: points SPENT in that
@@ -58,6 +74,22 @@ type recentEntryRow struct {
 type yearSpend struct {
 	UseYear int
 	Spent   int
+
+	// CostLabel/CostProjected mirror the matching UseYearSummary's Cost
+	// fields (see recentEntryRow.CostLabel).
+	CostLabel     string
+	CostProjected bool
+}
+
+// costLabel formats cost as a dollar string, or "" when known is false —
+// shared by recentEntries and spentByYear so a not-yet-priced row (an
+// allocation, or any row when CostBasis isn't Known()) renders blank rather
+// than "$0.00".
+func costLabel(cost ledger.Cents, known bool) string {
+	if !known {
+		return ""
+	}
+	return ledger.FormatUSD(cost)
 }
 
 // entryKinds lists the selectable kinds for the add/edit form.
@@ -98,19 +130,44 @@ func (h *ledgerHandlers) buildLedgerView(editID int64, errMsg string) (ledgerVie
 	totalCost, costFootnote := sumEntryCosts(entries)
 
 	return ledgerView{
-		Entries:        entries,
-		Total:          total,
-		Summaries:      summaries,
-		Contracts:      contracts,
-		Kinds:          entryKinds,
-		EditID:         editID,
-		Err:            errMsg,
-		Recent:         recentEntries(entries),
-		SpentByYear:    spentByYear(summaries),
-		ShowCosts:      basis.Known(),
-		TotalCostLabel: ledger.FormatUSD(totalCost),
-		CostFootnote:   costFootnote,
+		Entries:           entries,
+		Total:             total,
+		Summaries:         summaries,
+		Contracts:         contracts,
+		Kinds:             entryKinds,
+		EditID:            editID,
+		Err:               errMsg,
+		Recent:            recentEntries(entries),
+		SpentByYear:       spentByYear(summaries),
+		ShowCosts:         basis.Known(),
+		TotalCostLabel:    ledger.FormatUSD(totalCost),
+		CostFootnote:      costFootnote,
+		BalanceValueLabel: balanceValueLabel(basis, total),
 	}, nil
+}
+
+// balanceValueLabel formats the Recent view's "≈ $X" approximation of the
+// current balance's dollar value: balance points priced at the blended rate
+// (nil contract id — the balance is pooled across every contract, so no
+// single contract's own rate is more correct than another's) and the
+// current use year's dues (see ledger.UseYearForDate).
+//
+// It deliberately does NOT go through CostBasis.Cost: that method treats
+// any non-positive point count as "unpriceable" (correct for a single
+// entry's Used, which is never negative), but a balance can legitimately be
+// zero or negative ("borrowed" — the owner has drawn down more points than
+// they've been allotted). PointCost multiplies directly and handles a
+// negative balance by producing a negative dollar figure — read as "you've
+// borrowed the equivalent of $X of not-yet-allotted points" — which
+// FormatUSD renders with a leading "-", e.g. "≈ -$123.45".
+func balanceValueLabel(basis ledger.CostBasis, balance int) string {
+	if !basis.Known() {
+		return ""
+	}
+	year := ledger.UseYearForDate(time.Now(), basis.UseYearMonth())
+	dues, _ := basis.DuesFor(year)
+	cost := ledger.PointCost(balance, basis.RateFor(nil), dues)
+	return ledger.FormatUSD(cost)
 }
 
 // sumEntryCosts totals every priced entry's Cost (CostKnown entries only —
@@ -144,10 +201,12 @@ func recentEntries(entries []ledger.Entry) []recentEntryRow {
 		e := entries[len(entries)-1-i] // newest first: walk back from the end
 		delta := e.Allotted - e.Used
 		rows[i] = recentEntryRow{
-			DateLabel:  e.Date.Format("01-02"),
-			Desc:       e.Desc,
-			Delta:      delta,
-			DeltaLabel: formatSignedDelta(delta),
+			DateLabel:     e.Date.Format("01-02"),
+			Desc:          e.Desc,
+			Delta:         delta,
+			DeltaLabel:    formatSignedDelta(delta),
+			CostLabel:     costLabel(e.Cost, e.CostKnown),
+			CostProjected: e.CostProjected,
 		}
 	}
 	return rows
@@ -173,7 +232,13 @@ func spentByYear(summaries []ledger.UseYearSummary) []yearSpend {
 	}
 	out := make([]yearSpend, 0, n-start)
 	for i := n - 1; i >= start; i-- {
-		out = append(out, yearSpend{UseYear: summaries[i].UseYear, Spent: summaries[i].Used})
+		s := summaries[i]
+		out = append(out, yearSpend{
+			UseYear:       s.UseYear,
+			Spent:         s.Used,
+			CostLabel:     costLabel(s.Cost, s.CostKnown),
+			CostProjected: s.CostProjected,
+		})
 	}
 	return out
 }

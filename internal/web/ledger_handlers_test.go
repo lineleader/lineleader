@@ -695,6 +695,59 @@ func TestLedgerHistoryShowsCostPerEntryAndUseYear(t *testing.T) {
 	}
 }
 
+// TestLedgerRecentShowsCostsWhenKnown backfills a contract's cost data, adds
+// a priced usage entry, and checks GET /ledger (the Recent view) prices the
+// recent-activity row, the spent-by-year widget, and shows an approximate
+// dollar balance. Golden values reuse
+// TestLedgerHistoryShowsCostPerEntryAndUseYear's contract and entry: 40
+// points used in UY2026 against the 2019-style contract prices to $556.12
+// (see that test's comment for the arithmetic).
+//
+// The balance valuation uses the blended rate (nil contract id), not the
+// entry's own contract rate, and the current use year — with only one
+// contract in play here, blended == that contract's own rate, so the
+// running balance of 80 points also prices to the same per-point rate:
+// PointCost(80, 5_679_612, 8_223_500) = divRound(1_112_248_960, 10_000) =
+// 111_225 cents = "$1,112.25".
+func TestLedgerRecentShowsCostsWhenKnown(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	cid, err := store.AddContract(ledger.Contract{
+		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
+		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
+		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Priced trip",
+		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	for _, want := range []string{"$556.12", "$1,112.25"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recent page missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
 func TestLedgerDistribute(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
