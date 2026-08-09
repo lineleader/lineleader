@@ -67,9 +67,14 @@ func NewServer(opts Options) http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	// costs is the one bridge between the planner and the ledger's cost
+	// model (see costs.go). newCostProvider is nil-store-safe, so this is
+	// built unconditionally — Options.Ledger being nil (as in most existing
+	// tests) just means Basis always reports ok=false.
+	costs := newCostProvider(opts.Ledger)
 	h := &handlers{
 		tmpl:    tmpl,
-		session: NewSession(opts.Charts, opts.Config, opts.ConfigPath, opts.Plans, opts.PlansPath, opts.Defaults),
+		session: NewSession(opts.Charts, opts.Config, opts.ConfigPath, opts.Plans, opts.PlansPath, opts.Defaults, costs),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthzHandler(opts.Ledger))
@@ -97,7 +102,7 @@ func NewServer(opts Options) http.Handler {
 	mux.HandleFunc("GET /panel/close", h.closePanel)
 
 	if opts.Ledger != nil {
-		lh := &ledgerHandlers{tmpl: tmpl, store: opts.Ledger}
+		lh := &ledgerHandlers{tmpl: tmpl, store: opts.Ledger, costs: costs}
 		mux.HandleFunc("GET /ledger", lh.page)
 		mux.HandleFunc("GET /ledger/history", lh.history)
 		mux.HandleFunc("GET /ledger/contracts", lh.contracts)

@@ -16,6 +16,13 @@ type ledgerHandlers struct {
 	tmpl  *template.Template
 	store *ledger.Store
 	mu    sync.Mutex
+
+	// costs is the planner's cached cost snapshot (see costs.go). Every
+	// contract/dues mutation below calls costs.Invalidate() so an edit is
+	// reflected in the planner without waiting out costBasisTTL — the
+	// ledger views themselves never read from costs; they call
+	// h.store.CostBasis() directly for freshness.
+	costs *costProvider
 }
 
 // ledgerViewKind is the explicit view discriminator for /ledger's three
@@ -223,6 +230,7 @@ func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
+	h.costs.Invalidate()
 	h.renderBody(w, view, 0, 0, "")
 }
 
@@ -263,6 +271,7 @@ func (h *ledgerHandlers) updateContract(w http.ResponseWriter, r *http.Request) 
 		h.renderBody(w, view, 0, id, err.Error())
 		return
 	}
+	h.costs.Invalidate()
 	h.renderBody(w, view, 0, 0, "")
 }
 
@@ -323,6 +332,7 @@ func (h *ledgerHandlers) deleteContract(w http.ResponseWriter, r *http.Request) 
 		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
+	h.costs.Invalidate()
 	h.renderBody(w, view, 0, 0, "")
 }
 
@@ -352,6 +362,7 @@ func (h *ledgerHandlers) upsertDues(w http.ResponseWriter, r *http.Request) {
 		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
+	h.costs.Invalidate()
 	h.renderBody(w, view, 0, 0, "")
 }
 
@@ -368,6 +379,7 @@ func (h *ledgerHandlers) deleteDues(w http.ResponseWriter, r *http.Request) {
 		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
+	h.costs.Invalidate()
 	h.renderBody(w, view, 0, 0, "")
 }
 

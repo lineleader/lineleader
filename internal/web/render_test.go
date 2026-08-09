@@ -24,6 +24,7 @@ func newTestSession(t *testing.T) *Session {
 			Budget:    "100",
 			MinNights: "1",
 		},
+		newCostProvider(nil),
 	)
 }
 

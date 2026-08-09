@@ -15,11 +15,22 @@ type Session struct {
 	p         *dvc.Planner
 	mu        sync.Mutex // guards collapsed[] + serializes handlers around the planner
 	collapsed []bool     // VIEW-ONLY per-trip (NOT in the Planner)
+
+	// costs is the read-only ledger cost snapshot buildAppView prices
+	// results and selections against (see costs.go). It is nil-store-safe:
+	// when Options.Ledger is nil (as in ~20 existing planner tests), costs
+	// still fetches — Basis just always reports ok=false, and buildAppView
+	// renders its pre-cost UI. internal/dvc never sees this field or the
+	// ledger package it points into.
+	costs *costProvider
 }
 
 // NewSession builds the Planner from the given args and seeds collapsed to a
-// single (expanded) trip, matching the Planner's initial single trip.
-func NewSession(charts []*dvc.ResortChart, cfg dvc.Config, configPath string, plans []dvc.Plan, plansPath string, defaults Defaults) *Session {
+// single (expanded) trip, matching the Planner's initial single trip. costs
+// is the ledger cost snapshot provider (see costProvider) — always non-nil
+// in practice (NewServer passes newCostProvider(opts.Ledger), which is
+// itself nil-store-safe), so buildAppView never needs to nil-check it.
+func NewSession(charts []*dvc.ResortChart, cfg dvc.Config, configPath string, plans []dvc.Plan, plansPath string, defaults Defaults, costs *costProvider) *Session {
 	p := dvc.NewPlanner(dvc.PlannerOptions{
 		Charts:     charts,
 		Global:     cfg,
@@ -36,6 +47,7 @@ func NewSession(charts []*dvc.ResortChart, cfg dvc.Config, configPath string, pl
 	return &Session{
 		p:         p,
 		collapsed: []bool{false},
+		costs:     costs,
 	}
 }
 
