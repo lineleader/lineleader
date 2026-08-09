@@ -72,6 +72,141 @@ func TestCostBasisBlendedNoContracts(t *testing.T) {
 	}
 }
 
+// seededDues is the owner's eight-year dues series, in Micros — the same
+// values seed.sql inserts.
+var seededDues = []DuesRate{
+	{2019, 6_385_000},
+	{2020, 6_561_600},
+	{2021, 6_811_800},
+	{2022, 7_007_700},
+	{2023, 7_333_200},
+	{2024, 7_574_000},
+	{2025, 7_929_800},
+	{2026, 8_223_500},
+}
+
+// TestCostBasisKnown covers every combination of "has a priced contract" x
+// "has a dues rate": both are required for Known().
+func TestCostBasisKnown(t *testing.T) {
+	cases := []struct {
+		name      string
+		contracts []Contract
+		dues      []DuesRate
+		want      bool
+	}{
+		{"neither", nil, nil, false},
+		{"rate only", []Contract{contract2019}, nil, false},
+		{"dues only", nil, seededDues, false},
+		{"both", []Contract{contract2019}, seededDues, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NewCostBasis(c.contracts, c.dues).Known(); got != c.want {
+				t.Errorf("Known() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestDuesForStored covers every stored year: exact rate, projected=false.
+func TestDuesForStored(t *testing.T) {
+	b := NewCostBasis(nil, seededDues)
+	for _, d := range seededDues {
+		rate, projected := b.DuesFor(d.UseYear)
+		if rate != d.Rate || projected {
+			t.Errorf("DuesFor(%d) = (%d, %v), want (%d, false)", d.UseYear, rate, projected, d.Rate)
+		}
+	}
+}
+
+// TestDuesForProjectedForward pins the two golden projected years beyond
+// the stored series: growthMicros for the seeded series is 1_036_836 (the
+// mean YoY ratio across the 7 adjacent-year pairs), and compounding it
+// forward one year at a time from 2026 gives these values.
+func TestDuesForProjectedForward(t *testing.T) {
+	b := NewCostBasis(nil, seededDues)
+	cases := []struct {
+		year int
+		want Micros
+	}{
+		{2027, 8_526_421},
+		{2028, 8_840_500},
+	}
+	for _, c := range cases {
+		rate, projected := b.DuesFor(c.year)
+		if rate != c.want || !projected {
+			t.Errorf("DuesFor(%d) = (%d, %v), want (%d, true)", c.year, rate, projected, c.want)
+		}
+	}
+}
+
+// TestDuesForGrowthProjection exercises backward projection and an interior
+// gap against a small, hand-computable dues series (2020: $1.00, 2021:
+// $1.10, 2023: $1.331) instead of the seeded one, so every expected value
+// below is checked by hand rather than taken from the implementation.
+//
+// Only the (2020, 2021) pair is one year apart, so growthMicros is that
+// single ratio: divRound(1_100_000 * 1_000_000, 1_000_000) = 1_100_000 (the
+// (2021, 2023) pair spans two years and is skipped, per spec).
+func TestDuesForGrowthProjection(t *testing.T) {
+	b := NewCostBasis(nil, []DuesRate{
+		{2020, 1_000_000},
+		{2021, 1_100_000},
+		{2023, 1_331_000},
+	})
+
+	cases := []struct {
+		name     string
+		year     int
+		wantRate Micros
+		wantProj bool
+	}{
+		// Backward, one step past firstYear (2020):
+		// divRound(1_000_000 * 1_000_000, 1_100_000) = 909_091.
+		{"backward one year", 2019, 909_091, true},
+		// Interior gap: nearest stored year below 2022 is 2021 ($1.10);
+		// one forward compounding step: divRound(1_100_000*1_100_000, 1e6) = 1_210_000.
+		{"interior gap", 2022, 1_210_000, true},
+		// Forward, one step past lastYear (2023):
+		// divRound(1_331_000 * 1_100_000, 1_000_000) = 1_464_100.
+		{"forward one year", 2024, 1_464_100, true},
+		// A stored year is exact, not projected.
+		{"stored", 2021, 1_100_000, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rate, projected := b.DuesFor(c.year)
+			if rate != c.wantRate || projected != c.wantProj {
+				t.Errorf("DuesFor(%d) = (%d, %v), want (%d, %v)", c.year, rate, projected, c.wantRate, c.wantProj)
+			}
+		})
+	}
+}
+
+// TestDuesForSparseSeries covers the growthMicros edge cases: 0 or 1 stored
+// rows means "flat" (growthMicros = 1_000_000), and 0 rows means DuesFor has
+// nothing to report at all.
+func TestDuesForSparseSeries(t *testing.T) {
+	t.Run("no dues rows", func(t *testing.T) {
+		b := NewCostBasis(nil, nil)
+		rate, projected := b.DuesFor(2025)
+		if rate != 0 || projected {
+			t.Errorf("DuesFor(2025) with no dues = (%d, %v), want (0, false)", rate, projected)
+		}
+	})
+	t.Run("single dues row is flat", func(t *testing.T) {
+		b := NewCostBasis(nil, []DuesRate{{2020, 1_000_000}})
+		// Flat growth: projecting forward or backward from the one stored
+		// year returns that same rate, still flagged projected.
+		if rate, projected := b.DuesFor(2021); rate != 1_000_000 || !projected {
+			t.Errorf("DuesFor(2021) = (%d, %v), want (1_000_000, true)", rate, projected)
+		}
+		if rate, projected := b.DuesFor(2019); rate != 1_000_000 || !projected {
+			t.Errorf("DuesFor(2019) = (%d, %v), want (1_000_000, true)", rate, projected)
+		}
+	})
+}
+
 // TestCostBasisUseYearMonth pins the UseYearMonth heuristic: the first
 // contract's UseYearMonth (ListContracts order, i.e. by id), or January
 // when there are no contracts.
