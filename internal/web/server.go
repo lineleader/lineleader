@@ -111,6 +111,8 @@ func NewServer(opts Options) http.Handler {
 		mux.HandleFunc("POST /ledger/contracts/{id}/update", lh.updateContract)
 		mux.HandleFunc("POST /ledger/contracts/edit/cancel", lh.cancelContractEdit)
 		mux.HandleFunc("DELETE /ledger/contracts/{id}", lh.deleteContract)
+		mux.HandleFunc("POST /ledger/dues", lh.upsertDues)
+		mux.HandleFunc("DELETE /ledger/dues/{year}", lh.deleteDues)
 		mux.HandleFunc("POST /ledger/distribute", lh.distribute)
 
 		// /api/v1/ledger/* — the JSON surface for the dvc CLI (and any other

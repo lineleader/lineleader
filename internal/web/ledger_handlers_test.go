@@ -786,6 +786,151 @@ func TestLedgerCancelContractEdit(t *testing.T) {
 	}
 }
 
+// backfillContract prices a single contract via the store directly (the
+// cheapest way to flip CostBasis.Known() to true for a test that isn't
+// exercising contract editing itself).
+func backfillContract(t *testing.T, store *ledger.Store) int64 {
+	t.Helper()
+	cid, err := store.AddContract(ledger.Contract{
+		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
+		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cid
+}
+
+// TestLedgerContractsShowsDuesWhenKnown checks that once ShowCosts is true,
+// the Contracts view's new dues section lists the seeded stored years
+// (2019-2026) plus duesPreviewYears (3) projected years beyond the last
+// stored one, marked distinctly. Golden value for 2027 (first projected
+// year) from docs/plans/stay-cost.md: 8_526_421 micros -> FormatRate gives
+// "$8.5264".
+func TestLedgerContractsShowsDuesWhenKnown(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+	backfillContract(t, store)
+
+	resp, err := http.Get(srv.URL + "/ledger/contracts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger/contracts status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	for _, want := range []string{
+		"2019", "$6.3850", // first stored year
+		"2026", "$8.2235", // last stored year
+		"2027", "$8.5264", // first projected year
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("contracts page missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
+// TestLedgerUpsertDuesRate exercises POST /ledger/dues end to end: adding a
+// brand new year persists it and the response shows it, formatted.
+func TestLedgerUpsertDuesRate(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+	backfillContract(t, store)
+
+	form := url.Values{"year": {"2030"}, "rate": {"9.5"}}
+	resp, err := http.PostForm(srv.URL+"/ledger/dues?view=contracts", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("upsert dues status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if !strings.Contains(out, "2030") || !strings.Contains(out, "$9.5000") {
+		t.Errorf("response missing new dues row; got:\n%s", out)
+	}
+
+	dues, err := store.ListDuesRates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range dues {
+		if d.UseYear == 2030 {
+			found = true
+			if d.Rate != 9_500_000 {
+				t.Errorf("persisted rate = %d, want 9_500_000", d.Rate)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("2030 not persisted, got %+v", dues)
+	}
+}
+
+// TestLedgerUpsertDuesRateInvalid checks a blank rate — which
+// ledger.ParseMicros parses to 0, not an error, per the money-parsing
+// convention — surfaces the store's positivity validation as an Err rather
+// than silently accepting a nonsense 0 dues rate.
+func TestLedgerUpsertDuesRateInvalid(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+	backfillContract(t, store)
+
+	form := url.Values{"year": {"2030"}, "rate": {""}}
+	resp, err := http.PostForm(srv.URL+"/ledger/dues?view=contracts", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("upsert dues status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if !strings.Contains(out, "err") {
+		t.Errorf("response should surface the store's positivity error; got:\n%s", out)
+	}
+	dues, err := store.ListDuesRates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range dues {
+		if d.UseYear == 2030 {
+			t.Fatalf("2030 should not have been persisted with a blank rate, got %+v", d)
+		}
+	}
+}
+
+// TestLedgerDeleteDuesRate checks DELETE /ledger/dues/{year} removes a
+// stored year and that it stays gone (no ON CONFLICT DO NOTHING seed
+// resurrection — that's ledger package behavior, this just exercises the
+// route).
+func TestLedgerDeleteDuesRate(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+	backfillContract(t, store)
+
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/ledger/dues/2019?view=contracts", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete dues status = %d, body:\n%s", resp.StatusCode, out)
+	}
+
+	dues, err := store.ListDuesRates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range dues {
+		if d.UseYear == 2019 {
+			t.Fatalf("2019 should have been deleted, got %+v", dues)
+		}
+	}
+}
+
 func TestLedgerDeleteContract(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()

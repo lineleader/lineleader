@@ -216,6 +216,34 @@
       <button type="submit">Add contract</button>
     </form>
   </section>
+
+  {{if .ShowCosts}}
+  <section class="ledger-dues">
+    <h2>Dues rates</h2>
+    <table>
+      <thead><tr><th>Use year</th><th>$/pt</th><th></th></tr></thead>
+      <tbody>
+        {{range .Dues}}
+        <tr class="{{if .Projected}}projected{{end}}">
+          <td>{{.UseYear}}</td>
+          <td class="cost">{{.RateLabel}}{{if .Projected}}<abbr class="est" title="Projected, not a stored rate">*</abbr>{{end}}</td>
+          <td>{{if not .Projected}}<button type="button" hx-delete="/ledger/dues/{{.UseYear}}?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML"
+                      hx-confirm="Delete the dues rate for {{.UseYear}}?">Delete</button>{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="3">No dues rates yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+
+    <h3>Set dues rate</h3>
+    <form hx-post="/ledger/dues?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">
+      <input name="year" type="number" placeholder="Use year" required>
+      <input name="rate" type="text" placeholder="$/pt" required>
+      <button type="submit">Save</button>
+    </form>
+  </section>
+  {{end}}
 </div>
 {{end}}
 

@@ -326,6 +326,51 @@ func (h *ledgerHandlers) deleteContract(w http.ResponseWriter, r *http.Request) 
 	h.renderBody(w, view, 0, 0, "")
 }
 
+// upsertDues handles POST /ledger/dues — insert a new dues year or overwrite
+// an existing one (see Store.UpsertDuesRate). A blank rate parses to 0 via
+// ledger.ParseMicros (the standard "cost unknown" convention), but a dues
+// rate of 0 is nonsense on its own terms — not a valid "unknown" state the
+// way a contract's unset purchase price is — so the store's positivity
+// check rejects it and that error surfaces through the usual Err path.
+func (h *ledgerHandlers) upsertDues(w http.ResponseWriter, r *http.Request) {
+	view := viewFromRequest(r)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	year := atoiOr(r.FormValue("year"), 0)
+	rate, err := ledger.ParseMicros(r.FormValue("rate"))
+	if err != nil {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.renderBody(w, view, 0, 0, err.Error())
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.store.UpsertDuesRate(ledger.DuesRate{UseYear: year, Rate: rate}); err != nil {
+		h.renderBody(w, view, 0, 0, err.Error())
+		return
+	}
+	h.renderBody(w, view, 0, 0, "")
+}
+
+// deleteDues handles DELETE /ledger/dues/{year}.
+func (h *ledgerHandlers) deleteDues(w http.ResponseWriter, r *http.Request) {
+	year, ok := pathYear(w, r)
+	if !ok {
+		return
+	}
+	view := viewFromRequest(r)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.store.DeleteDuesRate(year); err != nil {
+		h.renderBody(w, view, 0, 0, err.Error())
+		return
+	}
+	h.renderBody(w, view, 0, 0, "")
+}
+
 // distribute handles POST /ledger/distribute.
 func (h *ledgerHandlers) distribute(w http.ResponseWriter, r *http.Request) {
 	view := viewFromRequest(r)
@@ -375,6 +420,18 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// pathYear parses the {year} path value, writing 400 and returning ok=false
+// on failure. Unlike pathID this isn't an entity id; DuesRate.UseYear is a
+// plain int, so this returns one too rather than pathID's int64.
+func pathYear(w http.ResponseWriter, r *http.Request) (int, bool) {
+	year, err := strconv.Atoi(r.PathValue("year"))
+	if err != nil {
+		http.Error(w, "bad year", http.StatusBadRequest)
+		return 0, false
+	}
+	return year, true
 }
 
 func atoiOr(s string, def int) int {

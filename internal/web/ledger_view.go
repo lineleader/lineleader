@@ -9,20 +9,20 @@ import (
 
 // ledgerView is the data for the /ledger page and its #ledger-body fragment.
 type ledgerView struct {
-	Entries     []ledger.Entry
-	Total       int
-	Summaries   []ledger.UseYearSummary
-	Contracts   []ledger.Contract
-	Kinds       []string
-	EditID      int64  // when non-zero, that entry row renders as an edit form
-	Err         string // surfaced from a failed mutation
+	Entries   []ledger.Entry
+	Total     int
+	Summaries []ledger.UseYearSummary
+	Contracts []ledger.Contract
+	Kinds     []string
+	EditID    int64  // when non-zero, that entry row renders as an edit form
+	Err       string // surfaced from a failed mutation
 
 	// EditContractID is the contract-editing analogue of EditID: when
 	// non-zero, that contract's row in the Contracts table renders as an
 	// edit form (contract_edit_row) instead of its normal row.
 	EditContractID int64
-	Recent      []recentEntryRow
-	SpentByYear []yearSpend
+	Recent         []recentEntryRow
+	SpentByYear    []yearSpend
 
 	// ShowCosts is the single gate every dollar affordance on the ledger
 	// pages is wrapped in: true only when ledger.CostBasis.Known(), i.e. at
@@ -66,6 +66,15 @@ type ledgerView struct {
 	// template's *display* of the derived cost columns is gated on
 	// ShowCosts.
 	ContractRows []contractRow
+
+	// Dues is every stored dues rate ascending by use year, plus
+	// duesPreviewYears read-only projected rows beyond the last stored
+	// year — see duesRows. Rendered (with the rest of the Contracts view's
+	// new dues-management section) only under ShowCosts: dues management
+	// isn't useful before the owner has backfilled at least one contract,
+	// since nothing can be priced yet regardless of how many dues years are
+	// on file.
+	Dues []duesRow
 }
 
 // recentActivityLimit caps the Recent Activity list to the newest entries.
@@ -159,6 +168,41 @@ func contractRows(contracts []ledger.Contract) []contractRow {
 	return rows
 }
 
+// duesPreviewYears is how many projected years beyond the last stored dues
+// rate the Contracts view's dues table shows, read-only.
+const duesPreviewYears = 3
+
+// duesRow is one row of the Contracts view's dues table: either a stored
+// rate (Projected false, deletable) or one of the duesPreviewYears
+// read-only projected rows following it.
+type duesRow struct {
+	UseYear   int
+	RateLabel string
+	Projected bool
+}
+
+// duesRows returns every stored dues rate ascending by use year, exactly as
+// given (dues is already Store.ListDuesRates order), followed by
+// duesPreviewYears projected rows continuing from the last stored year. When
+// dues is empty there is no "last stored year" to project from, so no
+// preview rows are added — an empty dues table, not a fabricated one.
+func duesRows(basis ledger.CostBasis, dues []ledger.DuesRate) []duesRow {
+	rows := make([]duesRow, 0, len(dues)+duesPreviewYears)
+	for _, d := range dues {
+		rows = append(rows, duesRow{UseYear: d.UseYear, RateLabel: ledger.FormatRate(d.Rate), Projected: false})
+	}
+	if len(dues) == 0 {
+		return rows
+	}
+	lastYear := dues[len(dues)-1].UseYear
+	for i := 1; i <= duesPreviewYears; i++ {
+		year := lastYear + i
+		rate, _ := basis.DuesFor(year)
+		rows = append(rows, duesRow{UseYear: year, RateLabel: ledger.FormatRate(rate), Projected: true})
+	}
+	return rows
+}
+
 // costLabel formats cost as a dollar string, or "" when known is false —
 // shared by recentEntries and spentByYear so a not-yet-priced row (an
 // allocation, or any row when CostBasis isn't Known()) renders blank rather
@@ -195,6 +239,10 @@ func (h *ledgerHandlers) buildLedgerView(editID, editContractID int64, errMsg st
 	if err != nil {
 		return ledgerView{}, err
 	}
+	dues, err := h.store.ListDuesRates()
+	if err != nil {
+		return ledgerView{}, err
+	}
 	total := 0
 	if n := len(entries); n > 0 {
 		total = entries[n-1].RunningBalance
@@ -225,6 +273,7 @@ func (h *ledgerHandlers) buildLedgerView(editID, editContractID int64, errMsg st
 		BalanceValueLabel: balanceValueLabel(basis, total),
 		BlendedRateLabel:  ledger.FormatRate(basis.Blended()),
 		ContractRows:      contractRows(contracts),
+		Dues:              duesRows(basis, dues),
 	}, nil
 }
 
