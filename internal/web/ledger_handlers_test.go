@@ -563,6 +563,64 @@ func TestLedgerAddContractBadMonth(t *testing.T) {
 	}
 }
 
+// TestLedgerAddContractWithCostFields exercises parseContractForm's new
+// term_years/price/closing fields end to end: POST /ledger/contracts with
+// them set persists TermYears/PurchasePrice/ClosingCosts on the Contract,
+// and GET /ledger/contracts then shows the derived $/pt/yr rate and the
+// portfolio blended rate (with only one priced contract, blended == that
+// contract's own rate). Golden values from the design doc: 44-year term,
+// $29,400 purchase, $588.35 closing -> $5.6796/pt/yr.
+func TestLedgerAddContractWithCostFields(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	form := url.Values{
+		"name":           {"Point allocation"},
+		"number":         {"12345"},
+		"resort":         {"BWV"},
+		"points":         {"120"},
+		"use_year_month": {"April"},
+		"term_years":     {"44"},
+		"price":          {"29400"},
+		"closing":        {"588.35"},
+	}
+	resp, err := http.PostForm(srv.URL+"/ledger/contracts?view=contracts", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add contract status = %d, body:\n%s", resp.StatusCode, out)
+	}
+
+	contracts, err := store.ListContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contracts) != 1 {
+		t.Fatalf("store has %d contracts, want 1", len(contracts))
+	}
+	c := contracts[0]
+	if c.TermYears != 44 || c.PurchasePrice != 2_940_000 || c.ClosingCosts != 58_835 {
+		t.Errorf("persisted cost fields = term=%d price=%d closing=%d, want term=44 price=2940000 closing=58835",
+			c.TermYears, c.PurchasePrice, c.ClosingCosts)
+	}
+
+	// A second GET of /ledger/contracts (rather than reusing the add
+	// response) confirms the page itself, not just the mutation response,
+	// renders the derived rate and blended line.
+	resp2, err := http.Get(srv.URL + "/ledger/contracts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2 := body(t, resp2)
+	for _, want := range []string{"$5.6796", "Blended portfolio rate", "44"} {
+		if !strings.Contains(out2, want) {
+			t.Errorf("contracts page missing %q; got:\n%s", want, out2)
+		}
+	}
+}
+
 func TestLedgerDeleteContract(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()

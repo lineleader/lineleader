@@ -167,20 +167,36 @@
   <section class="ledger-contracts">
     <h2>Contracts</h2>
     <table>
-      <thead><tr><th>Name</th><th>Number</th><th>Resort</th><th>Points</th><th>Use year</th><th></th></tr></thead>
-      <tbody>
-        {{range .Contracts}}
+      <thead>
         <tr>
-          <td>{{.Name}}</td><td>{{.Number}}</td><td>{{viewOrDash .HomeResort}}</td>
-          <td>{{.AnnualPoints}}</td><td>{{formatMonth .UseYearMonth}}</td>
-          <td><button type="button" hx-delete="/ledger/contracts/{{.ID}}?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML"
-                      hx-confirm="Delete contract {{.Name}}?">Delete</button></td>
+          <th>Name</th><th>Number</th><th>Resort</th><th>Points</th><th>Use year</th>
+          {{if .ShowCosts}}<th>Term</th><th>Purchase</th><th>Closing</th><th>$/pt/yr</th>{{end}}
+          <th></th>
         </tr>
+      </thead>
+      <tbody>
+        {{$showCosts := .ShowCosts}}
+        {{range .ContractRows}}
+          <tr>
+            <td>{{.Name}}</td><td>{{.Number}}</td><td>{{viewOrDash .HomeResort}}</td>
+            <td>{{.AnnualPoints}}</td><td>{{formatMonth .UseYearMonth}}</td>
+            {{if $showCosts}}
+            <td>{{.TermYears}}</td>
+            <td class="cost">{{.PriceLabel}}</td>
+            <td class="cost">{{.ClosingLabel}}</td>
+            <td class="cost">{{.RateLabel}}</td>
+            {{end}}
+            <td>
+              <button type="button" hx-delete="/ledger/contracts/{{.ID}}?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML"
+                      hx-confirm="Delete contract {{.Name}}?">Delete</button>
+            </td>
+          </tr>
         {{else}}
-        <tr><td colspan="6">No contracts yet.</td></tr>
+        <tr><td colspan="{{if .ShowCosts}}10{{else}}6{{end}}">No contracts yet.</td></tr>
         {{end}}
       </tbody>
     </table>
+    {{if .ShowCosts}}<p class="blended-rate">Blended portfolio rate: {{.BlendedRateLabel}} /pt/yr</p>{{end}}
 
     <h3>Add contract</h3>
     <form hx-post="/ledger/contracts?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">
@@ -189,6 +205,9 @@
       <input name="resort" type="text" placeholder="Resort">
       <input name="points" type="number" placeholder="Points" required>
       <input name="use_year_month" type="text" placeholder="Use year month (Apr)" required>
+      <input name="term_years" type="number" placeholder="Term (years)">
+      <input name="price" type="text" placeholder="Purchase price">
+      <input name="closing" type="text" placeholder="Closing costs">
       <button type="submit">Add contract</button>
     </form>
   </section>

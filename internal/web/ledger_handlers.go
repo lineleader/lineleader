@@ -206,23 +206,12 @@ func (h *ledgerHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 // addContract handles POST /ledger/contracts.
 func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 	view := viewFromRequest(r)
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	month, err := ledger.ParseMonth(r.FormValue("use_year_month"))
+	c, err := parseContractForm(r, 0)
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		h.renderBody(w, view, 0, err.Error())
 		return
-	}
-	c := ledger.Contract{
-		Name:         r.FormValue("name"),
-		Number:       r.FormValue("number"),
-		HomeResort:   r.FormValue("resort"),
-		AnnualPoints: atoiOr(r.FormValue("points"), 0),
-		UseYearMonth: month,
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -231,6 +220,42 @@ func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.renderBody(w, view, 0, "")
+}
+
+// parseContractForm builds a Contract from form values. id is set on the
+// result (0 for add). Follows parseEntryForm's short-name field convention
+// (contract, not contract_id) for the new cost fields: term_years, price,
+// closing. price/closing are money fields — parsed with ledger.ParseCents,
+// which treats a blank field as 0 ("cost unknown", not an error) and a
+// malformed one as a hard error that flows out to the caller's Err
+// rendering, exactly like use_year_month's ledger.ParseMonth below.
+func parseContractForm(r *http.Request, id int64) (ledger.Contract, error) {
+	if err := r.ParseForm(); err != nil {
+		return ledger.Contract{}, err
+	}
+	month, err := ledger.ParseMonth(r.FormValue("use_year_month"))
+	if err != nil {
+		return ledger.Contract{}, err
+	}
+	price, err := ledger.ParseCents(r.FormValue("price"))
+	if err != nil {
+		return ledger.Contract{}, err
+	}
+	closing, err := ledger.ParseCents(r.FormValue("closing"))
+	if err != nil {
+		return ledger.Contract{}, err
+	}
+	return ledger.Contract{
+		ID:            id,
+		Name:          r.FormValue("name"),
+		Number:        r.FormValue("number"),
+		HomeResort:    r.FormValue("resort"),
+		AnnualPoints:  atoiOr(r.FormValue("points"), 0),
+		UseYearMonth:  month,
+		TermYears:     atoiOr(r.FormValue("term_years"), 0),
+		PurchasePrice: price,
+		ClosingCosts:  closing,
+	}, nil
 }
 
 // deleteContract handles DELETE /ledger/contracts/{id}.

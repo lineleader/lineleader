@@ -216,6 +216,9 @@ func templateFuncs() template.FuncMap {
 		// money formats a Cents total as a dollar string, e.g. "$1,234.56".
 		// Only ever invoked from inside a ShowCosts guard.
 		"money": ledger.FormatUSD,
+		// rate formats a Micros per-point rate, e.g. "$5.6796". Only ever
+		// invoked from inside a ShowCosts guard.
+		"rate": ledger.FormatRate,
 		"deref": func(p *int64) int64 {
 			if p == nil {
 				return 0

@@ -46,6 +46,21 @@ type ledgerView struct {
 	// how it handles a negative (borrowed) balance. Meaningless (and not
 	// rendered) unless ShowCosts.
 	BalanceValueLabel string
+
+	// BlendedRateLabel is the portfolio-wide $/pt/yr rate (the
+	// annual-points-weighted mean of every priced contract's own rate),
+	// shown below the Contracts table. Meaningless (and not rendered)
+	// unless ShowCosts.
+	BlendedRateLabel string
+
+	// ContractRows is every contract, pre-formatted for the Contracts view
+	// — see contractRow. Unlike the cost fields above, it is always fully
+	// populated regardless of ShowCosts: its PriceInput/ClosingInput fields
+	// feed the (always-available) contract edit form, which is how the
+	// owner backfills a contract's cost data in the first place. Only the
+	// template's *display* of the derived cost columns is gated on
+	// ShowCosts.
+	ContractRows []contractRow
 }
 
 // recentActivityLimit caps the Recent Activity list to the newest entries.
@@ -79,6 +94,64 @@ type yearSpend struct {
 	// fields (see recentEntryRow.CostLabel).
 	CostLabel     string
 	CostProjected bool
+}
+
+// contractRow is one row of the Contracts table, a contract pre-formatted
+// for display and — via PriceInput/ClosingInput — for the edit form.
+type contractRow struct {
+	ID           int64
+	Name         string
+	Number       string
+	HomeResort   string
+	AnnualPoints int
+	UseYearMonth time.Month
+	TermYears    int
+
+	// PriceLabel/ClosingLabel are FormatUSD(PurchasePrice/ClosingCosts) —
+	// always a well-formed dollar string (Cents' zero value formats as
+	// "$0.00", which is accurate: the stored value really is zero/unset).
+	// Rendered only under the page's ShowCosts guard.
+	PriceLabel   string
+	ClosingLabel string
+
+	// RateLabel is FormatRate(rate) when this contract's own
+	// PricePerPointYear is known, "—" otherwise — a contract can be
+	// individually unpriced even while ShowCosts is true portfolio-wide
+	// (some other contract carries the rate).
+	RateLabel string
+
+	// PriceInput/ClosingInput are Cents.String() — round-trippable through
+	// ledger.ParseCents — for the edit form's <input value="...">. These
+	// are populated unconditionally (not gated on ShowCosts): editing is
+	// how the owner enters a contract's cost data the first time.
+	PriceInput   string
+	ClosingInput string
+}
+
+// contractRows projects every contract into its display/edit row.
+func contractRows(contracts []ledger.Contract) []contractRow {
+	rows := make([]contractRow, len(contracts))
+	for i, c := range contracts {
+		rateLabel := "—"
+		if rate, ok := c.PricePerPointYear(); ok {
+			rateLabel = ledger.FormatRate(rate)
+		}
+		rows[i] = contractRow{
+			ID:           c.ID,
+			Name:         c.Name,
+			Number:       c.Number,
+			HomeResort:   c.HomeResort,
+			AnnualPoints: c.AnnualPoints,
+			UseYearMonth: c.UseYearMonth,
+			TermYears:    c.TermYears,
+			PriceLabel:   ledger.FormatUSD(c.PurchasePrice),
+			ClosingLabel: ledger.FormatUSD(c.ClosingCosts),
+			RateLabel:    rateLabel,
+			PriceInput:   c.PurchasePrice.String(),
+			ClosingInput: c.ClosingCosts.String(),
+		}
+	}
+	return rows
 }
 
 // costLabel formats cost as a dollar string, or "" when known is false —
@@ -143,6 +216,8 @@ func (h *ledgerHandlers) buildLedgerView(editID int64, errMsg string) (ledgerVie
 		TotalCostLabel:    ledger.FormatUSD(totalCost),
 		CostFootnote:      costFootnote,
 		BalanceValueLabel: balanceValueLabel(basis, total),
+		BlendedRateLabel:  ledger.FormatRate(basis.Blended()),
+		ContractRows:      contractRows(contracts),
 	}, nil
 }
 

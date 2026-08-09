@@ -50,7 +50,7 @@ type Contract struct {
 	UseYearMonth  time.Month // Use Year start month; anchors the allocation date and UseYearForDate
 	TermYears     int        // contract length in years; 0 means cost data hasn't been entered
 	PurchasePrice Cents      // purchase price paid; 0 means cost data hasn't been entered
-	ClosingCosts  Cents      // closing costs paid; 0 means cost data hasn't been entered
+	ClosingCosts  Cents      // closing costs paid; 0 is a legitimate priced value (waived, or rolled into the purchase price) — see PricePerPointYear
 }
 
 // UseYearSummary rolls up every entry sharing a use year.
