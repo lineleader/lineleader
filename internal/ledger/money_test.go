@@ -37,7 +37,7 @@ func TestParseDecimal(t *testing.T) {
 		{"$588.35", 2, 58_835, false},
 		{"1,234.56", 2, 123_456, false},
 		{"$1,234.56", 2, 123_456, false},
-		{"", 2, 0, false},   // blank -> 0, matching atoiOr(_, 0)
+		{"", 2, 0, false},    // blank -> 0, matching atoiOr(_, 0)
 		{"5", 2, 500, false}, // no fractional part at all
 		{"5.6", 2, 560, false},
 		{"5.678", 2, 0, true}, // too many fractional digits for scale 2

@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE INDEX IF NOT EXISTS idx_entries_order ON entries(date, id);
 CREATE INDEX IF NOT EXISTS idx_entries_use_year ON entries(use_year);
 
+CREATE TABLE IF NOT EXISTS dues_rates (
+    use_year    INTEGER PRIMARY KEY,
+    rate_micros BIGINT  NOT NULL
+);
+
 -- Columns added after the initial release. Nothing below this comment may
 -- ever be removed: schema.sql is re-executed as a single multi-statement
 -- Exec on every process start against the one deployed database, and there

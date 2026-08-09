@@ -13,14 +13,19 @@ import (
 //go:embed schema.sql
 var schema string
 
+//go:embed seed.sql
+var seed string
+
 // Store is a Postgres-backed handle to the points ledger.
 type Store struct {
 	db *sql.DB
 }
 
-// Open opens a connection pool to the Postgres database identified by dsn
-// and applies the schema. Schema application is idempotent (CREATE TABLE /
-// INDEX IF NOT EXISTS), so it is safe to call on every process start.
+// Open opens a connection pool to the Postgres database identified by dsn,
+// applies the schema, then seeds reference data. Both steps are idempotent
+// (CREATE TABLE / INDEX IF NOT EXISTS for the schema; a whole-table
+// WHERE NOT EXISTS guard for the seed), so it is safe to call on every
+// process start.
 func Open(dsn string) (*Store, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -33,6 +38,10 @@ func Open(dsn string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("applying schema: %w", err)
+	}
+	if _, err := db.Exec(seed); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("seeding reference data: %w", err)
 	}
 	return &Store{db: db}, nil
 }
