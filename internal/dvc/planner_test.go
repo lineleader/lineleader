@@ -235,6 +235,76 @@ func TestToggleSelection_OutOfRange(t *testing.T) {
 	}
 }
 
+// collidingPointCharts returns two ResortChart entries for the SAME resort and
+// room/view column, differing only in the points their season charges. Search
+// over both therefore yields two StayResult rows identical on every field
+// except Points — the real-world collision this package saw for Disney's
+// Animal Kingdom Villas DELUXE STUDIO/V, where two point-cost entries exist
+// for what renders as a single row.
+func collidingPointCharts(cheapPts, pricyPts int) []*ResortChart {
+	mk := func(pts int) *ResortChart {
+		return &ResortChart{
+			ResortName: "Disney's Animal Kingdom Villas",
+			ResortCode: "AKV",
+			Year:       2026,
+			Columns:    []Column{{RoomType: "DELUXE STUDIO", View: "V", Sleeps: 4}},
+			Seasons: []Season{{
+				Periods: []DateRange{{Start: "2026-08-01", End: "2026-08-31"}},
+				SunThu:  []int{pts},
+				FriSat:  []int{pts},
+			}},
+		}
+	}
+	return []*ResortChart{mk(cheapPts), mk(pricyPts)}
+}
+
+// TestToggleSelection_CollidingPointsSwitchesInsteadOfDeselecting is the
+// regression test for the defect: two stays that collide on resort, room
+// type, view, check-in and check-out but differ in Points must be treated as
+// DISTINCT stays. Clicking the un-selected colliding row must switch the
+// selection to it, not deselect the one already selected. Re-clicking the
+// now-selected row must still deselect, as before.
+func TestToggleSelection_CollidingPointsSwitchesInsteadOfDeselecting(t *testing.T) {
+	p := NewPlanner(PlannerOptions{
+		Charts: collidingPointCharts(9, 21),
+		Defaults: Defaults{
+			From: "2026-08-09", To: "2026-08-10", Budget: "200", MinNights: "1",
+		},
+	})
+	results := p.trips[0].Results
+	if len(results) != 2 {
+		t.Fatalf("precondition: want 2 colliding results, got %d: %+v", len(results), results)
+	}
+	if results[0].Points == results[1].Points {
+		t.Fatalf("precondition: results must collide on everything but Points, got equal Points %d", results[0].Points)
+	}
+	cheapIdx, pricyIdx := 0, 1
+	if results[cheapIdx].Points > results[pricyIdx].Points {
+		cheapIdx, pricyIdx = pricyIdx, cheapIdx
+	}
+
+	// Select the cheap row.
+	p.ToggleSelection(0, cheapIdx)
+	if p.trips[0].Selected == nil || p.trips[0].Selected.Points != 9 {
+		t.Fatalf("after selecting cheap row: Selected = %+v, want Points 9", p.trips[0].Selected)
+	}
+
+	// Clicking the colliding pricy row must SWITCH the selection, not deselect.
+	p.ToggleSelection(0, pricyIdx)
+	if p.trips[0].Selected == nil {
+		t.Fatal("clicking the colliding row deselected instead of switching the selection")
+	}
+	if p.trips[0].Selected.Points != 21 {
+		t.Errorf("Selected.Points = %d, want 21 after switching to the pricy row", p.trips[0].Selected.Points)
+	}
+
+	// Re-clicking the now-selected pricy row must still deselect.
+	p.ToggleSelection(0, pricyIdx)
+	if p.trips[0].Selected != nil {
+		t.Errorf("re-toggling the selected row did not deselect, got %+v", p.trips[0].Selected)
+	}
+}
+
 func TestRecompute_InheritResolvesGlobalFilters(t *testing.T) {
 	p := NewPlanner(PlannerOptions{
 		Charts: []*ResortChart{minimalChart()},

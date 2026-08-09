@@ -48,13 +48,19 @@ func BudgetForTrip(budget int, trips []Trip, i int) int {
 }
 
 // stayEquals compares two StayResults by identity fields (Resort, RoomType,
-// View, CheckIn, CheckOut). Points and Nights are not compared.
+// View, CheckIn, CheckOut, Points). Nights is not compared: it's derived from
+// CheckIn/CheckOut so it can't disagree once those match. Points IS compared
+// — two rows can otherwise collide on every other field yet cost different
+// points (e.g. duplicate chart entries for the same resort/room/view), and
+// treating those as "the same stay" makes ToggleSelection deselect instead of
+// switching the selection when the user clicks the other row.
 func stayEquals(a, b StayResult) bool {
 	return a.Resort == b.Resort &&
 		a.RoomType == b.RoomType &&
 		a.View == b.View &&
 		a.CheckIn.Equal(b.CheckIn) &&
-		a.CheckOut.Equal(b.CheckOut)
+		a.CheckOut.Equal(b.CheckOut) &&
+		a.Points == b.Points
 }
 
 // ParseDate parses a date string in YYYY-MM-DD or M/D/YYYY format.
