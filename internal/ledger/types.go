@@ -28,6 +28,15 @@ type Entry struct {
 	// RunningBalance is the cumulative (Allotted-Used) up to and including this row,
 	// ordered by (Date, ID). It is computed by ListEntries, never stored.
 	RunningBalance int
+
+	// Cost, CostKnown and CostProjected are derived by CostBasis.PriceEntries,
+	// never stored. Cost prices Used points (kind-agnostic — an adjustment
+	// that draws points down really did consume dollars); Allotted is never
+	// priced, so an allocation row always has CostKnown false. CostProjected
+	// is true when the use year's dues rate was projected rather than stored.
+	Cost          Cents
+	CostKnown     bool
+	CostProjected bool
 }
 
 // Contract is a template that drives the Distribute action. It is not part of the
@@ -51,6 +60,14 @@ type UseYearSummary struct {
 	Used         int
 	Net          int  // Allotted - Used
 	OverBorrowed bool // Net < 0
+
+	// Cost, CostKnown and CostProjected are derived by PriceSummaries, never
+	// stored: Cost is the sum of every priced entry's Cost in this use year;
+	// CostProjected is true when any of those entries used a projected dues
+	// rate.
+	Cost          Cents
+	CostKnown     bool
+	CostProjected bool
 }
 
 // UseYearForDate returns the use year a date falls in for a contract whose use year

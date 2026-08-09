@@ -200,6 +200,59 @@ func (b CostBasis) Cost(points, year int, contractID *int64) (cost Cents, projec
 	return PointCost(points, b.RateFor(contractID), dues), duesProjected, true
 }
 
+// PriceEntries prices every entry's Used points in place — Cost, CostKnown
+// and CostProjected are set from b.Cost(e.Used, e.UseYear, e.ContractID) —
+// the same style as ListEntries deriving RunningBalance. Allotted is never
+// priced: an allocation row's Used is always 0, so Cost stays 0 and
+// CostKnown stays false for it.
+func (b CostBasis) PriceEntries(entries []Entry) {
+	for i := range entries {
+		e := &entries[i]
+		e.Cost, e.CostProjected, e.CostKnown = b.Cost(e.Used, e.UseYear, e.ContractID)
+	}
+}
+
+// PriceSummaries aggregates every already-priced entry's Cost (see
+// PriceEntries) into the matching UseYearSummary by UseYear, in place. Only
+// entries with CostKnown contribute; a use year with no priced entries (no
+// usage that year, or CostBasis not Known()) is left at its zero value
+// (CostKnown false, Cost 0). CostProjected is set on a summary if any
+// contributing entry's dues rate was projected.
+func PriceSummaries(summaries []UseYearSummary, priced []Entry) {
+	index := make(map[int]int, len(summaries))
+	for i, s := range summaries {
+		index[s.UseYear] = i
+	}
+	for _, e := range priced {
+		if !e.CostKnown {
+			continue
+		}
+		i, ok := index[e.UseYear]
+		if !ok {
+			continue
+		}
+		summaries[i].Cost += e.Cost
+		summaries[i].CostKnown = true
+		if e.CostProjected {
+			summaries[i].CostProjected = true
+		}
+	}
+}
+
+// CostBasis derives the current CostBasis from the store's contracts and
+// dues rates — the only I/O anywhere in the cost model.
+func (s *Store) CostBasis() (CostBasis, error) {
+	contracts, err := s.ListContracts()
+	if err != nil {
+		return CostBasis{}, err
+	}
+	dues, err := s.ListDuesRates()
+	if err != nil {
+		return CostBasis{}, err
+	}
+	return NewCostBasis(contracts, dues), nil
+}
+
 // PricePerPointYear derives this contract's amortised acquisition cost per
 // point per year: (purchase price + closing costs) / (annual points × term
 // years), in Micros. It is never stored — only ever computed from the
