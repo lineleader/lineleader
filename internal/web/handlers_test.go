@@ -134,6 +134,9 @@ func TestResultsTable_ShowsCostColumnWithLedger(t *testing.T) {
 	if !strings.Contains(got2, `class="summary-cost"`) {
 		t.Errorf("expected a summary-cost chip in the collapsed trip summary, got:\n%s", got2)
 	}
+	if !strings.Contains(got2, "Remaining: ") || !strings.Contains(got2, "≈ $") {
+		t.Errorf("expected the planner bar's Remaining line to show an approximate total cost, got:\n%s", got2)
+	}
 }
 
 func TestUpdateField_ReturnsResults(t *testing.T) {

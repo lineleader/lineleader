@@ -197,6 +197,12 @@ func TestBuildAppView_NoLedgerHidesCosts(t *testing.T) {
 	s.reconcileCollapsed(s.p.Snapshot())
 
 	v := s.buildAppView(s.p.Snapshot())
+	if v.ShowCosts {
+		t.Errorf("appView ShowCosts = true, want false with no ledger configured")
+	}
+	if v.SelectedCostLabel != "" {
+		t.Errorf("appView SelectedCostLabel = %q, want empty with no ledger configured", v.SelectedCostLabel)
+	}
 	for _, tr := range v.Trips {
 		if tr.ShowCosts {
 			t.Errorf("trip ShowCosts = true, want false with no ledger configured")
@@ -245,5 +251,43 @@ func TestBuildAppView_PricesResultsAndSelection(t *testing.T) {
 	}
 	if t0.Selected == nil || t0.Selected.CostLabel != t0.SelectedCostLabel {
 		t.Errorf("trip SelectedCostLabel = %q, want to match Selected.CostLabel = %q", t0.SelectedCostLabel, t0.Selected.CostLabel)
+	}
+	if !v.ShowCosts {
+		t.Errorf("appView ShowCosts = false, want true")
+	}
+	if v.SelectedCostLabel != t0.Selected.CostLabel {
+		t.Errorf("appView SelectedCostLabel = %q, want to match the lone selection's cost %q", v.SelectedCostLabel, t0.Selected.CostLabel)
+	}
+}
+
+// TestBuildAppView_SumsSelectedCostAcrossTrips confirms appView's
+// SelectedCostLabel sums real cents across every trip's selection (see
+// resultRow.cost) and formats once at the end, rather than concatenating or
+// re-parsing each trip's own formatted CostLabel.
+func TestBuildAppView_SumsSelectedCostAcrossTrips(t *testing.T) {
+	store := ledger.OpenTest(t)
+	addPricedContract(t, store)
+
+	s := newTestSessionWithStore(t, store)
+	s.p.AddTrip() // trip 1, same defaults (search auto-runs), so it has its own row 0
+	s.reconcileCollapsed(s.p.Snapshot())
+
+	s.p.ToggleSelection(0, 0)
+	s.p.ToggleSelection(1, 0)
+	v := s.buildAppView(s.p.Snapshot())
+
+	if len(v.Trips) != 2 {
+		t.Fatalf("len(Trips) = %d, want 2", len(v.Trips))
+	}
+	t0, t1 := v.Trips[0], v.Trips[1]
+	if t0.Selected == nil || t1.Selected == nil {
+		t.Fatalf("expected both trips to have a selection: t0=%v t1=%v", t0.Selected, t1.Selected)
+	}
+	wantSum := t0.Selected.cost + t1.Selected.cost
+	if wantSum <= 0 {
+		t.Fatalf("wantSum = %v, want > 0 (both selections should be priced)", wantSum)
+	}
+	if want := ledger.FormatUSD(wantSum); v.SelectedCostLabel != want {
+		t.Errorf("appView SelectedCostLabel = %q, want %q (sum of both trips' selected cents, formatted once)", v.SelectedCostLabel, want)
 	}
 }

@@ -16,6 +16,19 @@ type appView struct {
 	Remaining      int
 	LoadedPlanName string
 	Trips          []tripView
+
+	// ShowCosts gates the planner bar's "≈ $X" cost approximation next to
+	// Remaining, mirroring tripView.ShowCosts (see its doc comment) — false
+	// whenever no ledger is configured or CostBasis isn't Known() yet, so a
+	// nil-ledger server (as in ~20 existing planner tests) renders
+	// byte-identical HTML.
+	ShowCosts bool
+
+	// SelectedCostLabel is the formatted sum of every trip's
+	// tripView.Selected.cost (real cents, summed once and formatted once —
+	// never by concatenating or re-parsing each trip's own CostLabel).
+	// "" unless ShowCosts.
+	SelectedCostLabel string
 }
 
 type tripView struct {
@@ -141,7 +154,13 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 		Remaining:      snap.Remaining,
 		LoadedPlanName: snap.LoadedPlanName,
 		Trips:          make([]tripView, len(snap.Trips)),
+		ShowCosts:      showCosts,
 	}
+
+	// totalSelectedCost sums every trip's selected stay's real cents (never
+	// its formatted CostLabel) into v.SelectedCostLabel, formatted once at
+	// the end — see TestBuildAppView_SumsSelectedCostAcrossTrips.
+	var totalSelectedCost ledger.Cents
 
 	for i := range snap.Trips {
 		t := snap.Trips[i]
@@ -212,8 +231,12 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 		if tv.Selected != nil {
 			tv.SelectedCostLabel = tv.Selected.CostLabel
 			tv.SelectedCostProjected = tv.Selected.CostProjected
+			totalSelectedCost += tv.Selected.cost
 		}
 		v.Trips[i] = tv
+	}
+	if showCosts {
+		v.SelectedCostLabel = ledger.FormatUSD(totalSelectedCost)
 	}
 	return v
 }
