@@ -89,15 +89,16 @@
   <section class="ledger-summary">
     <h2>Per use year</h2>
     <table>
-      <thead><tr><th>Year</th><th>Allotted</th><th>Used</th><th>Net</th><th></th></tr></thead>
+      <thead><tr><th>Year</th><th>Allotted</th><th>Used</th><th>Net</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th></th></tr></thead>
       <tbody>
         {{range .Summaries}}
         <tr class="{{if .OverBorrowed}}over-borrowed{{end}}">
           <td>{{.UseYear}}</td><td>{{.Allotted}}</td><td>{{.Used}}</td><td>{{.Net}}</td>
+          {{if $.ShowCosts}}<td class="cost">{{if .CostKnown}}{{money .Cost}}{{if .CostProjected}}<abbr class="est" title="Dues for {{.UseYear}} are projected, not actual">*</abbr>{{end}}{{end}}</td>{{end}}
           <td>{{if .OverBorrowed}}over-borrowed{{end}}</td>
         </tr>
         {{else}}
-        <tr><td colspan="5">No entries yet.</td></tr>
+        <tr><td colspan="{{if .ShowCosts}}6{{else}}5{{end}}">No entries yet.</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -110,13 +111,13 @@
     <h2>Ledger</h2>
     <table>
       <thead>
-        <tr><th>Year</th><th>Date</th><th>Desc</th><th>Allotted</th><th>Used</th><th>Total</th><th>Tag</th><th></th></tr>
+        <tr><th>Year</th><th>Date</th><th>Desc</th><th>Allotted</th><th>Used</th><th>Total</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th>Tag</th><th></th></tr>
       </thead>
       <tbody>
-        {{$kinds := .Kinds}}{{$contracts := .Contracts}}
+        {{$kinds := .Kinds}}{{$contracts := .Contracts}}{{$showCosts := .ShowCosts}}
         {{range .Entries}}
           {{if eq .ID $.EditID}}
-            {{template "entry_edit_row" (dict "E" . "Kinds" $kinds "Contracts" $contracts)}}
+            {{template "entry_edit_row" (dict "E" . "Kinds" $kinds "Contracts" $contracts "ShowCosts" $showCosts)}}
           {{else}}
             <tr class="{{if lt .RunningBalance 0}}negative{{end}}">
               <td>{{.UseYear}}</td>
@@ -125,6 +126,7 @@
               <td>{{blankZero .Allotted}}</td>
               <td>{{blankZero .Used}}</td>
               <td>{{.RunningBalance}}</td>
+              {{if $showCosts}}<td class="cost">{{if .CostKnown}}{{money .Cost}}{{if .CostProjected}}<abbr class="est" title="Dues for {{.UseYear}} are projected, not actual">*</abbr>{{end}}{{end}}</td>{{end}}
               <td>{{.Tag}}</td>
               <td>
                 <button type="button" hx-get="/ledger/entries/{{.ID}}/edit?view=history" hx-target="#ledger-body" hx-swap="outerHTML">Edit</button>
@@ -134,10 +136,20 @@
             </tr>
           {{end}}
         {{else}}
-          <tr><td colspan="8">No entries yet.</td></tr>
+          <tr><td colspan="{{if .ShowCosts}}9{{else}}8{{end}}">No entries yet.</td></tr>
         {{end}}
       </tbody>
+      {{if .ShowCosts}}
+      <tfoot>
+        <tr>
+          <td colspan="6">Total spent</td>
+          <td class="cost">{{.TotalCostLabel}}</td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
+      {{end}}
     </table>
+    {{if .CostFootnote}}<p class="cost-footnote"><abbr class="est">*</abbr> dues for that use year are projected, not a stored rate.</p>{{end}}
 
     <h3>Add entry</h3>
     {{template "entry_add_form" (dict "Kinds" .Kinds "Contracts" .Contracts "View" .View)}}
@@ -207,7 +219,7 @@
      mutation controls hardcode ?view=history. */}}
 {{define "entry_edit_row"}}
 <tr class="editing">
-  <td colspan="8">
+  <td colspan="{{if .ShowCosts}}9{{else}}8{{end}}">
     <form hx-post="/ledger/entries/{{.E.ID}}/update?view=history" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
       <input name="year" type="number" value="{{.E.UseYear}}">
       <input name="date" type="date" value="{{formatDate .E.Date}}" required>

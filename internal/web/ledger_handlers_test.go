@@ -597,6 +597,104 @@ func TestLedgerDeleteContract(t *testing.T) {
 	}
 }
 
+// TestLedgerHistoryHidesCostsWhenUnknown pins the ShowCosts guard's core
+// promise: with the seeded dues series present (every store gets it, see
+// ledger.Open) but no contract carrying priced cost data — the state of the
+// real database right now, and the state newLedgerTestServer's contracts are
+// always left in unless a test explicitly backfills them — CostBasis.Known()
+// is false, so /ledger, /ledger/history and /ledger/contracts must render
+// with no dollar sign anywhere, byte-identical in spirit to the page before
+// this feature existed.
+func TestLedgerHistoryHidesCostsWhenUnknown(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	cid, err := store.AddContract(ledger.Contract{Name: "Unpriced", AnnualPoints: 120, UseYearMonth: time.April})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
+		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Trip",
+		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/ledger", "/ledger/history", "/ledger/contracts"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := body(t, resp)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status = %d", path, resp.StatusCode)
+		}
+		if strings.Contains(out, "$") {
+			t.Errorf("GET %s should render no dollar sign while CostBasis is unknown; got:\n%s", path, out)
+		}
+		if strings.Contains(out, "Total spent") {
+			t.Errorf("GET %s should not show the Total spent footer while CostBasis is unknown; got:\n%s", path, out)
+		}
+	}
+}
+
+// TestLedgerHistoryShowsCostPerEntryAndUseYear backfills one contract's cost
+// fields directly through the store (contract editing arrives in a later
+// commit), then checks GET /ledger/history prices the usage entry against
+// that contract's own rate, leaves the allocation row's cost blank, and
+// totals the per-use-year summary and the ledger-wide "Total spent" footer.
+//
+// Golden values reuse cost_store_test.go's contract: 120 pts/yr, 44-year
+// term, $29,400 purchase + $588.35 closing -> $5.6796/pt/yr = 5_679_612
+// micros (RateFor). Dues for use year 2026 (seeded) is 8_223_500 micros
+// ($8.2235/pt). 40 points used: PointCost(40, 5_679_612, 8_223_500) =
+// divRound((5_679_612+8_223_500)*40, 10_000) = divRound(556_124_480, 10_000)
+// = 55_612 cents = "$556.12".
+func TestLedgerHistoryShowsCostPerEntryAndUseYear(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	cid, err := store.AddContract(ledger.Contract{
+		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
+		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
+		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Priced trip",
+		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger/history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger/history status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	for _, want := range []string{"$556.12", "Total spent"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("history page missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
 func TestLedgerDistribute(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()

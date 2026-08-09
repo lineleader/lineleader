@@ -17,6 +17,26 @@ type ledgerView struct {
 	Err         string // surfaced from a failed mutation
 	Recent      []recentEntryRow
 	SpentByYear []yearSpend
+
+	// ShowCosts is the single gate every dollar affordance on the ledger
+	// pages is wrapped in: true only when ledger.CostBasis.Known(), i.e. at
+	// least one contract has priced cost data AND at least one dues rate is
+	// stored. Before the owner backfills a contract's price/closing/term,
+	// this is false and the ledger pages render with no dollar sign
+	// anywhere — byte-identical in spirit to the page before this feature
+	// existed (see TestLedgerHistoryHidesCostsWhenUnknown).
+	ShowCosts bool
+
+	// TotalCostLabel is the formatted sum of every priced entry's Cost
+	// (Used-point rows with CostKnown), for the ledger grid's "Total spent"
+	// <tfoot>. Meaningless (and not rendered) unless ShowCosts.
+	TotalCostLabel string
+
+	// CostFootnote is true when any entry (equivalently, any per-use-year
+	// summary — PriceSummaries only sets CostProjected from a contributing
+	// entry) shown on the History view used a projected dues rate, driving
+	// the single shared footnote explaining the "*" marker.
+	CostFootnote bool
 }
 
 // recentActivityLimit caps the Recent Activity list to the newest entries.
@@ -68,17 +88,45 @@ func (h *ledgerHandlers) buildLedgerView(editID int64, errMsg string) (ledgerVie
 	if n := len(entries); n > 0 {
 		total = entries[n-1].RunningBalance
 	}
+
+	basis, err := h.store.CostBasis()
+	if err != nil {
+		return ledgerView{}, err
+	}
+	basis.PriceEntries(entries)
+	ledger.PriceSummaries(summaries, entries)
+	totalCost, costFootnote := sumEntryCosts(entries)
+
 	return ledgerView{
-		Entries:     entries,
-		Total:       total,
-		Summaries:   summaries,
-		Contracts:   contracts,
-		Kinds:       entryKinds,
-		EditID:      editID,
-		Err:         errMsg,
-		Recent:      recentEntries(entries),
-		SpentByYear: spentByYear(summaries),
+		Entries:        entries,
+		Total:          total,
+		Summaries:      summaries,
+		Contracts:      contracts,
+		Kinds:          entryKinds,
+		EditID:         editID,
+		Err:            errMsg,
+		Recent:         recentEntries(entries),
+		SpentByYear:    spentByYear(summaries),
+		ShowCosts:      basis.Known(),
+		TotalCostLabel: ledger.FormatUSD(totalCost),
+		CostFootnote:   costFootnote,
 	}, nil
+}
+
+// sumEntryCosts totals every priced entry's Cost (CostKnown entries only —
+// see CostBasis.PriceEntries) and reports whether any of them used a
+// projected dues rate.
+func sumEntryCosts(entries []ledger.Entry) (total ledger.Cents, anyProjected bool) {
+	for _, e := range entries {
+		if !e.CostKnown {
+			continue
+		}
+		total += e.Cost
+		if e.CostProjected {
+			anyProjected = true
+		}
+	}
+	return total, anyProjected
 }
 
 // recentEntries returns the newest recentActivityLimit entries (or fewer, if
