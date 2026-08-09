@@ -16,6 +16,11 @@ type ledgerView struct {
 	Kinds       []string
 	EditID      int64  // when non-zero, that entry row renders as an edit form
 	Err         string // surfaced from a failed mutation
+
+	// EditContractID is the contract-editing analogue of EditID: when
+	// non-zero, that contract's row in the Contracts table renders as an
+	// edit form (contract_edit_row) instead of its normal row.
+	EditContractID int64
 	Recent      []recentEntryRow
 	SpentByYear []yearSpend
 
@@ -174,9 +179,10 @@ var entryKinds = []string{
 	ledger.KindAdjustment,
 }
 
-// buildLedgerView reads the current ledger state into a view. editID marks a row
-// for inline editing; errMsg surfaces a mutation error. Caller holds the lock.
-func (h *ledgerHandlers) buildLedgerView(editID int64, errMsg string) (ledgerView, error) {
+// buildLedgerView reads the current ledger state into a view. editID marks
+// an entry row for inline editing; editContractID marks a contract row the
+// same way; errMsg surfaces a mutation error. Caller holds the lock.
+func (h *ledgerHandlers) buildLedgerView(editID, editContractID int64, errMsg string) (ledgerView, error) {
 	entries, err := h.store.ListEntries()
 	if err != nil {
 		return ledgerView{}, err
@@ -209,6 +215,7 @@ func (h *ledgerHandlers) buildLedgerView(editID int64, errMsg string) (ledgerVie
 		Contracts:         contracts,
 		Kinds:             entryKinds,
 		EditID:            editID,
+		EditContractID:    editContractID,
 		Err:               errMsg,
 		Recent:            recentEntries(entries),
 		SpentByYear:       spentByYear(summaries),

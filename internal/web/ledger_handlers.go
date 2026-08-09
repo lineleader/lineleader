@@ -80,10 +80,11 @@ func (h *ledgerHandlers) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-// renderBody re-renders the #ledger-body fragment for the given view. Caller
-// holds the lock.
-func (h *ledgerHandlers) renderBody(w http.ResponseWriter, view ledgerViewKind, editID int64, errMsg string) {
-	lv, err := h.buildLedgerView(editID, errMsg)
+// renderBody re-renders the #ledger-body fragment for the given view. editID
+// and editContractID mark, respectively, an entry row or a contract row for
+// inline editing (0 for neither — the common case). Caller holds the lock.
+func (h *ledgerHandlers) renderBody(w http.ResponseWriter, view ledgerViewKind, editID, editContractID int64, errMsg string) {
+	lv, err := h.buildLedgerView(editID, editContractID, errMsg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -91,10 +92,13 @@ func (h *ledgerHandlers) renderBody(w http.ResponseWriter, view ledgerViewKind, 
 	h.render(w, view.bodyTemplateName(), ledgerPageData{ledgerView: lv, View: view})
 }
 
-// renderPage renders the full ledger_page shell for the given view. Caller
-// holds the lock.
-func (h *ledgerHandlers) renderPage(w http.ResponseWriter, view ledgerViewKind) {
-	lv, err := h.buildLedgerView(0, "")
+// renderPage renders the full ledger_page shell for the given view. A fresh
+// GET never starts in edit mode, so editContractID is always 0 from its
+// three callers below — it's a parameter (rather than hardcoding 0 inside)
+// purely so its signature mirrors renderBody/buildLedgerView. Caller holds
+// the lock.
+func (h *ledgerHandlers) renderPage(w http.ResponseWriter, view ledgerViewKind, editContractID int64) {
+	lv, err := h.buildLedgerView(0, editContractID, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -106,21 +110,21 @@ func (h *ledgerHandlers) renderPage(w http.ResponseWriter, view ledgerViewKind) 
 func (h *ledgerHandlers) page(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.renderPage(w, ledgerViewRecent)
+	h.renderPage(w, ledgerViewRecent, 0)
 }
 
 // history handles GET /ledger/history.
 func (h *ledgerHandlers) history(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.renderPage(w, ledgerViewHistory)
+	h.renderPage(w, ledgerViewHistory, 0)
 }
 
 // contracts handles GET /ledger/contracts.
 func (h *ledgerHandlers) contracts(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.renderPage(w, ledgerViewContracts)
+	h.renderPage(w, ledgerViewContracts, 0)
 }
 
 // addEntry handles POST /ledger/entries. It is hosted on both Recent and
@@ -132,16 +136,16 @@ func (h *ledgerHandlers) addEntry(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.renderBody(w, view, 0, err.Error())
+		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, err := h.store.AddEntry(e); err != nil {
-		h.renderBody(w, view, 0, err.Error())
+		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
-	h.renderBody(w, view, 0, "")
+	h.renderBody(w, view, 0, 0, "")
 }
 
 // editEntry handles GET /ledger/entries/{id}/edit — re-render with that row in edit mode.
@@ -153,7 +157,7 @@ func (h *ledgerHandlers) editEntry(w http.ResponseWriter, r *http.Request) {
 	view := viewFromRequest(r)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.renderBody(w, view, id, "")
+	h.renderBody(w, view, id, 0, "")
 }
 
 // updateEntry handles POST /ledger/entries/{id}/update.
@@ -167,16 +171,16 @@ func (h *ledgerHandlers) updateEntry(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.renderBody(w, view, id, err.Error())
+		h.renderBody(w, view, id, 0, err.Error())
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.store.UpdateEntry(e); err != nil {
-		h.renderBody(w, view, id, err.Error())
+		h.renderBody(w, view, id, 0, err.Error())
 		return
 	}
-	h.renderBody(w, view, 0, "")
+	h.renderBody(w, view, 0, 0, "")
 }
 
 // cancelEdit handles POST /ledger/entries/edit/cancel — leave edit mode.
@@ -184,7 +188,7 @@ func (h *ledgerHandlers) cancelEdit(w http.ResponseWriter, r *http.Request) {
 	view := viewFromRequest(r)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.renderBody(w, view, 0, "")
+	h.renderBody(w, view, 0, 0, "")
 }
 
 // deleteEntry handles DELETE /ledger/entries/{id}.
@@ -197,10 +201,10 @@ func (h *ledgerHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.store.DeleteEntry(id); err != nil {
-		h.renderBody(w, view, 0, err.Error())
+		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
-	h.renderBody(w, view, 0, "")
+	h.renderBody(w, view, 0, 0, "")
 }
 
 // addContract handles POST /ledger/contracts.
@@ -210,16 +214,64 @@ func (h *ledgerHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.renderBody(w, view, 0, err.Error())
+		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, err := h.store.AddContract(c); err != nil {
-		h.renderBody(w, view, 0, err.Error())
+		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
-	h.renderBody(w, view, 0, "")
+	h.renderBody(w, view, 0, 0, "")
+}
+
+// editContract handles GET /ledger/contracts/{id}/edit — re-render with that
+// contract row in edit mode.
+func (h *ledgerHandlers) editContract(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	view := viewFromRequest(r)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.renderBody(w, view, 0, id, "")
+}
+
+// updateContract handles POST /ledger/contracts/{id}/update. It calls
+// Store.UpdateContract — an UPDATE in place, never delete-and-re-add, which
+// would violate entries.contract_id's ON DELETE SET NULL and silently strip
+// every entry's contract attribution (see
+// TestLedgerUpdateContractPersists).
+func (h *ledgerHandlers) updateContract(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	view := viewFromRequest(r)
+	c, err := parseContractForm(r, id)
+	if err != nil {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.renderBody(w, view, 0, id, err.Error())
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.store.UpdateContract(c); err != nil {
+		h.renderBody(w, view, 0, id, err.Error())
+		return
+	}
+	h.renderBody(w, view, 0, 0, "")
+}
+
+// cancelContractEdit handles POST /ledger/contracts/edit/cancel — leave edit mode.
+func (h *ledgerHandlers) cancelContractEdit(w http.ResponseWriter, r *http.Request) {
+	view := viewFromRequest(r)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.renderBody(w, view, 0, 0, "")
 }
 
 // parseContractForm builds a Contract from form values. id is set on the
@@ -268,10 +320,10 @@ func (h *ledgerHandlers) deleteContract(w http.ResponseWriter, r *http.Request) 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.store.DeleteContract(id); err != nil {
-		h.renderBody(w, view, 0, err.Error())
+		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
-	h.renderBody(w, view, 0, "")
+	h.renderBody(w, view, 0, 0, "")
 }
 
 // distribute handles POST /ledger/distribute.
@@ -280,10 +332,10 @@ func (h *ledgerHandlers) distribute(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, err := h.store.DistributeNextYear(); err != nil {
-		h.renderBody(w, view, 0, err.Error())
+		h.renderBody(w, view, 0, 0, err.Error())
 		return
 	}
-	h.renderBody(w, view, 0, "")
+	h.renderBody(w, view, 0, 0, "")
 }
 
 // parseEntryForm builds an Entry from form values. id is set on the result (0 for add).

@@ -43,7 +43,7 @@ func TestRecentEntriesLength(t *testing.T) {
 			addEntries(t, store, c.total)
 			h := &ledgerHandlers{store: store}
 
-			view, err := h.buildLedgerView(0, "")
+			view, err := h.buildLedgerView(0, 0, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,7 +59,7 @@ func TestRecentEntriesReverseChronologicalAndEntriesUntouched(t *testing.T) {
 	addEntries(t, store, 25)
 	h := &ledgerHandlers{store: store}
 
-	view, err := h.buildLedgerView(0, "")
+	view, err := h.buildLedgerView(0, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestRecentEntryDeltaLabel(t *testing.T) {
 			}
 			h := &ledgerHandlers{store: store}
 
-			view, err := h.buildLedgerView(0, "")
+			view, err := h.buildLedgerView(0, 0, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,7 +148,7 @@ func TestRecentEntryDateAndDesc(t *testing.T) {
 	}
 	h := &ledgerHandlers{store: store}
 
-	view, err := h.buildLedgerView(0, "")
+	view, err := h.buildLedgerView(0, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestSpentByYear(t *testing.T) {
 			}
 			h := &ledgerHandlers{store: store}
 
-			view, err := h.buildLedgerView(0, "")
+			view, err := h.buildLedgerView(0, 0, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -232,7 +232,7 @@ func TestBuildLedgerViewTotalUsesLastRunningBalance(t *testing.T) {
 	}
 	h := &ledgerHandlers{store: store}
 
-	view, err := h.buildLedgerView(0, "")
+	view, err := h.buildLedgerView(0, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

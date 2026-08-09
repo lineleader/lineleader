@@ -621,6 +621,171 @@ func TestLedgerAddContractWithCostFields(t *testing.T) {
 	}
 }
 
+// TestLedgerEditContractRendersFormRow checks GET
+// /ledger/contracts/{id}/edit swaps that row into an edit form
+// pre-populated with the contract's current values, including the new cost
+// fields, and leaves other rows untouched.
+func TestLedgerEditContractRendersFormRow(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	id1, err := store.AddContract(ledger.Contract{
+		Name: "Point allocation", Number: "111", HomeResort: "BWV",
+		AnnualPoints: 120, UseYearMonth: time.April,
+		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := store.AddContract(ledger.Contract{Name: "Other contract", AnnualPoints: 150, UseYearMonth: time.October})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger/contracts/" + strconv.FormatInt(id1, 10) + "/edit?view=contracts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("edit contract status = %d, body:\n%s", resp.StatusCode, out)
+	}
+
+	wantUpdateAction := `hx-post="/ledger/contracts/` + strconv.FormatInt(id1, 10) + `/update?view=contracts"`
+	if !strings.Contains(out, wantUpdateAction) {
+		t.Errorf("response missing edit-form action %q; got:\n%s", wantUpdateAction, out)
+	}
+	for _, want := range []string{
+		`value="Point allocation"`,
+		`value="111"`,
+		`value="BWV"`,
+		`value="120"`,
+		`value="44"`,
+		`value="29400.00"`,
+		`value="588.35"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("edit form missing %q; got:\n%s", want, out)
+		}
+	}
+	// The other contract must remain in normal (non-form) rendering.
+	if !strings.Contains(out, "Other contract") {
+		t.Errorf("response missing untouched contract row; got:\n%s", out)
+	}
+	wantOtherEditLink := `hx-get="/ledger/contracts/` + strconv.FormatInt(id2, 10) + `/edit?view=contracts"`
+	if !strings.Contains(out, wantOtherEditLink) {
+		t.Errorf("other row should still render its Edit button %q; got:\n%s", wantOtherEditLink, out)
+	}
+}
+
+// TestLedgerUpdateContractPersists is commit 12's required regression: it
+// backfills a contract's cost data through the edit form and asserts that
+// an entry's contract_id survives the update. Delete-and-re-add would not
+// have survived this (entries.contract_id is ON DELETE SET NULL) — that's
+// exactly why UpdateContract, not Delete+Add, is the only acceptable
+// implementation.
+func TestLedgerUpdateContractPersists(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	cid, err := store.AddContract(ledger.Contract{Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entryID, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
+		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"name":           {"Point allocation"},
+		"number":         {"999"},
+		"resort":         {"BWV"},
+		"points":         {"120"},
+		"use_year_month": {"April"},
+		"term_years":     {"44"},
+		"price":          {"29400"},
+		"closing":        {"588.35"},
+	}
+	resp, err := http.PostForm(srv.URL+"/ledger/contracts/"+strconv.FormatInt(cid, 10)+"/update?view=contracts", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update contract status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if strings.Contains(out, "editing") {
+		t.Errorf("response should not still be in edit mode; got:\n%s", out)
+	}
+
+	contracts, err := store.ListContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contracts) != 1 {
+		t.Fatalf("store has %d contracts, want 1", len(contracts))
+	}
+	c := contracts[0]
+	if c.Number != "999" || c.TermYears != 44 || c.PurchasePrice != 2_940_000 || c.ClosingCosts != 58_835 {
+		t.Errorf("persisted contract = %+v, want number=999 term=44 price=2940000 closing=58835", c)
+	}
+	if c.ID != cid {
+		t.Errorf("UpdateContract must overwrite the same id, got new id %d, want %d", c.ID, cid)
+	}
+
+	// The entry's contract_id must survive — the whole point of using
+	// UpdateContract rather than delete-and-re-add.
+	entries, err := store.ListEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range entries {
+		if e.ID != entryID {
+			continue
+		}
+		found = true
+		if e.ContractID == nil || *e.ContractID != cid {
+			t.Errorf("entry %d ContractID = %v, want %d (must survive the contract edit)", entryID, e.ContractID, cid)
+		}
+	}
+	if !found {
+		t.Fatalf("entry %d not found after contract update", entryID)
+	}
+}
+
+// TestLedgerCancelContractEdit checks POST /ledger/contracts/edit/cancel
+// leaves edit mode and restores the normal Edit button.
+func TestLedgerCancelContractEdit(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	id, err := store.AddContract(ledger.Contract{Name: "Some contract", AnnualPoints: 100, UseYearMonth: time.April})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.PostForm(srv.URL+"/ledger/contracts/edit/cancel?view=contracts", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("cancel status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if strings.Contains(out, "editing") {
+		t.Errorf("cancel should restore normal row rendering; got:\n%s", out)
+	}
+	wantEditLink := `hx-get="/ledger/contracts/` + strconv.FormatInt(id, 10) + `/edit?view=contracts"`
+	if !strings.Contains(out, wantEditLink) {
+		t.Errorf("cancel response missing normal Edit button %q; got:\n%s", wantEditLink, out)
+	}
+}
+
 func TestLedgerDeleteContract(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()

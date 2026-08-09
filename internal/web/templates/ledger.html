@@ -177,6 +177,9 @@
       <tbody>
         {{$showCosts := .ShowCosts}}
         {{range .ContractRows}}
+          {{if eq .ID $.EditContractID}}
+            {{template "contract_edit_row" (dict "C" . "ShowCosts" $showCosts)}}
+          {{else}}
           <tr>
             <td>{{.Name}}</td><td>{{.Number}}</td><td>{{viewOrDash .HomeResort}}</td>
             <td>{{.AnnualPoints}}</td><td>{{formatMonth .UseYearMonth}}</td>
@@ -187,10 +190,12 @@
             <td class="cost">{{.RateLabel}}</td>
             {{end}}
             <td>
+              <button type="button" hx-get="/ledger/contracts/{{.ID}}/edit?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">Edit</button>
               <button type="button" hx-delete="/ledger/contracts/{{.ID}}?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML"
                       hx-confirm="Delete contract {{.Name}}?">Delete</button>
             </td>
           </tr>
+          {{end}}
         {{else}}
         <tr><td colspan="{{if .ShowCosts}}10{{else}}6{{end}}">No contracts yet.</td></tr>
         {{end}}
@@ -257,6 +262,34 @@
       </select>
       <button type="submit">Save</button>
       <button type="button" hx-post="/ledger/entries/edit/cancel?view=history" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+
+{{/* contract_edit_row only ever renders inside the Contracts table, so its
+     mutation controls hardcode ?view=contracts — mirrors entry_edit_row.
+     The price/closing/term_years fields render unconditionally (not gated
+     on .ShowCosts): editing is how the owner backfills a contract's cost
+     data the first time, so they must stay available before ShowCosts is
+     ever true. Money fields (price, closing) are text inputs — see
+     docs/plans/stay-cost.md's rationale against type="number" — pre-filled
+     from PriceInput/ClosingInput, which round-trip through
+     ledger.ParseCents. */}}
+{{define "contract_edit_row"}}
+<tr class="editing">
+  <td colspan="{{if .ShowCosts}}10{{else}}6{{end}}">
+    <form hx-post="/ledger/contracts/{{.C.ID}}/update?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
+      <input name="name" type="text" value="{{.C.Name}}" required>
+      <input name="number" type="text" value="{{.C.Number}}">
+      <input name="resort" type="text" value="{{.C.HomeResort}}">
+      <input name="points" type="number" value="{{.C.AnnualPoints}}" required>
+      <input name="use_year_month" type="text" value="{{formatMonth .C.UseYearMonth}}" required>
+      <input name="term_years" type="number" value="{{.C.TermYears}}">
+      <input name="price" type="text" value="{{.C.PriceInput}}">
+      <input name="closing" type="text" value="{{.C.ClosingInput}}">
+      <button type="submit">Save</button>
+      <button type="button" hx-post="/ledger/contracts/edit/cancel?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
     </form>
   </td>
 </tr>

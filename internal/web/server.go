@@ -107,6 +107,9 @@ func NewServer(opts Options) http.Handler {
 		mux.HandleFunc("POST /ledger/entries/edit/cancel", lh.cancelEdit)
 		mux.HandleFunc("DELETE /ledger/entries/{id}", lh.deleteEntry)
 		mux.HandleFunc("POST /ledger/contracts", lh.addContract)
+		mux.HandleFunc("GET /ledger/contracts/{id}/edit", lh.editContract)
+		mux.HandleFunc("POST /ledger/contracts/{id}/update", lh.updateContract)
+		mux.HandleFunc("POST /ledger/contracts/edit/cancel", lh.cancelContractEdit)
 		mux.HandleFunc("DELETE /ledger/contracts/{id}", lh.deleteContract)
 		mux.HandleFunc("POST /ledger/distribute", lh.distribute)
 
