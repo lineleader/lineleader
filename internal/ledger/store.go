@@ -57,9 +57,9 @@ func parseDate(s string) (time.Time, error) {
 func (s *Store) AddContract(c Contract) (int64, error) {
 	var id int64
 	err := s.db.QueryRow(
-		`INSERT INTO contracts (name, number, home_resort, annual_points, use_year_month)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		c.Name, c.Number, c.HomeResort, c.AnnualPoints, int(c.UseYearMonth),
+		`INSERT INTO contracts (name, number, home_resort, annual_points, use_year_month, term_years, purchase_price_cents, closing_costs_cents)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+		c.Name, c.Number, c.HomeResort, c.AnnualPoints, int(c.UseYearMonth), c.TermYears, int64(c.PurchasePrice), int64(c.ClosingCosts),
 	).Scan(&id)
 	if err != nil {
 		return 0, err
@@ -70,7 +70,7 @@ func (s *Store) AddContract(c Contract) (int64, error) {
 // ListContracts returns all contracts ordered by id.
 func (s *Store) ListContracts() ([]Contract, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, number, home_resort, annual_points, use_year_month
+		`SELECT id, name, number, home_resort, annual_points, use_year_month, term_years, purchase_price_cents, closing_costs_cents
 		 FROM contracts ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -79,12 +79,17 @@ func (s *Store) ListContracts() ([]Contract, error) {
 
 	var out []Contract
 	for rows.Next() {
-		var c Contract
-		var month int
-		if err := rows.Scan(&c.ID, &c.Name, &c.Number, &c.HomeResort, &c.AnnualPoints, &month); err != nil {
+		var (
+			c              Contract
+			month          int
+			purchase, cost int64
+		)
+		if err := rows.Scan(&c.ID, &c.Name, &c.Number, &c.HomeResort, &c.AnnualPoints, &month, &c.TermYears, &purchase, &cost); err != nil {
 			return nil, err
 		}
 		c.UseYearMonth = time.Month(month)
+		c.PurchasePrice = Cents(purchase)
+		c.ClosingCosts = Cents(cost)
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -94,9 +99,10 @@ func (s *Store) ListContracts() ([]Contract, error) {
 func (s *Store) UpdateContract(c Contract) error {
 	_, err := s.db.Exec(
 		`UPDATE contracts
-		 SET name = $1, number = $2, home_resort = $3, annual_points = $4, use_year_month = $5
-		 WHERE id = $6`,
-		c.Name, c.Number, c.HomeResort, c.AnnualPoints, int(c.UseYearMonth), c.ID,
+		 SET name = $1, number = $2, home_resort = $3, annual_points = $4, use_year_month = $5,
+		     term_years = $6, purchase_price_cents = $7, closing_costs_cents = $8
+		 WHERE id = $9`,
+		c.Name, c.Number, c.HomeResort, c.AnnualPoints, int(c.UseYearMonth), c.TermYears, int64(c.PurchasePrice), int64(c.ClosingCosts), c.ID,
 	)
 	return err
 }

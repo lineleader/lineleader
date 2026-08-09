@@ -84,6 +84,71 @@ func TestContractCRUD(t *testing.T) {
 	}
 }
 
+func TestContractCostFields(t *testing.T) {
+	s := openTestStore(t)
+
+	c := Contract{
+		Name:          "Point allocation",
+		Number:        "9876543.000",
+		HomeResort:    "AKV",
+		AnnualPoints:  120,
+		UseYearMonth:  time.April,
+		TermYears:     44,
+		PurchasePrice: 2_940_000, // $29,400.00
+		ClosingCosts:  58_835,    // $588.35
+	}
+	id, err := s.AddContract(c)
+	if err != nil {
+		t.Fatalf("AddContract: %v", err)
+	}
+
+	got, err := s.ListContracts()
+	if err != nil {
+		t.Fatalf("ListContracts: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListContracts len = %d, want 1", len(got))
+	}
+	c.ID = id
+	if got[0] != c {
+		t.Errorf("ListContracts[0] = %+v, want %+v", got[0], c)
+	}
+
+	c.TermYears = 41
+	c.PurchasePrice = 3_015_000
+	c.ClosingCosts = 66_500
+	if err := s.UpdateContract(c); err != nil {
+		t.Fatalf("UpdateContract: %v", err)
+	}
+	got, _ = s.ListContracts()
+	if got[0].TermYears != 41 || got[0].PurchasePrice != 3_015_000 || got[0].ClosingCosts != 66_500 {
+		t.Errorf("after update = %+v, want term=41 price=3015000 closing=66500", got[0])
+	}
+}
+
+// TestContractCostFieldsDefaultToZero pins the "cost unknown" contract on
+// existing rows: a contract added with no cost data (the pre-backfill state
+// for every contract migrated from the old sheet) reads back with all three
+// new fields at their zero value.
+func TestContractCostFieldsDefaultToZero(t *testing.T) {
+	s := openTestStore(t)
+
+	id, err := s.AddContract(Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April})
+	if err != nil {
+		t.Fatalf("AddContract: %v", err)
+	}
+	got, err := s.ListContracts()
+	if err != nil {
+		t.Fatalf("ListContracts: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListContracts len = %d, want 1", len(got))
+	}
+	if got[0].ID != id || got[0].TermYears != 0 || got[0].PurchasePrice != 0 || got[0].ClosingCosts != 0 {
+		t.Errorf("ListContracts[0] = %+v, want term=0 price=0 closing=0", got[0])
+	}
+}
+
 func TestOpenIsIdempotent(t *testing.T) {
 	dsn := OpenTestDSN(t)
 	s1, err := Open(dsn)

@@ -33,12 +33,15 @@ type Entry struct {
 // Contract is a template that drives the Distribute action. It is not part of the
 // running balance itself — the balance is pooled across all contracts.
 type Contract struct {
-	ID           int64
-	Name         string     // "Point allocation", "Point allocation #2"
-	Number       string     // DVC contract/membership number (free text)
-	HomeResort   string     // optional resort code
-	AnnualPoints int        // 120, 150, …
-	UseYearMonth time.Month // Use Year start month; anchors the allocation date and UseYearForDate
+	ID            int64
+	Name          string     // "Point allocation", "Point allocation #2"
+	Number        string     // DVC contract/membership number (free text)
+	HomeResort    string     // optional resort code
+	AnnualPoints  int        // 120, 150, …
+	UseYearMonth  time.Month // Use Year start month; anchors the allocation date and UseYearForDate
+	TermYears     int        // contract length in years; 0 means cost data hasn't been entered
+	PurchasePrice Cents      // purchase price paid; 0 means cost data hasn't been entered
+	ClosingCosts  Cents      // closing costs paid; 0 means cost data hasn't been entered
 }
 
 // UseYearSummary rolls up every entry sharing a use year.
