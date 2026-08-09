@@ -4,7 +4,8 @@
     <form class="budget-form" hx-post="/budget" hx-target="#app" hx-swap="outerHTML" hx-trigger="input changed delay:200ms from:find input">
       <label for="budget">Budget:</label>
       <input id="budget" name="budget" type="text" value="{{.Budget}}" autocomplete="off">
-      <span class="remaining">Remaining: {{.Remaining}} pts{{if .ShowCosts}} ≈ {{.SelectedCostLabel}}{{end}}</span>
+      <span class="remaining">Remaining: {{.Remaining}} pts</span>
+      {{if .HasSelectedCost}}<span class="selected-cost">Selected: {{.SelectedCostLabel}}</span>{{end}}
       {{if .LoadedPlanName}}<span class="loaded-plan">Plan: {{.LoadedPlanName}}</span>{{end}}
       {{if .BudgetErr}}<span class="err">{{.BudgetErr}}</span>{{end}}
     </form>

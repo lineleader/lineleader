@@ -17,18 +17,29 @@ type appView struct {
 	LoadedPlanName string
 	Trips          []tripView
 
-	// ShowCosts gates the planner bar's "≈ $X" cost approximation next to
-	// Remaining, mirroring tripView.ShowCosts (see its doc comment) — false
-	// whenever no ledger is configured or CostBasis isn't Known() yet, so a
+	// ShowCosts gates every dollar affordance on the results tables and trip
+	// summary chips (see tripView.ShowCosts's doc comment) — false whenever
+	// no ledger is configured or CostBasis isn't Known() yet, so a
 	// nil-ledger server (as in ~20 existing planner tests) renders
-	// byte-identical HTML.
+	// byte-identical HTML. The planner bar's own cost span is gated by
+	// HasSelectedCost below, not directly by this field.
 	ShowCosts bool
 
 	// SelectedCostLabel is the formatted sum of every trip's
 	// tripView.Selected.cost (real cents, summed once and formatted once —
 	// never by concatenating or re-parsing each trip's own CostLabel).
-	// "" unless ShowCosts.
+	// "" unless HasSelectedCost.
 	SelectedCostLabel string
+
+	// HasSelectedCost is true when at least one trip contributed a priced
+	// selection (i.e. some trip's tripView.SelectedCostLabel is non-empty).
+	// It's what the template gates its "Selected: $X" span on, rather than
+	// testing SelectedCostLabel for emptiness or against "$0.00" — those
+	// would conflate "nothing selected" with "selected stays that happen to
+	// cost nothing", which HasSelectedCost keeps distinct. Always false when
+	// !ShowCosts, since a trip can only get a non-empty SelectedCostLabel
+	// under ShowCosts.
+	HasSelectedCost bool
 }
 
 type tripView struct {
@@ -245,6 +256,9 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 			tv.SelectedCostLabel = tv.Selected.CostLabel
 			tv.SelectedCostProjected = tv.Selected.CostProjected
 			totalSelectedCost += tv.Selected.cost
+			if tv.SelectedCostLabel != "" {
+				v.HasSelectedCost = true
+			}
 		}
 		v.Trips[i] = tv
 	}

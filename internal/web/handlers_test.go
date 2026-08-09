@@ -134,8 +134,84 @@ func TestResultsTable_ShowsCostColumnWithLedger(t *testing.T) {
 	if !strings.Contains(got2, `class="summary-cost"`) {
 		t.Errorf("expected a summary-cost chip in the collapsed trip summary, got:\n%s", got2)
 	}
-	if !strings.Contains(got2, "Remaining: ") || !strings.Contains(got2, "≈ $") {
-		t.Errorf("expected the planner bar's Remaining line to show an approximate total cost, got:\n%s", got2)
+	if !strings.Contains(got2, `class="selected-cost"`) || !strings.Contains(got2, "Selected: $") {
+		t.Errorf("expected the planner bar to show a labelled selected-cost span, got:\n%s", got2)
+	}
+}
+
+// TestPlannerBar_SelectedCostOmittedUntilSelection confirms defect 2's fix:
+// with a priced ledger configured but nothing selected, the planner bar must
+// not render a cost span at all (not even "$0.00") — SelectedCostLabel being
+// unset must be distinguishable from "selected stays that cost $0". Once a
+// stay is selected, the labelled span appears with the correct amount, as its
+// own sibling of "Remaining:" rather than folded inside it.
+func TestPlannerBar_SelectedCostOmittedUntilSelection(t *testing.T) {
+	dir := t.TempDir()
+	store := ledger.OpenTest(t)
+	addPricedContract(t, store)
+	srv := NewServer(Options{
+		Charts:     []*dvc.ResortChart{minimalChart()},
+		ConfigPath: filepath.Join(dir, "config.json"),
+		PlansPath:  filepath.Join(dir, "plans.json"),
+		Ledger:     store,
+		Defaults:   Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
+	})
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if strings.Contains(got, "selected-cost") {
+		t.Errorf("expected no selected-cost markup with nothing selected, got:\n%s", got)
+	}
+	if strings.Contains(got, "$0.00") {
+		t.Errorf("expected no $0.00 noise with nothing selected, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Remaining: 100 pts") {
+		t.Errorf("expected the plain Remaining line with nothing selected, got:\n%s", got)
+	}
+
+	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	resp2, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := body(t, resp2)
+	if !strings.Contains(got2, `class="selected-cost"`) {
+		t.Errorf("expected a selected-cost span after selecting a stay, got:\n%s", got2)
+	}
+	if !strings.Contains(got2, "Selected: $") {
+		t.Errorf("expected a 'Selected: $' label after selecting a stay, got:\n%s", got2)
+	}
+}
+
+// TestIndex_NoLedgerRendersNoCostMarkup pins the nil-ledger path: with no
+// ledger configured at all (Options.Ledger == nil, the newTestServer
+// fixture), the planner bar must render no cost markup whatsoever, even
+// after a selection — ShowCosts stays false, so HasSelectedCost can never
+// become true.
+func TestIndex_NoLedgerRendersNoCostMarkup(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if strings.Contains(got, "selected-cost") {
+		t.Errorf("expected no selected-cost markup with no ledger configured, got:\n%s", got)
+	}
+	if strings.Contains(got, "$") {
+		t.Errorf("expected no dollar sign anywhere with no ledger configured, got:\n%s", got)
 	}
 }
 

@@ -210,6 +210,14 @@ button:focus-visible {
   padding: 0.3rem 0.7rem;
   border-radius: var(--radius-pill);
 }
+.bar .selected-cost {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+  color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-pill);
+}
 .bar .loaded-plan {
   color: var(--brand-ink);
   background: var(--brand-tint);

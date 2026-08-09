@@ -369,3 +369,31 @@ func TestBuildAppView_SumsSelectedCostAcrossTrips(t *testing.T) {
 		t.Errorf("appView SelectedCostLabel = %q, want %q (sum of both trips' selected cents, formatted once)", v.SelectedCostLabel, want)
 	}
 }
+
+// TestBuildAppView_HasSelectedCost confirms appView.HasSelectedCost — the
+// flag the planner bar template uses to decide whether to render its
+// selected-cost span at all — is false with a priced ledger configured but
+// nothing selected (never "$0.00" noise), and true once a stay is selected.
+// It must not be inferred from SelectedCostLabel's formatted text (e.g.
+// != "" or != "$0.00"); it's set directly by whether a trip contributed a
+// priced selection.
+func TestBuildAppView_HasSelectedCost(t *testing.T) {
+	store := ledger.OpenTest(t)
+	addPricedContract(t, store)
+	s := newTestSessionWithStore(t, store)
+	s.reconcileCollapsed(s.p.Snapshot())
+
+	v := s.buildAppView(s.p.Snapshot())
+	if v.HasSelectedCost {
+		t.Errorf("appView HasSelectedCost = true, want false with nothing selected")
+	}
+
+	s.p.ToggleSelection(0, 0)
+	v = s.buildAppView(s.p.Snapshot())
+	if !v.HasSelectedCost {
+		t.Errorf("appView HasSelectedCost = false, want true after selecting a priced stay")
+	}
+	if v.SelectedCostLabel == "" {
+		t.Errorf("appView SelectedCostLabel empty, want a priced $ label once HasSelectedCost is true")
+	}
+}
