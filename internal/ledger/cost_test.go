@@ -332,12 +332,28 @@ func TestContractPricePerPointYear(t *testing.T) {
 			ok:   false,
 		},
 		{
-			name: "closing costs zero",
+			// Zero closing costs is legitimate — waived, or rolled into the
+			// purchase price — and prices normally as (purchase + 0) / (points
+			// x years).
+			name: "closing costs zero prices normally",
 			c: Contract{
 				AnnualPoints:  120,
 				TermYears:     44,
 				PurchasePrice: 2_940_000,
 				ClosingCosts:  0,
+			},
+			want: 5_568_182,
+			ok:   true,
+		},
+		{
+			// A negative closing cost is nonsense (unlike zero) and stays
+			// "cost unknown".
+			name: "closing costs negative",
+			c: Contract{
+				AnnualPoints:  120,
+				TermYears:     44,
+				PurchasePrice: 2_940_000,
+				ClosingCosts:  -1,
 			},
 			want: 0,
 			ok:   false,

@@ -259,10 +259,12 @@ func (s *Store) CostBasis() (CostBasis, error) {
 // stored inputs.
 //
 // ok is false ("cost unknown") when any of TermYears, PurchasePrice or
-// ClosingCosts is zero (the pre-backfill state for every contract) or when
-// AnnualPoints is zero, which would otherwise divide by zero.
+// AnnualPoints is zero or negative (the pre-backfill state for every
+// contract, or a value that would otherwise divide by zero) or when
+// ClosingCosts is negative. ClosingCosts == 0 is legitimate — waived, or
+// rolled into the purchase price — and prices normally.
 func (c Contract) PricePerPointYear() (Micros, bool) {
-	if c.TermYears <= 0 || c.PurchasePrice <= 0 || c.ClosingCosts <= 0 || c.AnnualPoints <= 0 {
+	if c.TermYears <= 0 || c.PurchasePrice <= 0 || c.ClosingCosts < 0 || c.AnnualPoints <= 0 {
 		return 0, false
 	}
 	num := (int64(c.PurchasePrice) + int64(c.ClosingCosts)) * microsPerCent
