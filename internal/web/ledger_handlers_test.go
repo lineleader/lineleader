@@ -970,9 +970,14 @@ func TestLedgerDeleteContract(t *testing.T) {
 // ledger.Open) but no contract carrying priced cost data — the state of the
 // real database right now, and the state newLedgerTestServer's contracts are
 // always left in unless a test explicitly backfills them — CostBasis.Known()
-// is false, so /ledger, /ledger/history and /ledger/contracts must render
-// with no dollar sign anywhere, byte-identical in spirit to the page before
-// this feature existed.
+// is false. /ledger and /ledger/history must render with no dollar sign
+// anywhere, byte-identical in spirit to the page before this feature
+// existed. /ledger/contracts is different: its dues section (reference
+// data, not a cost claim about a priced stay) always renders and legitimately
+// shows "$" rate values, so for that path we instead assert the
+// ShowCosts-gated cost affordances specifically — the blended-rate line and
+// the contracts table's $/pt/yr column — are absent, while the always-on
+// dues section and its add form are present.
 func TestLedgerHistoryHidesCostsWhenUnknown(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
@@ -994,7 +999,7 @@ func TestLedgerHistoryHidesCostsWhenUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, path := range []string{"/ledger", "/ledger/history", "/ledger/contracts"} {
+	for _, path := range []string{"/ledger", "/ledger/history"} {
 		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -1008,6 +1013,71 @@ func TestLedgerHistoryHidesCostsWhenUnknown(t *testing.T) {
 		}
 		if strings.Contains(out, "Total spent") {
 			t.Errorf("GET %s should not show the Total spent footer while CostBasis is unknown; got:\n%s", path, out)
+		}
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger/contracts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger/contracts status = %d", resp.StatusCode)
+	}
+	for _, notWant := range []string{"Blended portfolio rate", "$/pt/yr", "Total spent"} {
+		if strings.Contains(out, notWant) {
+			t.Errorf("GET /ledger/contracts should not show %q while CostBasis is unknown; got:\n%s", notWant, out)
+		}
+	}
+	for _, want := range []string{"Dues rates", "Set dues rate", `hx-post="/ledger/dues?view=contracts"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("GET /ledger/contracts should still offer the dues section/form (%q missing); got:\n%s", want, out)
+		}
+	}
+}
+
+// TestLedgerContractsAlwaysOffersDuesForm is the regression test for the
+// one-way trap: an operator who deletes every stored dues year through the
+// UI's per-row Delete button flips hasDues (and thus CostBasis.Known()) to
+// false, and seed.sql's re-seed guard is table-level, so an emptied
+// dues_rates table never re-seeds on restart. Before this fix, that also
+// hid the "Set dues rate" add form (it lived behind the ShowCosts gate),
+// leaving no UI path back to adding a rate — the only recovery was
+// hand-written SQL. Here we drive the store to that exact state (no dues
+// rates AND no priced contract, so ShowCosts is false by both factors) and
+// assert the dues section and its add form still render.
+func TestLedgerContractsAlwaysOffersDuesForm(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	dues, err := store.ListDuesRates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range dues {
+		if err := store.DeleteDuesRate(d.UseYear); err != nil {
+			t.Fatal(err)
+		}
+	}
+	remaining, err := store.ListDuesRates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("setup: dues_rates should be empty, got %+v", remaining)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger/contracts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger/contracts status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	for _, want := range []string{"Dues rates", "Set dues rate", `hx-post="/ledger/dues?view=contracts"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("contracts page missing %q (dues add form must always be reachable); got:\n%s", want, out)
 		}
 	}
 }
