@@ -4,8 +4,11 @@ dev:
 	# from the environment automatically (make passes them through to
 	# `go run`). Add --insecure-cookies so the session cookie works over
 	# plain http in local dev (real deployments keep Secure cookies, TLS
-	# terminates at the reverse proxy):
-	#   LEDGER_DSN=postgres://user:pass@localhost:5432/lineleader?sslmode=disable \
+	# terminates at the reverse proxy).
+	#
+	# Start the local dev database with: docker compose up -d
+	# Then run:
+	#   LEDGER_DSN=postgres://postgres:dev@localhost:5432/lineleader?sslmode=disable \
 	#   AUTH_SECRET=devsecret \
 	#   make dev
 	go run cmd/server/main.go --insecure-cookies
@@ -69,8 +72,8 @@ docker-build:
 
 # Local smoke test only: publishes 8080 on the host and relies on
 # LEDGER_DSN/AUTH_SECRET already being set in the environment. Real
-# deployments use docker-compose.yml (no published port; reverse proxy
-# reaches the container over the compose network).
+# deployments use deploy/percival/docker-compose.yml (publishes 8080 for the
+# reverse proxy to reach).
 .PHONY: docker-run
 docker-run: docker-build
 	docker run --rm -p 8080:8080 \

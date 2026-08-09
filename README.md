@@ -192,6 +192,21 @@ Entry kinds: `allocation`, `usage`, `bonus`, `single_use`, `adjustment`. The
 `--year` flag defaults to the year of `--date`; override it for points drawn
 from a banked or borrowed use year.
 
+### Local development
+
+For local ledger development, start a throwaway Postgres with `docker compose up -d`,
+then run the server:
+
+```sh
+docker compose up -d
+LEDGER_DSN=postgres://postgres:dev@localhost:5432/lineleader?sslmode=disable \
+AUTH_SECRET=devsecret \
+make dev
+```
+
+The schema self-applies on boot. To clean up the local database entirely (not
+just stop the container), run `docker compose down -v`.
+
 ## Deployment
 
 Hosted, single-user deployment per `docs/pitches/hosted-lineleader.md`. Chart
@@ -201,27 +216,33 @@ container in production.
 
 ### Running it
 
-```sh
-LEDGER_DSN=postgres://user:pass@your-postgres-host:5432/lineleader?sslmode=disable \
-AUTH_SECRET=some-long-random-secret \
-docker compose up -d --build
-```
+Deploy via `deploy/percival/docker-compose.yml`, which is managed by dockhand
+on the percival homelab host. The file pulls a published GHCR image (no build
+on the host), joins the existing shared Postgres network, and publishes 8080
+to the Caddy reverse proxy. Set `LINELEADER_VERSION` in dockhand to roll out a
+release (scripts/release.sh prints the value to set once CI has published the
+image).
 
-- **`LEDGER_DSN`** (required) — Postgres connection string for the points
-  ledger. Points at your existing database; `docker-compose.yml` does not
-  start one.
-- **`AUTH_SECRET`** (required, one of two forms) — the single shared login
-  secret. Either set the env var directly, or mount it as a file and pass
-  `--auth-secret-file` (see the commented `secrets:` example in
-  `docker-compose.yml` for the Docker-secret variant).
-- A named volume (`state`) is mounted at `/state` inside the container for
-  `config.json`/`plans.json` — the only file state outside Postgres.
-- No port is published by default: the reverse proxy in front of this host
-  is expected to reach the container over the compose network (or the host
-  network, depending on your proxy setup) and terminate TLS itself. This
-  app never handles TLS or a public hostname directly — uncomment the
-  `ports:` block in `docker-compose.yml` only for a direct/local smoke
-  test.
+Two required env vars:
+
+- **`LINELEADER_VERSION`** — the image tag to deploy. Dockhand manages this;
+  `scripts/release.sh` prints the value after CI publishes.
+- **`AUTH_SECRET`** — the single shared login secret, set in dockhand's
+  environment/secrets UI for the service (generate with
+  `openssl rand -base64 32`; see `deploy/README.md`). It is deliberately not
+  committed, and the compose file fails the deploy if it is unset rather than
+  starting unauthenticated. The server also accepts `--auth-secret-file` to
+  read the secret from a mounted Docker secret instead, if you'd rather not
+  pass it through the environment.
+
+`LEDGER_DSN` is not an input here — it is written into that file directly,
+pointing at the shared Postgres container already running on percival
+(reached as `postgresql:5432` over the external `postgres` network). The
+ledger schema self-applies idempotently on boot, so there is no migration
+step.
+
+A named volume (`state`) is mounted at `/state` inside the container for
+`config.json`/`plans.json` — the only file state outside Postgres.
 
 ### Seeding the hosted ledger
 
