@@ -207,6 +207,59 @@ func TestDuesForSparseSeries(t *testing.T) {
 	})
 }
 
+// TestCostBasisCost pins the two golden priced stays from the design doc
+// (a per-contract rate against a stored dues year, and a blended rate
+// against another stored dues year) plus the "not priceable" and
+// "projected dues year" edge cases.
+func TestCostBasisCost(t *testing.T) {
+	b := NewCostBasis([]Contract{contract2019, contract2022}, seededDues)
+
+	t.Run("per-contract rate, stored dues", func(t *testing.T) {
+		cost, projected, known := b.Cost(100, 2025, &contract2019.ID)
+		if cost != 136_094 || projected || !known {
+			t.Errorf("Cost(100, 2025, 2019) = (%d, %v, %v), want (136_094, false, true)", cost, projected, known)
+		}
+	})
+
+	t.Run("blended rate, stored dues", func(t *testing.T) {
+		cost, projected, known := b.Cost(240, 2021, nil)
+		if cost != 290_873 || projected || !known {
+			t.Errorf("Cost(240, 2021, nil) = (%d, %v, %v), want (290_873, false, true)", cost, projected, known)
+		}
+	})
+
+	t.Run("projected dues year propagates the flag", func(t *testing.T) {
+		cost, projected, known := b.Cost(100, 2027, nil)
+		if cost == 0 || !projected || !known {
+			t.Errorf("Cost(100, 2027, nil) = (%d, %v, %v), want (nonzero, true, true)", cost, projected, known)
+		}
+		// PointCost(100, blended, DuesFor(2027)) is the same computation
+		// Cost should have performed; cross-check it directly.
+		dues, duesProjected := b.DuesFor(2027)
+		want := PointCost(100, b.Blended(), dues)
+		if cost != want || !duesProjected {
+			t.Errorf("Cost(100, 2027, nil) = %d, want %d (DuesFor projected=%v)", cost, want, duesProjected)
+		}
+	})
+
+	t.Run("points <= 0 is not priced", func(t *testing.T) {
+		for _, points := range []int{0, -5} {
+			cost, projected, known := b.Cost(points, 2025, nil)
+			if cost != 0 || projected || known {
+				t.Errorf("Cost(%d, 2025, nil) = (%d, %v, %v), want (0, false, false)", points, cost, projected, known)
+			}
+		}
+	})
+
+	t.Run("unknown basis is not priced", func(t *testing.T) {
+		unknown := NewCostBasis(nil, nil)
+		cost, projected, known := unknown.Cost(100, 2025, nil)
+		if cost != 0 || projected || known {
+			t.Errorf("Cost on unknown basis = (%d, %v, %v), want (0, false, false)", cost, projected, known)
+		}
+	})
+}
+
 // TestCostBasisUseYearMonth pins the UseYearMonth heuristic: the first
 // contract's UseYearMonth (ListContracts order, i.e. by id), or January
 // when there are no contracts.

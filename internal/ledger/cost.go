@@ -184,6 +184,22 @@ func (b CostBasis) nearestDuesYearBelow(year int) int {
 	return b.firstYear
 }
 
+// Cost prices points points used in use year year against contractID's rate
+// (or the blended rate when contractID is nil or unpriced — see RateFor)
+// and year's dues rate (stored or projected — see DuesFor).
+//
+// known is false — and cost is 0, projected is meaningless — when CostBasis
+// isn't Known() at all or points <= 0 (an allocation, or any non-positive
+// row, is never priced). Otherwise known is true and projected reports
+// whether year's dues rate was projected rather than stored.
+func (b CostBasis) Cost(points, year int, contractID *int64) (cost Cents, projected bool, known bool) {
+	if !b.Known() || points <= 0 {
+		return 0, false, false
+	}
+	dues, duesProjected := b.DuesFor(year)
+	return PointCost(points, b.RateFor(contractID), dues), duesProjected, true
+}
+
 // PricePerPointYear derives this contract's amortised acquisition cost per
 // point per year: (purchase price + closing costs) / (annual points × term
 // years), in Micros. It is never stored — only ever computed from the
