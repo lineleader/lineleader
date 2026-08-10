@@ -272,20 +272,20 @@
 {{define "entry_edit_row"}}
 <tr class="editing">
   <td colspan="{{if .ShowCosts}}9{{else}}8{{end}}">
-    <form hx-post="/ledger/entries/{{.E.ID}}/update?view=history" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
-      <input name="year" type="number" value="{{.E.UseYear}}">
-      <input name="date" type="date" value="{{formatDate .E.Date}}" required>
-      <input name="desc" type="text" value="{{.E.Desc}}" required>
-      <select name="kind">
+    <form hx-post="/ledger/entries/{{.E.ID}}/update?view=history" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form entry-form-edit">
+      <label class="field"><span class="field-label">Year</span><input name="year" type="number" value="{{.E.UseYear}}"></label>
+      <label class="field"><span class="field-label">Date</span><input name="date" type="date" value="{{formatDate .E.Date}}" required></label>
+      <label class="field"><span class="field-label">Description</span><input name="desc" type="text" value="{{.E.Desc}}" required></label>
+      <label class="field"><span class="field-label">Kind</span><select name="kind">
         {{$k := .E.Kind}}{{range .Kinds}}<option value="{{.}}" {{if eq . $k}}selected{{end}}>{{.}}</option>{{end}}
-      </select>
-      <input name="allotted" type="number" value="{{.E.Allotted}}">
-      <input name="used" type="number" value="{{.E.Used}}">
-      <input name="tag" type="text" value="{{.E.Tag}}">
-      <select name="contract">
+      </select></label>
+      <label class="field"><span class="field-label">Allotted</span><input name="allotted" type="number" value="{{.E.Allotted}}"></label>
+      <label class="field"><span class="field-label">Used</span><input name="used" type="number" value="{{.E.Used}}"></label>
+      <label class="field"><span class="field-label">Tag</span><input name="tag" type="text" value="{{.E.Tag}}"></label>
+      <label class="field"><span class="field-label">Contract</span><select name="contract">
         <option value="">(no contract)</option>
         {{$cid := .E.ContractID}}{{range .Contracts}}<option value="{{.ID}}" {{if and $cid (eq .ID (deref $cid))}}selected{{end}}>{{.Name}}</option>{{end}}
-      </select>
+      </select></label>
       <button type="submit">Save</button>
       <button type="button" hx-post="/ledger/entries/edit/cancel?view=history" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
     </form>
@@ -305,15 +305,15 @@
 {{define "contract_edit_row"}}
 <tr class="editing">
   <td colspan="{{if .ShowCosts}}10{{else}}6{{end}}">
-    <form hx-post="/ledger/contracts/{{.C.ID}}/update?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
-      <input name="name" type="text" value="{{.C.Name}}" required>
-      <input name="number" type="text" value="{{.C.Number}}">
-      <input name="resort" type="text" value="{{.C.HomeResort}}">
-      <input name="points" type="number" value="{{.C.AnnualPoints}}" required>
-      <input name="use_year_month" type="text" value="{{formatMonth .C.UseYearMonth}}" required>
-      <input name="term_years" type="number" value="{{.C.TermYears}}">
-      <input name="price" type="text" value="{{.C.PriceInput}}">
-      <input name="closing" type="text" value="{{.C.ClosingInput}}">
+    <form hx-post="/ledger/contracts/{{.C.ID}}/update?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form entry-form-edit">
+      <label class="field"><span class="field-label">Name</span><input name="name" type="text" value="{{.C.Name}}" required></label>
+      <label class="field"><span class="field-label">Number</span><input name="number" type="text" value="{{.C.Number}}"></label>
+      <label class="field"><span class="field-label">Resort</span><input name="resort" type="text" value="{{.C.HomeResort}}"></label>
+      <label class="field"><span class="field-label">Points</span><input name="points" type="number" value="{{.C.AnnualPoints}}" required></label>
+      <label class="field"><span class="field-label">Use year</span><input name="use_year_month" type="text" value="{{formatMonth .C.UseYearMonth}}" required></label>
+      <label class="field"><span class="field-label">Term</span><input name="term_years" type="number" value="{{.C.TermYears}}"></label>
+      <label class="field"><span class="field-label">Purchase</span><input name="price" type="text" value="{{.C.PriceInput}}"></label>
+      <label class="field"><span class="field-label">Closing</span><input name="closing" type="text" value="{{.C.ClosingInput}}"></label>
       <button type="submit">Save</button>
       <button type="button" hx-post="/ledger/contracts/edit/cancel?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
     </form>

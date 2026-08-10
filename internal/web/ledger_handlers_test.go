@@ -269,6 +269,25 @@ func TestLedgerEditEntryRendersFormRow(t *testing.T) {
 		}
 	}
 
+	// Every control in the edit-entry form must have a visible label
+	// associated with it (wrapping <label> so it's implicit — clicking the
+	// label focuses the control, screen readers announce it), matching the
+	// column headers shown in the History table.
+	for _, want := range []string{
+		`<label class="field"><span class="field-label">Year</span><input name="year"`,
+		`<label class="field"><span class="field-label">Date</span><input name="date"`,
+		`<label class="field"><span class="field-label">Description</span><input name="desc"`,
+		`<label class="field"><span class="field-label">Kind</span><select name="kind"`,
+		`<label class="field"><span class="field-label">Allotted</span><input name="allotted"`,
+		`<label class="field"><span class="field-label">Used</span><input name="used"`,
+		`<label class="field"><span class="field-label">Tag</span><input name="tag"`,
+		`<label class="field"><span class="field-label">Contract</span><select name="contract"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("edit form missing labelled field %q; got:\n%s", want, out)
+		}
+	}
+
 	// The other row must remain in normal (non-form) rendering.
 	if !strings.Contains(out, "Second entry") {
 		t.Errorf("response missing untouched row content; got:\n%s", out)
@@ -666,6 +685,24 @@ func TestLedgerEditContractRendersFormRow(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("edit form missing %q; got:\n%s", want, out)
+		}
+	}
+
+	// Every control in the edit-contract form must have a visible label
+	// associated with it (wrapping <label> so it's implicit), matching the
+	// column headers shown in the Contracts table.
+	for _, want := range []string{
+		`<label class="field"><span class="field-label">Name</span><input name="name"`,
+		`<label class="field"><span class="field-label">Number</span><input name="number"`,
+		`<label class="field"><span class="field-label">Resort</span><input name="resort"`,
+		`<label class="field"><span class="field-label">Points</span><input name="points"`,
+		`<label class="field"><span class="field-label">Use year</span><input name="use_year_month"`,
+		`<label class="field"><span class="field-label">Term</span><input name="term_years"`,
+		`<label class="field"><span class="field-label">Purchase</span><input name="price"`,
+		`<label class="field"><span class="field-label">Closing</span><input name="closing"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("edit form missing labelled field %q; got:\n%s", want, out)
 		}
 	}
 	// The other contract must remain in normal (non-form) rendering.

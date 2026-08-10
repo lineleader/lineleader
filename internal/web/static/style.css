@@ -558,6 +558,25 @@ button:focus-visible {
   align-items: center;
   margin-top: 0.6rem;
 }
+/* Inline edit rows (contract_edit_row / entry_edit_row): unlike the add
+   forms, these are pre-filled, so placeholder text never shows — every
+   control needs a small visible label instead. .field wraps a label +
+   control as an implicit <label> (clicking it focuses the control, screen
+   readers announce it without needing per-row unique ids) so the pair stays
+   together when the row wraps. Bottom-align the fields against the Save/
+   Cancel buttons instead of the add form's vertical centering, since each
+   field is now taller than a bare button. */
+.ledger-body .entry-form-edit { align-items: flex-end; }
+.ledger-body .entry-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.ledger-body .entry-form .field-label {
+  color: var(--text-mute);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
 .ledger-body .err { color: var(--danger); }
 
 /* ---- Header + nav (shared across Recent/History/Contracts) ---- */
