@@ -55,11 +55,15 @@ GitHub Actions is now building and publishing:
 Watch the build with:
     gh run watch
 
-Once it finishes, roll it out by setting this variable in dockhand on
-percival and redeploying the lineleader stack:
+Once it finishes, roll it out with:
 
-    LINELEADER_VERSION=$version
+    scripts/rollout.sh $version --dockhand-url <url> --token <token> --env-file <path>
 
-(deploy/percival/docker-compose.yml interpolates it into the image tag,
-so the compose file itself never needs editing.)
+That bumps LINELEADER_VERSION in the stack's env file on percival over
+SSH, redeploys through dockhand's API, waits for /healthz, and verifies
+the image that landed. See deploy/README.md for the full flag reference
+(--env-file has no default; guessing wrong would rewrite the wrong file).
+
+(deploy/percival/docker-compose.yml interpolates LINELEADER_VERSION into
+the image tag, so the compose file itself never needs editing.)
 EOF

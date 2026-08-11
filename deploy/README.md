@@ -124,8 +124,34 @@ reach for `psql` only when the UI isn't an option.
 
 This tags and pushes; GitHub Actions then builds and publishes
 `ghcr.io/lineleader/lineleader:v0.1.0` (see
-`.github/workflows/release.yml`). Once the build finishes, roll it out by
-setting `LINELEADER_VERSION=v0.1.0` in dockhand and redeploying the stack.
+`.github/workflows/release.yml`). Once the build finishes, roll it out with:
+
+```bash
+./scripts/rollout.sh v0.1.0 \
+  --dockhand-url http://percival:3000 \
+  --token "$DOCKHAND_TOKEN" \
+  --env-file /path/to/lineleader.env
+```
+
+This bumps `LINELEADER_VERSION` in the stack's env file on percival over
+SSH (byte-preserving, with a timestamped backup next to the original),
+triggers a synchronous redeploy through dockhand's API, polls `/healthz`,
+and verifies the deployed image with `docker inspect`. Required
+flags/env vars: `--dockhand-url`/`DOCKHAND_URL`, `--token`/
+`DOCKHAND_TOKEN`, and `--env-file`/`ROLLOUT_ENV_FILE` (the absolute path
+of the stack's env file on the host — there is no default, since guessing
+wrong would rewrite the wrong file). `--env-id`/`DOCKHAND_ENV_ID` (default
+`1`), `--stack`/`DOCKHAND_STACK` (default `lineleader`), `--host`/
+`ROLLOUT_SSH_HOST` (default `percival`), `--health-url`/
+`ROLLOUT_HEALTH_URL` (default `https://lineleader.io/healthz`), and
+`--container`/`ROLLOUT_CONTAINER` (default `<stack>-<stack>-1`) all have
+sane defaults for this deployment. Pass `--dry-run` to see what it would
+do without changing anything. See the script's header comment for the
+full flag/env-var reference.
+
+If the script can't be used (e.g. no SSH access from where you're
+running it), the manual fallback is: set `LINELEADER_VERSION=v0.1.0` in
+dockhand's UI for the `lineleader` stack, then redeploy it from there.
 
 The compose file interpolates `LINELEADER_VERSION` into the image tag
 rather than pinning it, so releasing never requires a commit here. Both
