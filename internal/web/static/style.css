@@ -529,8 +529,8 @@ button:focus-visible {
    the ledger shell the same treatment plus a readable max-width. 1100px
    leaves History's 8-column entry table comfortable room while still
    giving generous margins at the 1280px verification viewport; Recent's
-   card is constrained further below since its content doesn't need the
-   full width. */
+   card below fills this same width rather than capping itself narrower,
+   so its edges line up with the header/nav. */
 .ledger-page {
   flex: 1;
   min-width: 0;
@@ -656,11 +656,11 @@ button:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--sp-6);
-  /* Recent's content (balance + short activity list) doesn't need the
-     ledger page's full 1100px content width — constrain the card itself
-     rather than narrowing the page, which History/Contracts still need. */
-  max-width: 760px;
-  margin: 0 auto;
+  /* Fill .ledger-page's content width (no max-width/margin auto of its
+     own) so the card's edges line up with the header/nav above it, rather
+     than reading as narrower — capping this at 760px used to save some
+     width, but the visual mismatch with the nav bar cost more than that
+     width was worth. */
 }
 .ledger-recent-grid {
   display: grid;
