@@ -164,15 +164,21 @@ func TestRecentEntryDateAndDesc(t *testing.T) {
 	}
 }
 
+// TestSpentByYear covers the ordering/limit behavior through the real view
+// (h.buildLedgerView), using only past use years so the current-use-year
+// clock the view derives internally can't interact with the future-year
+// filter. See TestSpentByYearFiltersFutureYears for that filter, exercised
+// directly against spentByYear with an explicit currentUseYear so it's not
+// at the mercy of the real clock.
 func TestSpentByYear(t *testing.T) {
 	cases := []struct {
 		name  string
 		years []int // use years to create one usage entry each in
 		want  []int // expected UseYear order in SpentByYear (newest first)
 	}{
-		{"fewer than 3", []int{2024, 2025}, []int{2025, 2024}},
-		{"exactly 3", []int{2023, 2024, 2025}, []int{2025, 2024, 2023}},
-		{"more than 3 picks newest 3", []int{2021, 2022, 2023, 2024, 2025}, []int{2025, 2024, 2023}},
+		{"fewer than 5", []int{2024, 2025}, []int{2025, 2024}},
+		{"exactly 5", []int{2021, 2022, 2023, 2024, 2025}, []int{2025, 2024, 2023, 2022, 2021}},
+		{"more than 5 picks newest 5", []int{2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025}, []int{2025, 2024, 2023, 2022, 2021}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -210,6 +216,67 @@ func TestSpentByYear(t *testing.T) {
 				wantSpent := wantYear - 2000 // Used, not Net (Net would be 100 - Used)
 				if got.Spent != wantSpent {
 					t.Errorf("SpentByYear[%d].Spent = %d, want %d (Used, not Net)", i, got.Spent, wantSpent)
+				}
+			}
+		})
+	}
+}
+
+// TestSpentByYearFiltersFutureYears exercises spentByYear directly with
+// hand-built summaries and an explicit currentUseYear, so the future-year
+// rule (hide a future year only when it has zero spend) is deterministic
+// and doesn't depend on the real clock.
+func TestSpentByYearFiltersFutureYears(t *testing.T) {
+	cases := []struct {
+		name           string
+		summaries      []ledger.UseYearSummary
+		currentUseYear int
+		want           []int // expected UseYear order in output (newest first)
+	}{
+		{
+			name: "empty future year is hidden",
+			summaries: []ledger.UseYearSummary{
+				{UseYear: 2025, Used: 10},
+				{UseYear: 2026, Used: 0},
+			},
+			currentUseYear: 2025,
+			want:           []int{2025},
+		},
+		{
+			name: "future year with spend is kept (booked ahead)",
+			summaries: []ledger.UseYearSummary{
+				{UseYear: 2025, Used: 10},
+				{UseYear: 2026, Used: 5},
+			},
+			currentUseYear: 2025,
+			want:           []int{2026, 2025},
+		},
+		{
+			name: "current year with zero spend is kept",
+			summaries: []ledger.UseYearSummary{
+				{UseYear: 2026, Used: 0},
+			},
+			currentUseYear: 2026,
+			want:           []int{2026},
+		},
+		{
+			name: "past year with zero spend is kept",
+			summaries: []ledger.UseYearSummary{
+				{UseYear: 2024, Used: 0},
+			},
+			currentUseYear: 2026,
+			want:           []int{2024},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := spentByYear(c.summaries, c.currentUseYear)
+			if len(got) != len(c.want) {
+				t.Fatalf("len(spentByYear) = %d, want %d", len(got), len(c.want))
+			}
+			for i, wantYear := range c.want {
+				if got[i].UseYear != wantYear {
+					t.Errorf("spentByYear[%d].UseYear = %d, want %d", i, got[i].UseYear, wantYear)
 				}
 			}
 		})

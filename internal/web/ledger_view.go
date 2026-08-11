@@ -266,7 +266,7 @@ func (h *ledgerHandlers) buildLedgerView(editID, editContractID int64, errMsg st
 		EditContractID:    editContractID,
 		Err:               errMsg,
 		Recent:            recentEntries(entries),
-		SpentByYear:       spentByYear(summaries),
+		SpentByYear:       spentByYear(summaries, ledger.UseYearForDate(time.Now(), basis.UseYearMonth())),
 		ShowCosts:         basis.Known(),
 		TotalCostLabel:    ledger.FormatUSD(totalCost),
 		CostFootnote:      costFootnote,
@@ -355,15 +355,32 @@ func formatSignedDelta(delta int) string {
 // spentByYear returns the spentByYearLimit most recent use years (newest
 // first), each reporting points spent (UseYearSummary.Used). summaries is
 // ascending by UseYear, as returned by Store.UseYearSummaries.
-func spentByYear(summaries []ledger.UseYearSummary) []yearSpend {
-	n := len(summaries)
+//
+// A future use year (UseYear > currentUseYear) with no spend is dropped
+// before the limit is applied: an allocation entry creates a zero-Used
+// summary for every use year it seeds in advance, so without this filter
+// the widget would fill up with empty years-not-yet-arrived and push
+// actual spending history off the bottom. A future year that DOES have
+// spend (a trip booked ahead against banked/borrowed points) is kept, and
+// a past or current year is always kept even at zero spend — those are
+// real, already-elapsed history, not placeholders.
+func spentByYear(summaries []ledger.UseYearSummary, currentUseYear int) []yearSpend {
+	kept := make([]ledger.UseYearSummary, 0, len(summaries))
+	for _, s := range summaries {
+		if s.UseYear > currentUseYear && s.Used == 0 {
+			continue
+		}
+		kept = append(kept, s)
+	}
+
+	n := len(kept)
 	start := 0
 	if n > spentByYearLimit {
 		start = n - spentByYearLimit
 	}
 	out := make([]yearSpend, 0, n-start)
 	for i := n - 1; i >= start; i-- {
-		s := summaries[i]
+		s := kept[i]
 		out = append(out, yearSpend{
 			UseYear:       s.UseYear,
 			Spent:         s.Used,
@@ -374,5 +391,7 @@ func spentByYear(summaries []ledger.UseYearSummary) []yearSpend {
 	return out
 }
 
-// spentByYearLimit caps the Spent by Use Year widget to the most recent years.
-const spentByYearLimit = 3
+// spentByYearLimit caps the Spent by Use Year widget to the most recent
+// years (after the future-year filter in spentByYear runs, so hidden empty
+// future years never consume a slot that real spending history could use).
+const spentByYearLimit = 5
