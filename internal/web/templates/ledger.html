@@ -60,6 +60,7 @@
       <table class="recent-table">
         <thead>
           <tr>
+            <th class="visually-hidden">Date</th>
             <th class="visually-hidden">Activity</th>
             <th class="visually-hidden">Points</th>
             {{if $showCosts}}<th class="visually-hidden">Cost</th>{{end}}
@@ -67,9 +68,9 @@
         </thead>
         <tbody>
           {{range .Recent}}
-          <tr><td class="recent-desc">{{.DateLabel}} · {{.Desc}}</td><td class="recent-delta">{{.DeltaLabel}}</td>{{if $showCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this year are projected, not actual">*</abbr>{{end}}</td>{{end}}</tr>
+          <tr><td class="recent-date">{{.DateLabel}}</td><td class="recent-desc">{{.Desc}}</td><td class="recent-delta">{{.DeltaLabel}}</td>{{if $showCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this year are projected, not actual">*</abbr>{{end}}</td>{{end}}</tr>
           {{else}}
-          <tr><td class="recent-empty" colspan="{{if $showCosts}}3{{else}}2{{end}}">No entries yet.</td></tr>
+          <tr><td class="recent-empty" colspan="{{if $showCosts}}4{{else}}3{{end}}">No entries yet.</td></tr>
           {{end}}
         </tbody>
       </table>

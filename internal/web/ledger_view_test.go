@@ -86,13 +86,13 @@ func TestRecentEntriesReverseChronologicalAndEntriesUntouched(t *testing.T) {
 			t.Errorf("Recent not reverse-chronological at index %d: %s came after %s", i, curDate, prevDate)
 		}
 	}
-	// The newest entry was inserted last (day offset 24 -> 2026-01-25 -> "01-25").
-	if got, want := view.Recent[0].DateLabel, "01-25"; got != want {
+	// The newest entry was inserted last (day offset 24 -> 2026-01-25 -> "2026-01-25").
+	if got, want := view.Recent[0].DateLabel, "2026-01-25"; got != want {
 		t.Errorf("Recent[0].DateLabel = %q, want %q", got, want)
 	}
 	// The oldest of the retained 20 is day offset 5 (2026-01-06), since the 20
 	// newest of 25 entries drop the oldest 5 (offsets 0-4).
-	if got, want := view.Recent[19].DateLabel, "01-06"; got != want {
+	if got, want := view.Recent[19].DateLabel, "2026-01-06"; got != want {
 		t.Errorf("Recent[19].DateLabel = %q, want %q", got, want)
 	}
 }
@@ -156,8 +156,8 @@ func TestRecentEntryDateAndDesc(t *testing.T) {
 		t.Fatalf("len(Recent) = %d, want 1", len(view.Recent))
 	}
 	row := view.Recent[0]
-	if row.DateLabel != "04-07" {
-		t.Errorf("DateLabel = %q, want %q", row.DateLabel, "04-07")
+	if row.DateLabel != "2026-04-07" {
+		t.Errorf("DateLabel = %q, want %q", row.DateLabel, "2026-04-07")
 	}
 	if row.Desc != "Beach Club trip" {
 		t.Errorf("Desc = %q, want %q", row.Desc, "Beach Club trip")

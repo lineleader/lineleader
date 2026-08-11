@@ -1270,9 +1270,9 @@ func TestLedgerRecentActivityTableAlignsColumns(t *testing.T) {
 		// so the column keeps its track. html/template escapes "+" as
 		// "&#43;" (its conservative text escaper, same as any other "+" in
 		// rendered ledger output).
-		`<tr><td class="recent-desc">04-01 · Alloc</td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
-		// Usage row: same three <td>s, cost populated.
-		`<tr><td class="recent-desc">05-01 · Priced trip</td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
+		`<tr><td class="recent-date">2026-04-01</td><td class="recent-desc">Alloc</td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
+		// Usage row: same four <td>s, cost populated.
+		`<tr><td class="recent-date">2026-05-01</td><td class="recent-desc">Priced trip</td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
 		// Spent-by-year row: year/pts/cost, same shape.
 		`<tr><td>2026</td><td class="spent-pts">40 pts</td><td class="cost">$556.12</td></tr>`,
 		// Visually-hidden column headers for screen readers.
@@ -1288,7 +1288,9 @@ func TestLedgerRecentActivityTableAlignsColumns(t *testing.T) {
 // TestLedgerRecentActivityNoCostColumnWhenHidden checks that with ShowCosts
 // false (the default: no priced contract), the Recent activity and
 // Spent-by-use-year tables render with no "cost" column at all — not even an
-// empty one — and the empty states carry the corresponding 2-column colspan.
+// empty one — and the empty states carry the corresponding colspan (3 for
+// Recent activity's Date+Activity+Points, 2 for Spent by use year's
+// unchanged Year+Points).
 func TestLedgerRecentActivityNoCostColumnWhenHidden(t *testing.T) {
 	srv, _ := newLedgerTestServer(t)
 	defer srv.Close()
@@ -1305,7 +1307,7 @@ func TestLedgerRecentActivityNoCostColumnWhenHidden(t *testing.T) {
 		t.Errorf("cost column should be entirely absent while ShowCosts is false; got:\n%s", out)
 	}
 	for _, want := range []string{
-		`<tr><td class="recent-empty" colspan="2">No entries yet.</td></tr>`,
+		`<tr><td class="recent-empty" colspan="3">No entries yet.</td></tr>`,
 		`<tr><td class="recent-empty" colspan="2">No data yet.</td></tr>`,
 	} {
 		if !strings.Contains(out, want) {

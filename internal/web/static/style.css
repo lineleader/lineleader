@@ -676,14 +676,18 @@ button:focus-visible {
    inherit the shared .ledger-body table/th/td chrome above (borders,
    spacing, width:100%, tabular-nums) so they read as the same kind of
    table as History/Contracts. What's added here is just the per-column
-   alignment: the description/year column stays left and absorbs
-   remaining width (a long description wraps inside its own cell instead
-   of dragging the numeric columns around with it), while the numeric
-   columns stay right-aligned and non-wrapping so the delta/cost tracks
-   land in the same place on every row — the flex "space-between" rows
-   this replaced could never guarantee that, since each row distributed
-   its own items independently. */
+   alignment: the Activity/year column stays left and absorbs remaining
+   width (a long description wraps inside its own cell instead of
+   dragging the other columns around with it), the Date column is a
+   fixed-shape ISO date that never wraps, and the numeric columns stay
+   right-aligned and non-wrapping so the delta/cost tracks land in the
+   same place on every row — the flex "space-between" rows this replaced
+   could never guarantee that, since each row distributed its own items
+   independently. */
 .recent-table { margin-bottom: var(--sp-4); }
+/* Date column: fixed-shape ISO date, never wraps — tabular-nums already
+   applies table-wide via .ledger-body table above, so the digits line up. */
+.recent-table td.recent-date { color: var(--text-dim); white-space: nowrap; }
 .recent-table td.recent-desc { color: var(--text); }
 .recent-table td.recent-delta { font-weight: var(--fw-semibold); text-align: right; white-space: nowrap; }
 .recent-table td.cost { color: var(--text-mute); white-space: nowrap; }

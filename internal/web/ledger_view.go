@@ -84,7 +84,7 @@ const recentActivityLimit = 20
 // pre-formatted for display (newest first), with the signed points delta
 // computed and rendered once here so the template stays dumb.
 type recentEntryRow struct {
-	DateLabel  string // "MM-DD", e.g. "04-07"
+	DateLabel  string // ledger.DateLayout, e.g. "2026-04-07" — full ISO date, since the list spans multiple years
 	Desc       string
 	Delta      int    // Allotted - Used
 	DeltaLabel string // Delta with an explicit sign, e.g. "+150" / "-81" / "+0"
@@ -332,7 +332,7 @@ func recentEntries(entries []ledger.Entry) []recentEntryRow {
 		e := entries[len(entries)-1-i] // newest first: walk back from the end
 		delta := e.Allotted - e.Used
 		rows[i] = recentEntryRow{
-			DateLabel:     e.Date.Format("01-02"),
+			DateLabel:     e.Date.Format(ledger.DateLayout),
 			Desc:          e.Desc,
 			Delta:         delta,
 			DeltaLabel:    formatSignedDelta(delta),
