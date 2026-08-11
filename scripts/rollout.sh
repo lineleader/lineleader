@@ -286,8 +286,17 @@ read_cmd="$(printf 'grep -m1 -E %q %q' '^LINELEADER_VERSION=' "$env_file")"
 # shellcheck disable=SC2029 # $read_cmd is meant to expand client-side: it's
 # already a fully quoted (printf %q) remote command string, sent to ssh as
 # one literal argument.
-if ! old_line="$(ssh "$host" "$read_cmd")"; then
+old_line="$(ssh "$host" "$read_cmd")" && ssh_status=0 || ssh_status=$?
+if [[ $ssh_status -eq 255 ]]; then
+  fail "ssh to $host failed (exit 255) — check the host is reachable and your key is loaded"
+elif [[ $ssh_status -eq 2 ]]; then
+  fail "env file could not be read at $env_file on $host"
+elif [[ $ssh_status -eq 1 ]]; then
+  # File exists but LINELEADER_VERSION not found
   old_line=""
+elif [[ $ssh_status -ne 0 ]]; then
+  # Unexpected exit code
+  fail "unexpected error reading from $host (exit $ssh_status)"
 fi
 if [[ -z "$old_line" ]]; then
   fail "LINELEADER_VERSION not found in $env_file on $host — refusing to append it (this probably isn't the right env file)"
@@ -372,6 +381,6 @@ cat <<EOF
 ==> Rollout of $version complete.
 
 Deployed image:      $deployed_image
-Health check:         OK ($health_url)
-Env file backup:      $backup_file (on $host)
+Health check:        OK ($health_url)
+Env file backup:     $backup_file (on $host)
 EOF

@@ -80,6 +80,12 @@ cat >"$STUB_DIR/ssh" <<'STUB'
 host="$1"
 shift
 cmd="$1"
+
+# Allow tests to inject specific ssh exit codes
+if [[ "${SSH_INJECT_EXIT:-0}" != "0" ]]; then
+  exit "$SSH_INJECT_EXIT"
+fi
+
 bash -c "$cmd"
 STUB
 chmod +x "$STUB_DIR/ssh"
@@ -449,5 +455,43 @@ fi
 check_contains "$OUT" "v-wrong-image" "output on image mismatch"
 check_contains "$OUT" "rollback" "output on image mismatch (rollback hint)"
 echo "== test 10: PASS =="
+
+# ============================================================
+echo "== test 11: ssh connection failure (exit 255) reports distinctly =="
+reset_logs
+env_file="$(fresh_env_file)"
+cp "$env_file" "$WORK_DIR/test11_before"
+export SSH_INJECT_EXIT=255
+run_rollout "v1.1.0" --env-file "$env_file"
+export SSH_INJECT_EXIT=0
+if [[ "$STATUS" -eq 0 ]]; then
+  fail "expected non-zero exit when ssh fails with 255, got 0. Output:
+$OUT"
+fi
+check_contains "$OUT" "ssh to" "error output for ssh connection failure"
+check_contains "$OUT" "exit 255" "error output for ssh connection failure"
+check_contains "$OUT" "reachable" "error output for ssh connection failure"
+check_not_contains "$OUT" "refusing to append" "error output for ssh connection failure (should NOT confuse with missing key)"
+if ! diff -q "$WORK_DIR/test11_before" "$env_file" >/dev/null; then
+  fail "env file was mutated on ssh connection failure"
+fi
+echo "== test 11: PASS =="
+
+# ============================================================
+echo "== test 12: grep exit 2 (file missing/unreadable) reports distinctly =="
+reset_logs
+nonexistent_file="/tmp/rollout_test_nonexistent_$$"
+cp "$env_file" "$WORK_DIR/test12_before"
+run_rollout "v1.2.0" --env-file "$nonexistent_file"
+if [[ "$STATUS" -eq 0 ]]; then
+  fail "expected non-zero exit when env file doesn't exist, got 0. Output:
+$OUT"
+fi
+check_contains "$OUT" "env file" "error output for missing env file"
+check_contains "$OUT" "could not be read" "error output for missing env file"
+if [[ -f "$nonexistent_file" ]]; then
+  fail "env file should not have been created on missing remote file"
+fi
+echo "== test 12: PASS =="
 
 echo "rollout_test.sh: PASSED"
