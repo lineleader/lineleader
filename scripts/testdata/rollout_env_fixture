@@ -1,0 +1,6 @@
+# lineleader stack environment file (percival) — fixture for
+# scripts/rollout_test.sh. Mirrors the shape of a real dockhand env file:
+# a leading comment, a blank line, LINELEADER_VERSION, and another key.
+
+LINELEADER_VERSION=v0.1.0
+AUTH_SECRET=fixture-secret-value
