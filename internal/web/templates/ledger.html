@@ -45,18 +45,34 @@
 {{define "recent_body"}}
 <div id="ledger-body" class="ledger-body ledger-recent">
   {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+  {{$showCosts := .ShowCosts}}
 
   <div class="ledger-card ledger-recent-grid">
     <section class="ledger-recent-activity">
       <h2>Recent activity (last 20)</h2>
-      <ul class="recent-list">
-        {{$showCosts := .ShowCosts}}
-        {{range .Recent}}
-        <li class="recent-row"><span class="recent-desc">{{.DateLabel}} · {{.Desc}}</span><span class="recent-delta">{{.DeltaLabel}}</span>{{if $showCosts}}<span class="recent-cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this year are projected, not actual">*</abbr>{{end}}</span>{{end}}</li>
-        {{else}}
-        <li class="recent-empty">No entries yet.</li>
-        {{end}}
-      </ul>
+      {{/* Real <table> instead of a flex "space-between" <ul> — flex rows
+           size their gap independently per row, so nothing lined up
+           vertically between rows once descriptions varied in length.
+           Table cells share column tracks natively. The <thead> is
+           visually-hidden (not omitted): the widget's own <h2> already
+           names it for sighted users, but a screen reader navigating by
+           column still benefits from real header cells. */}}
+      <table class="recent-table">
+        <thead>
+          <tr>
+            <th class="visually-hidden">Activity</th>
+            <th class="visually-hidden">Points</th>
+            {{if $showCosts}}<th class="visually-hidden">Cost</th>{{end}}
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Recent}}
+          <tr><td class="recent-desc">{{.DateLabel}} · {{.Desc}}</td><td class="recent-delta">{{.DeltaLabel}}</td>{{if $showCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this year are projected, not actual">*</abbr>{{end}}</td>{{end}}</tr>
+          {{else}}
+          <tr><td class="recent-empty" colspan="{{if $showCosts}}3{{else}}2{{end}}">No entries yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
       <details class="add-entry">
         <summary>+ Add entry</summary>
         {{template "entry_add_form" (dict "Kinds" .Kinds "Contracts" .Contracts "View" .View)}}
@@ -70,13 +86,22 @@
       </div>
       <div class="spent-by-year">
         <h3>Spent by use year</h3>
-        <ul class="spent-list">
-          {{range .SpentByYear}}
-          <li><span>{{.UseYear}}</span><span>{{.Spent}} pts</span>{{if $.ShowCosts}}<span class="spent-cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for {{.UseYear}} are projected, not actual">*</abbr>{{end}}</span>{{end}}</li>
-          {{else}}
-          <li class="recent-empty">No data yet.</li>
-          {{end}}
-        </ul>
+        <table class="spent-table">
+          <thead>
+            <tr>
+              <th class="visually-hidden">Use year</th>
+              <th class="visually-hidden">Points spent</th>
+              {{if $showCosts}}<th class="visually-hidden">Cost</th>{{end}}
+            </tr>
+          </thead>
+          <tbody>
+            {{range .SpentByYear}}
+            <tr><td>{{.UseYear}}</td><td class="spent-pts">{{.Spent}} pts</td>{{if $showCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for {{.UseYear}} are projected, not actual">*</abbr>{{end}}</td>{{end}}</tr>
+            {{else}}
+            <tr><td class="recent-empty" colspan="{{if $showCosts}}3{{else}}2{{end}}">No data yet.</td></tr>
+            {{end}}
+          </tbody>
+        </table>
       </div>
     </aside>
   </div>

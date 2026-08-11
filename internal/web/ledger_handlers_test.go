@@ -1223,6 +1223,97 @@ func TestLedgerRecentShowsCostsWhenKnown(t *testing.T) {
 	}
 }
 
+// TestLedgerRecentActivityTableAlignsColumns is the regression test for the
+// flex "space-between" misalignment bug (rows drifted independently based on
+// each row's own description length). Recent activity and Spent by use year
+// are now real <table>s, so every row shares the same column tracks. Reuses
+// TestLedgerRecentShowsCostsWhenKnown's golden setup (one allocation row with
+// no cost, one priced usage row) and asserts the exact cell markup for both:
+// a usage row and an allocation row must produce the same number of <td>s
+// (the allocation row's cost cell is present but empty, not omitted — that's
+// what keeps the column aligned), and the priced spent-by-year row similarly
+// carries desc/pts/cost cells.
+func TestLedgerRecentActivityTableAlignsColumns(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	cid, err := store.AddContract(ledger.Contract{
+		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
+		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
+		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Priced trip",
+		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	for _, want := range []string{
+		// Allocation row: no cost, but the cost <td> still renders (empty)
+		// so the column keeps its track. html/template escapes "+" as
+		// "&#43;" (its conservative text escaper, same as any other "+" in
+		// rendered ledger output).
+		`<tr><td class="recent-desc">04-01 · Alloc</td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
+		// Usage row: same three <td>s, cost populated.
+		`<tr><td class="recent-desc">05-01 · Priced trip</td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
+		// Spent-by-year row: year/pts/cost, same shape.
+		`<tr><td>2026</td><td class="spent-pts">40 pts</td><td class="cost">$556.12</td></tr>`,
+		// Visually-hidden column headers for screen readers.
+		`<table class="recent-table">`,
+		`<table class="spent-table">`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recent page missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
+// TestLedgerRecentActivityNoCostColumnWhenHidden checks that with ShowCosts
+// false (the default: no priced contract), the Recent activity and
+// Spent-by-use-year tables render with no "cost" column at all — not even an
+// empty one — and the empty states carry the corresponding 2-column colspan.
+func TestLedgerRecentActivityNoCostColumnWhenHidden(t *testing.T) {
+	srv, _ := newLedgerTestServer(t)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	if strings.Contains(out, `class="cost"`) {
+		t.Errorf("cost column should be entirely absent while ShowCosts is false; got:\n%s", out)
+	}
+	for _, want := range []string{
+		`<tr><td class="recent-empty" colspan="2">No entries yet.</td></tr>`,
+		`<tr><td class="recent-empty" colspan="2">No data yet.</td></tr>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recent page missing empty-state %q; got:\n%s", want, out)
+		}
+	}
+}
+
 func TestLedgerDistribute(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()

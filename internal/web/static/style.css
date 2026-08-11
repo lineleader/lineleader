@@ -492,6 +492,25 @@ button:focus-visible {
   }
 }
 
+/* ========================= Accessibility utilities ===================== */
+/* Visually hidden but still announced by assistive tech (the standard clip
+   technique — not display:none, which hides it from screen readers too).
+   Used for the Recent-activity/Spent-by-use-year tables' column <th>s:
+   those widgets are already titled by an adjacent heading, so sighted
+   users don't need visible headers, but a screen reader navigating the
+   table by column still benefits from real header cells. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ============================ Cost markers ============================ */
 /* Shared by the planner (results/trip/app) and the ledger views: flags a
    cost figure that was computed from a projected (extrapolated) dues rate
@@ -653,23 +672,21 @@ button:focus-visible {
   padding-left: var(--sp-6);
 }
 
-.recent-list {
-  list-style: none;
-  margin: 0 0 var(--sp-4);
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  font-variant-numeric: tabular-nums;
-}
-.recent-row {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--sp-3);
-}
-.recent-desc { color: var(--text); }
-.recent-delta { font-weight: var(--fw-semibold); text-align: right; }
-.recent-cost { color: var(--text-mute); white-space: nowrap; }
+/* Recent activity / Spent by use year — real <table>s (see ledger.html)
+   inherit the shared .ledger-body table/th/td chrome above (borders,
+   spacing, width:100%, tabular-nums) so they read as the same kind of
+   table as History/Contracts. What's added here is just the per-column
+   alignment: the description/year column stays left and absorbs
+   remaining width (a long description wraps inside its own cell instead
+   of dragging the numeric columns around with it), while the numeric
+   columns stay right-aligned and non-wrapping so the delta/cost tracks
+   land in the same place on every row — the flex "space-between" rows
+   this replaced could never guarantee that, since each row distributed
+   its own items independently. */
+.recent-table { margin-bottom: var(--sp-4); }
+.recent-table td.recent-desc { color: var(--text); }
+.recent-table td.recent-delta { font-weight: var(--fw-semibold); text-align: right; white-space: nowrap; }
+.recent-table td.cost { color: var(--text-mute); white-space: nowrap; }
 .recent-empty { color: var(--text-mute); }
 
 .add-entry summary {
@@ -720,24 +737,11 @@ button:focus-visible {
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
 }
-.spent-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  font-variant-numeric: tabular-nums;
-}
-.spent-list li {
-  display: flex;
-  justify-content: space-between;
-  color: var(--text-dim);
-}
-.spent-list li span:last-child { font-weight: var(--fw-semibold); text-align: right; }
-/* Cost is secondary to the pts figure it follows — dim it back down even
-   though :last-child above would otherwise bold it. */
-.spent-list li span.spent-cost { color: var(--text-mute); font-weight: var(--fw-regular); }
+.spent-table td { color: var(--text-dim); }
+.spent-table td.spent-pts { font-weight: var(--fw-semibold); text-align: right; white-space: nowrap; }
+/* Cost is secondary to the pts figure it follows — dim it back down,
+   mirroring .recent-table's cost column. */
+.spent-table td.cost { color: var(--text-mute); font-weight: var(--fw-regular); white-space: nowrap; }
 
 /* ============================== Narrow viewport ============================== */
 @media (max-width: 640px) {
@@ -780,6 +784,14 @@ button:focus-visible {
   .results-table { min-width: 650px; } /* +90px: the new COST column */
 
   .ledger-body table { min-width: 610px; } /* +90px: the new Cost column */
+  /* Recent activity / Spent by use year are narrow (2-3 short columns) —
+     unlike History/Contracts they never need the 610px scroll floor
+     above; give them back auto sizing so they don't gain a stray
+     horizontal scrollbar on a table that already fits the viewport.
+     (.ledger-body .recent-table has two classes vs. .ledger-body table's
+     one class + one type, so this wins the cascade without !important.) */
+  .ledger-body .recent-table,
+  .ledger-body .spent-table { min-width: 0; }
 
   /* Recent view's two-column split stacks; the left-border divider becomes a
      top border instead so it doesn't leave a stray vertical line. */
