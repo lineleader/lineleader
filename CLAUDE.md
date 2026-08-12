@@ -59,11 +59,3 @@ _Add your build and test commands here_
 # npm install
 # npm test
 ```
-
-## Architecture Overview
-
-_Add a brief overview of your project architecture_
-
-## Conventions & Patterns
-
-_Add your project-specific conventions here_
