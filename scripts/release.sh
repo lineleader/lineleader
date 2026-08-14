@@ -55,18 +55,22 @@ GitHub Actions is now building and publishing:
 Watch the build with:
     gh run watch
 
-Once it finishes, roll it out by bumping the version in the committed
-env file and pushing:
+That's the whole release. Once the build finishes, the same workflow
+commits the LINELEADER_VERSION bump to deploy/percival/lineleader.env on
+main itself (as github-actions[bot], via
+scripts/bump-deployed-version.sh) — no manual edit needed. dockhand polls
+the lineleader git stack on a cron and redeploys once it sees that
+commit on main. See deploy/README.md for the full flow, including a
+gotcha: if LINELEADER_VERSION is also set as a dockhand stack variable,
+that value overrides the repo file and the bump will appear to do
+nothing.
 
-    \$EDITOR deploy/percival/lineleader.env   # LINELEADER_VERSION=$version
+If you ever need to point dockhand at a version without cutting a new
+tag (e.g. a rollback to an already-published image), bump it manually:
+
+    ./scripts/bump-deployed-version.sh $version
     git commit -am "chore(deploy): release $version"
     git push
-
-dockhand polls the lineleader git stack on a cron and redeploys once it
-sees the new commit on main — no dockhand-side action needed. See
-deploy/README.md for the full flow, including a gotcha: if
-LINELEADER_VERSION is also set as a dockhand stack variable, that value
-overrides the repo file and this push will appear to do nothing.
 
 (deploy/percival/docker-compose.yml interpolates LINELEADER_VERSION into
 the image tag, so the compose file itself never needs editing.)

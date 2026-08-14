@@ -151,23 +151,31 @@ reach for `psql` only when the UI isn't an option.
 ./scripts/release.sh v0.1.0
 ```
 
-This tags and pushes; GitHub Actions then builds and publishes
-`ghcr.io/lineleader/lineleader:v0.1.0` (see
-`.github/workflows/release.yml`). Once the build finishes, roll it out by
-bumping the version in the committed env file and pushing:
+That's the whole release: it tags and pushes, which triggers
+`.github/workflows/release.yml`. CI builds and publishes
+`ghcr.io/lineleader/lineleader:v0.1.0`, then — for a real tag push, not a
+`workflow_dispatch` run — commits the version bump to
+`deploy/percival/lineleader.env` on `main` itself (via
+`scripts/bump-deployed-version.sh`), as `github-actions[bot]`. There is no
+second manual step.
+
+dockhand polls the `lineleader` git stack on a cron (`*/15 * * * *`, see
+"One-time setup" above) and redeploys automatically once it sees CI's
+version-bump commit on `main` — no dockhand-side action needed. There's no
+synchronous "redeploy now" step from here; the deploy lands on dockhand's
+next poll, within ~15 minutes. Confirm with `curl
+https://lineleader.io/healthz` (see "Verifying" below) or by checking the
+stack's deployed image in dockhand.
+
+A manual bump is still possible if you need to point dockhand at a version
+without cutting a new tag (e.g. rolling back to an already-published
+image):
 
 ```bash
-$EDITOR deploy/percival/lineleader.env   # LINELEADER_VERSION=v0.1.0
+./scripts/bump-deployed-version.sh v0.1.0
 git commit -am "chore(deploy): release v0.1.0"
 git push
 ```
-
-dockhand polls the `lineleader` git stack on a cron (`*/15 * * * *`, see
-"One-time setup" above) and redeploys automatically once it sees the new
-commit on `main` — no dockhand-side action needed. There's no synchronous
-"redeploy now" step from here; the deploy lands on dockhand's next poll,
-within ~15 minutes. Confirm with `curl https://lineleader.io/healthz` (see
-"Verifying" below) or by checking the stack's deployed image in dockhand.
 
 **Gotcha:** dockhand's variable precedence is repo `.env` file → dockhand
 stack variables → deploy-time env, so a stack variable *overrides* the

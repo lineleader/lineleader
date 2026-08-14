@@ -1,7 +1,10 @@
 name: Release
 
 # Builds the root Dockerfile and publishes it to GHCR whenever a version tag
-# is pushed (see scripts/release.sh), or on demand via workflow_dispatch.
+# is pushed (see scripts/release.sh), or on demand via workflow_dispatch. For
+# real tag pushes, it then commits the version bump that actually triggers a
+# deploy — see the bump-deployed-version job below — so tagging is the only
+# manual step in a release.
 #
 # linux/amd64 only: percival, the only host this image is deployed to, is
 # amd64. Add another platform to the build-push-action `platforms:` input if
@@ -62,3 +65,60 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  bump-deployed-version:
+    # Ordering matters here: dockhand treats a commit that changes
+    # deploy/percival/lineleader.env as "deploy this version" (see
+    # deploy/README.md). If this job ran before build-and-push finished —
+    # or in parallel and won the race — dockhand's next poll could try to
+    # pull a tag that GHCR doesn't have yet. `needs:` forces the image to
+    # exist first.
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # workflow_dispatch runs have no version tag: github.ref is a branch
+    # ref (e.g. refs/heads/main), not refs/tags/vX.Y.Z, so there is no
+    # version to bump to. Only run this for an actual `vX.Y.Z` tag push.
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      # Scoped to this job only, rather than widening the workflow-level
+      # `permissions:` block above — build-and-push never needs to write
+      # to the repo, only to GHCR.
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          # A tag-triggered run's default checkout lands on the tag's
+          # commit in detached HEAD, which has nothing to push to. The
+          # version bump is a commit on main, so check that out
+          # explicitly instead of relying on the default ref.
+          ref: main
+
+      - name: Bump LINELEADER_VERSION
+        run: ./scripts/bump-deployed-version.sh "${{ github.ref_name }}"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # bump-deployed-version.sh is idempotent: if the file was
+          # already at this version (e.g. a re-run after a prior
+          # successful bump), it made no change. Committing nothing would
+          # fail, so check first and exit cleanly instead.
+          if git diff --quiet; then
+            echo "No changes to commit; already at ${{ github.ref_name }}."
+            exit 0
+          fi
+
+          git add deploy/percival/lineleader.env
+          git commit -m "chore(deploy): release ${{ github.ref_name }}"
+
+          # Rebase before pushing so a concurrent push to main (unrelated
+          # to this release) doesn't make this push fail outright.
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+          # Note: this push cannot re-trigger this workflow. The trigger
+          # above is `on.push.tags`, and this pushes a commit to the main
+          # branch, not a tag — so there's no risk of a redeploy loop.
