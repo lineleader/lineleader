@@ -1,7 +1,9 @@
-# Deployment compose file for the `percival` homelab host, driven by
-# dockhand (compose-file driven, UI-managed — dockhand points at this file
-# and bumps the `image:` tag on each release; see scripts/release.sh and
-# deploy/README.md).
+# Deployment compose file for the `percival` homelab host, managed there by
+# dockhand as a git-backed stack: dockhand polls this repo on a cron and
+# redeploys when it sees a change (see scripts/release.sh and
+# deploy/README.md). This file itself is not the version pin — the version
+# comes from the sibling env file, deploy/percival/lineleader.env,
+# committed alongside it and loaded by dockhand as the stack's env file.
 #
 # This pulls a published image from GHCR; nothing is built on percival.
 # There is no postgres service here: this container joins the existing
@@ -13,14 +15,19 @@
 # Pin the project name: it otherwise defaults to the parent directory
 # (`percival`), which would name the stack and its volume after the host
 # rather than the app (`percival_state` instead of `lineleader_state`).
+# This matters even more now that dockhand manages this as a git stack:
+# the project name determines the named volume (`lineleader_state`), so
+# it must stay `lineleader` for the existing volume to be reused across
+# redeploys rather than orphaned.
 name: lineleader
 
 services:
   lineleader:
-    # The deployed version is a dockhand variable, not a pin in this repo —
-    # rolling out a release means changing LINELEADER_VERSION in dockhand,
-    # and this file never goes stale. scripts/release.sh prints the value
-    # to set once CI has published the image.
+    # The deployed version comes from LINELEADER_VERSION, set in the
+    # committed deploy/percival/lineleader.env and loaded by dockhand as
+    # the stack's env file — rolling out a release means bumping that
+    # file and pushing, not editing anything in the dockhand UI (see
+    # deploy/README.md). This compose file never goes stale.
     #
     # Required form: an unset variable fails the deploy rather than
     # silently resolving to `:` (an invalid tag). Use ${LINELEADER_VERSION:-v0.1.1}
@@ -28,7 +35,7 @@ services:
     #
     # Note the leading `v`: CI publishes v-prefixed tags (see
     # .github/workflows/release.yml), matching wall-e / random-motivation.
-    image: ghcr.io/lineleader/lineleader:${LINELEADER_VERSION:?set LINELEADER_VERSION in dockhand, e.g. v0.1.1}
+    image: ghcr.io/lineleader/lineleader:${LINELEADER_VERSION:?set LINELEADER_VERSION in deploy/percival/lineleader.env}
     restart: unless-stopped
     environment:
       # Host `postgresql` is the shared Postgres container's name on
