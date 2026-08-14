@@ -81,6 +81,12 @@ host="$1"
 shift
 cmd="$1"
 
+# Allow tests to inject an ssh exit code for just the step 6 (docker
+# inspect) call, without disturbing the step 2/3 ssh calls.
+if [[ "$cmd" == *"docker inspect"* && "${SSH_STEP6_INJECT_EXIT:-0}" != "0" ]]; then
+  exit "$SSH_STEP6_INJECT_EXIT"
+fi
+
 # Allow tests to inject specific ssh exit codes
 if [[ "${SSH_INJECT_EXIT:-0}" != "0" ]]; then
   exit "$SSH_INJECT_EXIT"
@@ -96,6 +102,14 @@ cat >"$STUB_DIR/docker" <<'STUB'
   echo "=== docker call ==="
   for a in "$@"; do printf '%s\n' "$a"; done
 } >>"${DOCKER_LOG:?DOCKER_LOG not set}"
+
+# Allow tests to make docker inspect fail with a chosen message/exit status,
+# to simulate e.g. a permission-denied remote docker daemon.
+if [[ "${DOCKER_INSPECT_EXIT:-0}" != "0" ]]; then
+  echo "${DOCKER_INSPECT_FAIL_MSG:-docker: stub failure}" >&2
+  exit "$DOCKER_INSPECT_EXIT"
+fi
+
 echo "${DOCKER_INSPECT_IMAGE:?DOCKER_INSPECT_IMAGE not set}"
 STUB
 chmod +x "$STUB_DIR/docker"
@@ -190,6 +204,9 @@ export SSH_LOG CURL_LOG DOCKER_LOG CURL_CONFIG_LOG HEALTH_COUNT_FILE
 export HEALTH_SUCCESS_AFTER="1"
 export CURL_DEPLOY_FAIL="0"
 export DOCKER_INSPECT_IMAGE="ghcr.io/lineleader/lineleader:vunset"
+export DOCKER_INSPECT_EXIT="0"
+export DOCKER_INSPECT_FAIL_MSG=""
+export SSH_STEP6_INJECT_EXIT="0"
 
 reset_logs() {
   : >"$SSH_LOG"
@@ -299,6 +316,9 @@ rm -f /tmp/rollout_test_diff
 if ! compgen -G "${env_file}.bak.*" >/dev/null; then
   fail "expected a timestamped backup file matching ${env_file}.bak.*"
 fi
+check_contains "$OUT" "ghcr.io/lineleader/lineleader:v0.2.0" "summary reports the verified image (happy path)"
+check_contains "$OUT" "verified" "summary marks the image as verified (happy path)"
+check_not_contains "$OUT" "NOT VERIFIED" "summary should not warn on the happy path"
 echo "== test 3: PASS =="
 
 # ------------------------------------------------------------
@@ -493,5 +513,41 @@ if [[ -f "$nonexistent_file" ]]; then
   fail "env file should not have been created on missing remote file"
 fi
 echo "== test 12: PASS =="
+
+# ============================================================
+echo "== test 13: docker inspect permission-denied at step 6 is non-fatal =="
+reset_logs
+env_file="$(fresh_env_file)"
+export DOCKER_INSPECT_EXIT="1"
+export DOCKER_INSPECT_FAIL_MSG="Got permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: connect: permission denied"
+run_rollout "v1.3.0" --env-file "$env_file"
+export DOCKER_INSPECT_EXIT="0"
+export DOCKER_INSPECT_FAIL_MSG=""
+if [[ "$STATUS" -ne 0 ]]; then
+  fail "expected exit 0 when docker inspect is permission-denied at step 6, got exit $STATUS. Output:
+$OUT"
+fi
+check_contains "$OUT" "WARNING" "stderr warning for permission-denied docker inspect"
+check_contains "$OUT" "permission denied" "warning explains the permission-denied error"
+check_not_contains "$OUT" "rollback" "no rollback hint when verification could not run (permission denied)"
+check_contains "$OUT" "NOT VERIFIED" "summary reflects the image was not verified (permission denied)"
+echo "== test 13: PASS =="
+
+# ============================================================
+echo "== test 14: ssh failure specifically at step 6 (image verification) is non-fatal =="
+reset_logs
+env_file="$(fresh_env_file)"
+export SSH_STEP6_INJECT_EXIT="255"
+run_rollout "v1.4.0" --env-file "$env_file"
+export SSH_STEP6_INJECT_EXIT="0"
+if [[ "$STATUS" -ne 0 ]]; then
+  fail "expected exit 0 when ssh fails (255) at step 6 only, got exit $STATUS. Output:
+$OUT"
+fi
+check_contains "$OUT" "WARNING" "stderr warning for step 6 ssh failure"
+check_contains "$OUT" "255" "warning mentions the ssh exit 255"
+check_not_contains "$OUT" "rollback" "no rollback hint when verification could not run (ssh failure)"
+check_contains "$OUT" "NOT VERIFIED" "summary reflects the image was not verified (ssh failure)"
+echo "== test 14: PASS =="
 
 echo "rollout_test.sh: PASSED"
