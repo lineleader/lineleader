@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# LEGACY — DOES NOT CURRENTLY WORK. This script authenticates to dockhand
+# with a bearer API token (`Authorization: Bearer dh_...`), but the
+# dockhand version running on percival has no API tokens at all — its API
+# auth is a session cookie from POST /api/auth/login. Every call this
+# script makes to dockhand's REST API will fail to authenticate.
+#
+# The supported rollout path is now the dockhand git stack + cron polling
+# described in deploy/README.md: commit a LINELEADER_VERSION bump in
+# deploy/percival/lineleader.env and push; dockhand polls the repo and
+# redeploys on its own. Left in place (unmodified) for reference and in
+# case dockhand regains token auth in a future version — do not use it as
+# written today.
+#
 # rollout.sh — the second half of a release: bump LINELEADER_VERSION on the
 # percival host and redeploy the lineleader stack through dockhand's REST
 # API. scripts/release.sh tags a version and hands off to CI, which builds

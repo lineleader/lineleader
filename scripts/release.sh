@@ -55,14 +55,18 @@ GitHub Actions is now building and publishing:
 Watch the build with:
     gh run watch
 
-Once it finishes, roll it out with:
+Once it finishes, roll it out by bumping the version in the committed
+env file and pushing:
 
-    scripts/rollout.sh $version --dockhand-url <url> --token <token> --env-file <path>
+    \$EDITOR deploy/percival/lineleader.env   # LINELEADER_VERSION=$version
+    git commit -am "chore(deploy): release $version"
+    git push
 
-That bumps LINELEADER_VERSION in the stack's env file on percival over
-SSH, redeploys through dockhand's API, waits for /healthz, and verifies
-the image that landed. See deploy/README.md for the full flag reference
-(--env-file has no default; guessing wrong would rewrite the wrong file).
+dockhand polls the lineleader git stack on a cron and redeploys once it
+sees the new commit on main — no dockhand-side action needed. See
+deploy/README.md for the full flow, including a gotcha: if
+LINELEADER_VERSION is also set as a dockhand stack variable, that value
+overrides the repo file and this push will appear to do nothing.
 
 (deploy/percival/docker-compose.yml interpolates LINELEADER_VERSION into
 the image tag, so the compose file itself never needs editing.)
