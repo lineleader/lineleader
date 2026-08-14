@@ -365,22 +365,51 @@ fi
 echo "==> $health_url is healthy"
 
 # --- 6. verify the deployed image ---
+# This step can fail for reasons that have nothing to do with whether the
+# rollout worked: the ssh connection can drop, or the remote user may not
+# be permitted to run docker at all (true on percival today — the deploy
+# user isn't in the docker group and passwordless sudo isn't available).
+# Steps 4 and 5 already proved the deploy landed and the app is healthy,
+# so an unrunnable verification must not report the rollout as failed.
+# Only a verification that *ran* and found a mismatch is a real failure.
 inspect_cmd="$(printf 'docker inspect --format %q %q' '{{.Config.Image}}' "$container")"
-# shellcheck disable=SC2029 # see the note on the read_cmd ssh call above.
-if ! deployed_image="$(ssh "$host" "$inspect_cmd")"; then
-  fail "failed to inspect container $container on $host"
-fi
-deployed_image="$(echo "$deployed_image" | tr -d '[:space:]')"
 expected_image="ghcr.io/lineleader/lineleader:${version}"
-if [[ "$deployed_image" != "$expected_image" ]]; then
-  fail "deployed image mismatch on $container: expected $expected_image, got $deployed_image"
+manual_verify_hint="ssh $host \"docker inspect --format '{{.Config.Image}}' $container\""
+# shellcheck disable=SC2029 # see the note on the read_cmd ssh call above.
+inspect_output="$(ssh "$host" "$inspect_cmd" 2>&1)" && inspect_status=0 || inspect_status=$?
+
+image_verified=0
+deployed_image=""
+
+if [[ $inspect_status -eq 0 ]]; then
+  deployed_image="$(echo "$inspect_output" | tr -d '[:space:]')"
+  if [[ "$deployed_image" != "$expected_image" ]]; then
+    fail "deployed image mismatch on $container: expected $expected_image, got $deployed_image"
+  fi
+  image_verified=1
+elif [[ $inspect_status -eq 255 ]]; then
+  echo "rollout: WARNING: could not verify the deployed image — ssh to $host failed (exit 255) while running docker inspect on $container." >&2
+  echo "rollout: WARNING: the deploy (step 4) and health check (step 5) already succeeded; this warning only concerns the final image-verification step." >&2
+  echo "rollout: WARNING: verify manually with: $manual_verify_hint" >&2
+elif echo "$inspect_output" | grep -qE 'permission denied|Cannot connect to the Docker daemon|command not found'; then
+  echo "rollout: WARNING: could not verify the deployed image on $host — the SSH user is not permitted to run docker there:" >&2
+  echo "rollout: WARNING:   $inspect_output" >&2
+  echo "rollout: WARNING: the deploy (step 4) and health check (step 5) already succeeded; this warning only concerns the final image-verification step." >&2
+  echo "rollout: WARNING: verify manually with: $manual_verify_hint" >&2
+else
+  fail "failed to inspect container $container on $host: $inspect_output"
+fi
+
+image_summary="Deployed image:      $deployed_image (verified)"
+if [[ "$image_verified" -ne 1 ]]; then
+  image_summary="Deployed image:      NOT VERIFIED — expected $expected_image; see warning above"
 fi
 
 cat <<EOF
 
 ==> Rollout of $version complete.
 
-Deployed image:      $deployed_image
+$image_summary
 Health check:        OK ($health_url)
 Env file backup:     $backup_file (on $host)
 EOF
