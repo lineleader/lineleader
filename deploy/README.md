@@ -46,12 +46,19 @@ by Caddy on the `traefik` tailnet node
    ssh -t percival 'sudo docker network inspect postgres --format "{{range .Containers}}{{.Name}} {{end}}"'
    ```
 
-3. **Generate an AUTH_SECRET** and set it in dockhand (as an environment
-   variable/secret for the service — it is never committed to this repo):
+3. **Generate an AUTH_SECRET** and set it in dockhand as a stack variable
+   for the `lineleader` stack (encrypted in dockhand's DB) — it is never
+   committed to this repo:
 
    ```bash
    openssl rand -base64 32
    ```
+
+   Stack variables sit above the repo's env file in dockhand's precedence
+   order (repo `.env` file → dockhand stack variables → deploy-time env),
+   so this is the right place for anything that must not be public. The
+   flip side of that precedence is the gotcha called out in "Releasing"
+   below: never also set `LINELEADER_VERSION` here.
 
 4. **Point DNS at the Caddy node.** The `traefik` tailnet node is a Google
    Cloud VM with the public IP `34.29.51.143` (it already serves
@@ -73,7 +80,29 @@ by Caddy on the `traefik` tailnet node
    credentials. An existing org-scoped PAT login covers a new package in
    the same org; otherwise either `docker login ghcr.io` on percival with a
    `read:packages` PAT, or mark the `lineleader` package public in its
-   GitHub package settings after the first CI publish.
+   GitHub package settings after the first CI publish. Note this is about
+   the *image* registry, not the git repo below — GHCR packages stay
+   private even though the source repo is public.
+
+7. **Create the git stack in dockhand.** Unlike the private image
+   registry above, the `github.com/lineleader/lineleader` source repo is
+   public, so dockhand needs no git credentials for this step
+   (`authType: none`):
+
+   - Git → Repositories → Add Repository, pointing at
+     `github.com/lineleader/lineleader` (public, no auth).
+   - Create a stack from that repository:
+     - stack name: `lineleader` (exactly — see the compose file's `name:`
+       pin, which this must match for the volume to line up)
+     - composePath: `deploy/percival/docker-compose.yml`
+     - envFilePath: `deploy/percival/lineleader.env`
+     - autoUpdate: on
+     - autoUpdateCron: `*/15 * * * *`
+
+   With autoUpdate on, dockhand polls the repo on that cron and redeploys
+   whenever `deploy/percival/lineleader.env` or the compose file changes
+   on `main` — a release becomes "commit a version bump and push," no
+   separate dockhand-side action needed.
 
 ## Migrating the existing SQLite ledger
 
@@ -124,43 +153,45 @@ reach for `psql` only when the UI isn't an option.
 
 This tags and pushes; GitHub Actions then builds and publishes
 `ghcr.io/lineleader/lineleader:v0.1.0` (see
-`.github/workflows/release.yml`). Once the build finishes, roll it out with:
+`.github/workflows/release.yml`). Once the build finishes, roll it out by
+bumping the version in the committed env file and pushing:
 
 ```bash
-./scripts/rollout.sh v0.1.0 \
-  --dockhand-url http://percival:3000 \
-  --token "$DOCKHAND_TOKEN" \
-  --env-file /path/to/lineleader.env
+$EDITOR deploy/percival/lineleader.env   # LINELEADER_VERSION=v0.1.0
+git commit -am "chore(deploy): release v0.1.0"
+git push
 ```
 
-This bumps `LINELEADER_VERSION` in the stack's env file on percival over
-SSH (byte-preserving, with a timestamped backup next to the original),
-triggers a synchronous redeploy through dockhand's API, polls `/healthz`,
-and verifies the deployed image with `docker inspect`. Required
-flags/env vars: `--dockhand-url`/`DOCKHAND_URL`, `--token`/
-`DOCKHAND_TOKEN`, and `--env-file`/`ROLLOUT_ENV_FILE` (the absolute path
-of the stack's env file on the host — there is no default, since guessing
-wrong would rewrite the wrong file). `--env-id`/`DOCKHAND_ENV_ID` (default
-`1`), `--stack`/`DOCKHAND_STACK` (default `lineleader`), `--host`/
-`ROLLOUT_SSH_HOST` (default `percival`), `--health-url`/
-`ROLLOUT_HEALTH_URL` (default `https://lineleader.io/healthz`), and
-`--container`/`ROLLOUT_CONTAINER` (default `<stack>-<stack>-1`) all have
-sane defaults for this deployment. Pass `--dry-run` to see what it would
-do without changing anything. See the script's header comment for the
-full flag/env-var reference.
+dockhand polls the `lineleader` git stack on a cron (`*/15 * * * *`, see
+"One-time setup" above) and redeploys automatically once it sees the new
+commit on `main` — no dockhand-side action needed. There's no synchronous
+"redeploy now" step from here; the deploy lands on dockhand's next poll,
+within ~15 minutes. Confirm with `curl https://lineleader.io/healthz` (see
+"Verifying" below) or by checking the stack's deployed image in dockhand.
 
-If the script can't be used (e.g. no SSH access from where you're
-running it), the manual fallback is: set `LINELEADER_VERSION=v0.1.0` in
-dockhand's UI for the `lineleader` stack, then redeploy it from there.
+**Gotcha:** dockhand's variable precedence is repo `.env` file → dockhand
+stack variables → deploy-time env, so a stack variable *overrides* the
+repo file. If `LINELEADER_VERSION` is ever also set as a dockhand stack
+variable for the `lineleader` stack, that value wins and the git-push
+flow above will appear to do nothing — the deployed version won't budge
+no matter what's committed. If a release doesn't seem to take, check the
+stack's variables in dockhand first and remove `LINELEADER_VERSION` from
+there if present; it should only ever live in
+`deploy/percival/lineleader.env`.
 
 The compose file interpolates `LINELEADER_VERSION` into the image tag
-rather than pinning it, so releasing never requires a commit here. Both
-it and `AUTH_SECRET` use the required `${VAR:?...}` form — an unset
-variable fails the deploy loudly instead of resolving to an empty string.
+rather than pinning it. Both it and `AUTH_SECRET` use the required
+`${VAR:?...}` form — an unset variable fails the deploy loudly instead of
+resolving to an empty string.
 
 Image tags keep their leading `v` (`v0.1.0`, not `0.1.0`). The workflow
 uses metadata-action's `{{raw}}` for this; `{{version}}` would strip the
 prefix and produce a tag the compose file can't find.
+
+`scripts/rollout.sh` (bearer-token dockhand API auth, direct SSH env-file
+edit, synchronous redeploy) is legacy and does not work against the
+current dockhand instance — see its header comment and "One-time setup"
+above for why the git-stack flow replaced it.
 
 ## CLI clients
 
