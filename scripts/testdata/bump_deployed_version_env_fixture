@@ -1,0 +1,7 @@
+# lineleader stack environment file (percival) — fixture for
+# scripts/bump-deployed-version_test.sh. Mirrors the shape of a real
+# dockhand env file: a leading comment, a blank line, LINELEADER_VERSION,
+# and another key.
+
+LINELEADER_VERSION=v0.2.1
+AUTH_SECRET=fixture-secret-value
