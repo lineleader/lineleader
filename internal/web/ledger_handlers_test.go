@@ -30,7 +30,6 @@ func newLedgerTestServer(t *testing.T) (*httptest.Server, *ledger.Store) {
 	srv := NewServer(Options{
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		ConfigPath: filepath.Join(dir, "config.json"),
-		PlansPath:  filepath.Join(dir, "plans.json"),
 		Ledger:     store,
 		Defaults:   Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
 	})

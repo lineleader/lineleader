@@ -41,8 +41,6 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		Config:     dvc.Config{},
 		ConfigPath: filepath.Join(dir, "config.json"),
-		Plans:      nil,
-		PlansPath:  filepath.Join(dir, "plans.json"),
 		Defaults: Defaults{
 			From:      "2026-01-04",
 			To:        "2026-01-08",
@@ -104,7 +102,6 @@ func TestResultsTable_ShowsCostColumnWithLedger(t *testing.T) {
 	srv := NewServer(Options{
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		ConfigPath: filepath.Join(dir, "config.json"),
-		PlansPath:  filepath.Join(dir, "plans.json"),
 		Ledger:     store,
 		Defaults:   Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
 	})
@@ -152,7 +149,6 @@ func TestPlannerBar_SelectedCostOmittedUntilSelection(t *testing.T) {
 	srv := NewServer(Options{
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		ConfigPath: filepath.Join(dir, "config.json"),
-		PlansPath:  filepath.Join(dir, "plans.json"),
 		Ledger:     store,
 		Defaults:   Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
 	})
@@ -327,34 +323,6 @@ func TestSelect_SetsCollapsedAndRendersApp(t *testing.T) {
 	}
 }
 
-func TestSavePlanAndLoad_RestoresSelection(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	// Select row 0 of trip 0, then save the plan with that selection.
-	http.Post(ts.URL+"/trips/0/select/0", "", nil)
-	http.PostForm(ts.URL+"/plans", url.Values{"name": {"summer"}})
-
-	// Clear the selection by toggling the same row off.
-	resp, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := body(t, resp); strings.Contains(got, "✓") {
-		t.Fatalf("expected selection cleared before load, got:\n%s", got)
-	}
-
-	// Loading the plan should restore the saved selection.
-	resp2, err := http.Post(ts.URL+"/plans/summer/load", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got2 := body(t, resp2)
-	if !strings.Contains(got2, "✓") {
-		t.Errorf("expected selection restored after load, got:\n%s", got2)
-	}
-}
-
 func TestToggleResortFilter_PersistsAndAffectsResults(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
@@ -432,8 +400,6 @@ func newTestServerWithCharts(t *testing.T, charts []*dvc.ResortChart) *httptest.
 		Charts:     charts,
 		Config:     dvc.Config{},
 		ConfigPath: filepath.Join(dir, "config.json"),
-		Plans:      nil,
-		PlansPath:  filepath.Join(dir, "plans.json"),
 		Defaults: Defaults{
 			From:      "2026-01-04",
 			To:        "2026-01-08",
@@ -936,80 +902,6 @@ func TestGlobalFilterPanel_NoRegression(t *testing.T) {
 	// Global panel must not include the per-trip mode switch.
 	if strings.Contains(got, `/filters/mode`) {
 		t.Errorf("global panel should not have mode switch, got:\n%s", got)
-	}
-}
-
-// TestSavePlanAndLoad_RoundTripsOverrideTrip verifies a saved plan with one
-// override trip round-trips through SavePlan -> LoadPlan: after loading, the
-// trip is still override (asserted via the rendered per-trip panel) and its
-// per-trip exclusion is preserved. Uses t.TempDir() plans path via the helper.
-func TestSavePlanAndLoad_RoundTripsOverrideTrip(t *testing.T) {
-	ts := newTestServerWithCharts(t, twoResortCharts())
-	defer ts.Close()
-
-	// Make trip 0 an override trip that excludes BTA.
-	if _, err := http.Post(ts.URL+"/trips/0/filters/resorts/BTA", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	// Save the plan with that override.
-	if _, err := http.PostForm(ts.URL+"/plans", url.Values{"name": {"with-override"}}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Reset trip 0 back to inherit to prove load actually restores override.
-	req, _ := http.NewRequest("DELETE", ts.URL+"/trips/0/filters", nil)
-	if _, err := ts.Client().Do(req); err != nil {
-		t.Fatal(err)
-	}
-	pre, err := http.Get(ts.URL + "/trips/0/filters")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := body(t, pre); !strings.Contains(got, `data-mode="inherit"`) {
-		t.Fatalf("expected inherit before load, got:\n%s", got)
-	}
-
-	// Load the saved plan; trip 0 must come back as override.
-	if _, err := http.Post(ts.URL+"/plans/with-override/load", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.Get(ts.URL + "/trips/0/filters")
-	if err != nil {
-		t.Fatal(err)
-	}
-	panel := body(t, resp)
-	if !strings.Contains(panel, `data-mode="override"`) {
-		t.Errorf("expected loaded trip to be override, got:\n%s", panel)
-	}
-	// The override's BTA exclusion survived the round-trip.
-	assertResortExcluded(t, panel, "Beta Resort")
-	if !strings.Contains(panel, "[✓] Alpha Resort") {
-		t.Errorf("expected Alpha Resort still enabled in loaded override, got:\n%s", panel)
-	}
-}
-
-func TestSavePlanAndLoad(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	// Save a plan.
-	resp, err := http.PostForm(ts.URL+"/plans", url.Values{"name": {"summer"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-	if !strings.Contains(got, "summer") {
-		t.Errorf("expected saved plan 'summer' to appear in panel, got:\n%s", got)
-	}
-
-	// Load the plan back.
-	resp2, err := http.Post(ts.URL+"/plans/summer/load", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got2 := body(t, resp2)
-	if !strings.Contains(got2, "Plan: summer") {
-		t.Errorf("expected 'Plan: summer' marker after load, got:\n%s", got2)
 	}
 }
 
