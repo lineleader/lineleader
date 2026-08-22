@@ -15,8 +15,10 @@ by Caddy on the `traefik` tailnet node
    ssh -t percival "sudo docker exec postgresql psql -U casaos -c 'CREATE DATABASE lineleader;'"
    ```
 
-   No schema migration is needed after this — `internal/ledger.Store`
-   applies the ledger schema idempotently on server startup.
+   No separate operator step is needed after this — `internal/ledger.Store`
+   applies any outstanding goose migrations (`internal/ledger/migrations/`)
+   automatically on server startup, tracked in a `goose_db_version` table so
+   each migration runs at most once.
 
    The `casaos:casaos` credentials are inherited from the old CasaOS host
    and are confirmed working against this instance.

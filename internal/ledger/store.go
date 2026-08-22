@@ -3,30 +3,71 @@ package ledger
 import (
 	"context"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"fmt"
+	"sync"
 	"time"
+
+	"github.com/pressly/goose/v3"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-//go:embed schema.sql
-var schema string
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
-//go:embed seed.sql
-var seed string
+// gooseSetupOnce guards goose.SetBaseFS / goose.SetDialect / goose.SetLogger,
+// which are package-level state in the goose library, not per-call
+// arguments. Tests in this package open many Stores concurrently
+// (t.Parallel), and every one of them calls Open — without this, concurrent
+// calls to the setup functions would race on goose's internal globals. The
+// setup itself is idempotent (same FS, same dialect, every time), so
+// running it once for the life of the process is correct, not just
+// convenient.
+var (
+	gooseSetupOnce sync.Once
+	gooseSetupErr  error
+)
+
+func gooseSetup() error {
+	gooseSetupOnce.Do(func() {
+		goose.SetBaseFS(&migrationsFS)
+		// goose logs each applied migration to stdout by default. This app
+		// logs via the standard `log` package everywhere else, and a
+		// migration run happens on every boot (and in every test that
+		// calls Open) — left at its default, goose's own logger would add
+		// a second, differently-formatted stream of boot noise. Silence it
+		// here; Up's returned error (wrapped below) is still surfaced to
+		// the caller, so failures are not swallowed, only the routine
+		// per-migration chatter is.
+		goose.SetLogger(goose.NopLogger())
+		if err := goose.SetDialect("postgres"); err != nil {
+			gooseSetupErr = fmt.Errorf("configuring goose dialect: %w", err)
+		}
+	})
+	return gooseSetupErr
+}
 
 // Store is a Postgres-backed handle to the points ledger.
 type Store struct {
 	db *sql.DB
 }
 
-// Open opens a connection pool to the Postgres database identified by dsn,
-// applies the schema, then seeds reference data. Both steps are idempotent
-// (CREATE TABLE / INDEX IF NOT EXISTS for the schema; a whole-table
-// WHERE NOT EXISTS guard for the seed), so it is safe to call on every
-// process start.
+// Open opens a connection pool to the Postgres database identified by dsn
+// and brings its schema up to date by running every not-yet-applied
+// migration under migrations/ (embedded at build time) via goose. This
+// replaces the old scheme of re-executing schema.sql/seed.sql as
+// idempotent SQL on every process start: goose tracks applied migrations
+// in a goose_db_version table, so each migration now runs at most once
+// ever, rather than on every boot. It is still safe to call Open on every
+// process start — goose.Up is a no-op once every migration has already
+// been applied — including against percival's live, already-populated
+// database, whose baseline migration (00001_initial.sql) is written to
+// adopt that existing schema rather than recreate it.
 func Open(dsn string) (*Store, error) {
+	if err := gooseSetup(); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
@@ -35,13 +76,9 @@ func Open(dsn string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("connecting to ledger database: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := goose.Up(db, "migrations"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("applying schema: %w", err)
-	}
-	if _, err := db.Exec(seed); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("seeding reference data: %w", err)
+		return nil, fmt.Errorf("applying migrations: %w", err)
 	}
 	return &Store{db: db}, nil
 }

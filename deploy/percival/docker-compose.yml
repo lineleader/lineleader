@@ -8,9 +8,9 @@
 # This pulls a published image from GHCR; nothing is built on percival.
 # There is no postgres service here: this container joins the existing
 # shared Postgres that already runs on percival (see the `postgresql`
-# network below) and reaches it by container hostname. The ledger schema
-# self-applies on boot (internal/ledger.Store applies it idempotently) —
-# no separate migration step is needed here.
+# network below) and reaches it by container hostname. internal/ledger.Store
+# applies any outstanding goose migrations automatically on boot — no
+# separate migration step is needed here.
 
 # Pin the project name: it otherwise defaults to the parent directory
 # (`percival`), which would name the stack and its volume after the host
