@@ -80,8 +80,9 @@ func testSchemaName(t *testing.T) string {
 }
 
 // scopeDSNToSchema appends (or overwrites) a search_path query parameter so
-// that unqualified table references in schema.sql — and every subsequent
-// query — resolve to the given schema.
+// that unqualified table references in the migrations under migrations/ —
+// and every subsequent query, including goose's own goose_db_version
+// bookkeeping table — resolve to the given schema.
 func scopeDSNToSchema(dsn, schemaName string) (string, error) {
 	u, err := url.Parse(dsn)
 	if err != nil {

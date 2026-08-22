@@ -93,8 +93,9 @@ balance is derived: each row adds points (`Allotted`) or spends them (`Used`), a
 borrowing simply shows up as the running balance going negative until the next
 allotment restores it. It is stored in Postgres, which the server connects to
 via `--ledger-dsn` (or the `LEDGER_DSN` env var); charts and the global
-filter config stay in JSON. The schema self-applies idempotently on boot, so
-pointing the server at an empty database is enough. If you still have the old
+filter config stay in JSON. On boot the server runs any outstanding goose
+migrations (`internal/ledger/migrations/`) automatically, so pointing it at
+an empty database is enough — no separate migration step. If you still have the old
 SQLite ledger, see [Seeding the hosted ledger](#seeding-the-hosted-ledger) for
 the one-shot import.
 
@@ -192,7 +193,7 @@ AUTH_SECRET=devsecret \
 make dev
 ```
 
-The schema self-applies on boot. To clean up the local database entirely (not
+Migrations self-apply on boot. To clean up the local database entirely (not
 just stop the container), run `docker compose down -v`.
 
 ## Deployment
@@ -226,8 +227,8 @@ Two required env vars:
 `LEDGER_DSN` is not an input here — it is written into that file directly,
 pointing at the shared Postgres container already running on percival
 (reached as `postgresql:5432` over the external `postgres` network). The
-ledger schema self-applies idempotently on boot, so there is no migration
-step.
+server applies any outstanding goose migrations automatically on boot, so
+there is no separate migration step.
 
 A named volume (`state`) is mounted at `/state` inside the container for
 `config.json` — the only file state outside Postgres.

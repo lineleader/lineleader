@@ -1,29 +1,34 @@
 package ledger
 
-import "time"
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+
+	"github.com/lineleader/lineleader/internal/ledger/dbgen"
+)
 
 // UseYearSummaries rolls every entry up by use year, ascending. Net is Allotted-Used;
 // a negative Net (OverBorrowed) means that use year spent more than it took in.
 func (s *Store) UseYearSummaries() ([]UseYearSummary, error) {
-	rows, err := s.db.Query(
-		`SELECT use_year, COALESCE(SUM(allotted), 0), COALESCE(SUM(used), 0)
-		 FROM entries GROUP BY use_year ORDER BY use_year`)
+	rows, err := s.q.UseYearSummaries(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var out []UseYearSummary
-	for rows.Next() {
-		var sum UseYearSummary
-		if err := rows.Scan(&sum.UseYear, &sum.Allotted, &sum.Used); err != nil {
-			return nil, err
+	for _, row := range rows {
+		sum := UseYearSummary{
+			UseYear:  int(row.UseYear),
+			Allotted: int(row.Allotted),
+			Used:     int(row.Used),
 		}
 		sum.Net = sum.Allotted - sum.Used
 		sum.OverBorrowed = sum.Net < 0
 		out = append(out, sum)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // DistributeNextYear posts next year's annual allocation for every contract that has
@@ -83,29 +88,24 @@ func (s *Store) distributeUpTo(maxYear int) ([]Entry, error) {
 }
 
 func (s *Store) latestAllocationYear(contractID int64) (int, bool, error) {
-	rows, err := s.db.Query(
-		`SELECT use_year FROM entries
-		 WHERE contract_id = $1 AND kind = $2
-		 ORDER BY use_year DESC LIMIT 1`, contractID, KindAllocation)
+	year, err := s.q.LatestAllocationYear(context.Background(), dbgen.LatestAllocationYearParams{
+		ContractID: sql.NullInt64{Int64: contractID, Valid: true},
+		Kind:       KindAllocation,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
 	if err != nil {
 		return 0, false, err
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		return 0, false, rows.Err()
-	}
-	var year int
-	if err := rows.Scan(&year); err != nil {
-		return 0, false, err
-	}
-	return year, true, nil
+	return int(year), true, nil
 }
 
 func (s *Store) hasAllocationFor(contractID int64, useYear int) bool {
-	var n int
-	_ = s.db.QueryRow(
-		`SELECT COUNT(1) FROM entries
-		 WHERE contract_id = $1 AND kind = $2 AND use_year = $3`,
-		contractID, KindAllocation, useYear).Scan(&n)
+	n, _ := s.q.CountAllocationFor(context.Background(), dbgen.CountAllocationForParams{
+		ContractID: sql.NullInt64{Int64: contractID, Valid: true},
+		Kind:       KindAllocation,
+		UseYear:    int32(useYear),
+	})
 	return n > 0
 }
