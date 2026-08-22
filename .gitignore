@@ -9,3 +9,6 @@ bin/*
 .dolt/
 *.db
 .beads-credential-key
+
+# Amp orb portal metadata is local to each sandbox.
+.amp/portals/*

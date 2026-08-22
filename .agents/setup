@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+step() {
+  printf '\n==> %s\n' "$1"
+  SECONDS=0
+}
+
+done_step() {
+  printf '    completed in %ss\n' "$SECONDS"
+}
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+go_version="1.26.0"
+go_sha256="aac1b08a0fb0c4e0a7c1555beb7b59180b05dfc5a3d62e40e9de90cd42f88235"
+go_root="$HOME/.local/share/go-$go_version"
+
+step "Installing system packages"
+packages=(poppler-utils postgresql)
+missing=()
+for package in "${packages[@]}"; do
+  dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed' || missing+=("$package")
+done
+if ((${#missing[@]})); then
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+else
+  echo "    already installed"
+fi
+done_step
+
+step "Installing Go $go_version"
+mkdir -p "$HOME/.local/bin" "$HOME/.local/share"
+if [[ ! -x "$go_root/bin/go" ]]; then
+  archive="$(mktemp)"
+  trap 'rm -f "$archive"' EXIT
+  curl -fsSL "https://go.dev/dl/go${go_version}.linux-amd64.tar.gz" -o "$archive"
+  echo "$go_sha256  $archive" | sha256sum --check --status
+  rm -rf "$go_root"
+  mkdir -p "$go_root"
+  tar -xzf "$archive" --strip-components=1 -C "$go_root"
+  rm -f "$archive"
+  trap - EXIT
+else
+  echo "    already installed"
+fi
+ln -sfn "$go_root/bin/go" "$HOME/.local/bin/go"
+ln -sfn "$go_root/bin/gofmt" "$HOME/.local/bin/gofmt"
+done_step
+
+step "Installing the Beads issue tracker"
+if ! command -v bd >/dev/null 2>&1; then
+  curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
+else
+  echo "    already installed"
+fi
+done_step
+
+step "Starting and preparing PostgreSQL"
+read -r pg_version pg_cluster _ < <(pg_lsclusters --no-header | head -n 1)
+if ! pg_isready -q; then
+  sudo pg_ctlcluster "$pg_version" "$pg_cluster" start
+fi
+sudo -u postgres psql --set ON_ERROR_STOP=1 --quiet <<'SQL'
+ALTER USER postgres PASSWORD 'dev';
+SQL
+for database in lineleader lineleader_test; do
+  if ! sudo -u postgres psql --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = '$database'" | grep -qx 1; then
+    sudo -u postgres createdb "$database"
+  fi
+done
+done_step
+
+step "Configuring the orb login environment"
+profile_marker="# lineleader orb development environment"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<EOF
+
+$profile_marker
+if [[ "\${PWD}" == "$repo_root" ]]; then
+  export LEDGER_DSN="postgres://postgres:dev@localhost:5432/lineleader?sslmode=disable"
+  export LEDGER_TEST_DSN="postgres://postgres:dev@localhost:5432/lineleader_test?sslmode=disable"
+  export AUTH_SECRET="devsecret"
+fi
+EOF
+fi
+done_step
+
+step "Downloading Go module dependencies"
+PATH="$HOME/.local/bin:$PATH" "$HOME/.local/bin/go" mod download
+done_step
+
+printf '\nOrb setup complete.\n'

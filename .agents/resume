@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "==> Checking PostgreSQL"
+if ! pg_isready -q; then
+  read -r pg_version pg_cluster _ < <(pg_lsclusters --no-header | head -n 1)
+  sudo pg_ctlcluster "$pg_version" "$pg_cluster" start
+fi
+pg_isready -q
+echo "Orb resume complete."
