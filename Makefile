@@ -80,6 +80,12 @@ docker-run: docker-build
 		-e LEDGER_DSN="$(LEDGER_DSN)" -e AUTH_SECRET="$(AUTH_SECRET)" \
 		$(IMAGE)
 
+SQLC_VERSION := v1.31.1
+
+.PHONY: sqlc
+sqlc:
+	go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate
+
 .PHONY: clean
 clean:
 	rm -rf bin/*
