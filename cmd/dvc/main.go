@@ -4,9 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/lineleader/lineleader/internal/dvc"
 )
 
@@ -22,8 +20,6 @@ func main() {
 		runImport(os.Args[2:])
 	case "search":
 		runSearch(os.Args[2:])
-	case "tui":
-		runTUI(os.Args[2:])
 	case "list":
 		runList(os.Args[2:])
 	case "ledger":
@@ -44,7 +40,6 @@ func printUsage() {
 Usage:
   dvc import [--data-dir PATH] [--dir SCAN_DIR] [pdf-file...]
   dvc search --from DATE --to DATE --budget N [--min-nights N] [--data-dir PATH]
-  dvc tui    [--data-dir PATH]
   dvc list   [--data-dir PATH]
   dvc ledger <show|contracts|add|edit|delete|distribute> [--server URL] [--token TOKEN] [flags]`)
 }
@@ -151,52 +146,5 @@ func runList(args []string) {
 	for _, c := range charts {
 		fmt.Printf("%s %d  (%d seasons, %d columns)\n",
 			c.ResortCode, c.Year, len(c.Seasons), len(c.Columns))
-	}
-}
-
-// runTUI launches the interactive full-screen search UI.
-func runTUI(args []string) {
-	fs := flag.NewFlagSet("tui", flag.ExitOnError)
-	dataDir := fs.String("data-dir", defaultDataDir, "directory with JSON chart files")
-	configFile := fs.String("config", dvc.DefaultConfigPath(), "app config file (JSON)")
-	fs.Parse(args)
-
-	charts, err := dvc.LoadAll(*dataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "loading charts: %v\n", err)
-		os.Exit(1)
-	}
-	if len(charts) == 0 {
-		fmt.Fprintf(os.Stderr, "no charts found in %s — run 'dvc import' first\n", *dataDir)
-		os.Exit(1)
-	}
-
-	cfg, err := dvc.LoadConfig(*configFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: loading config %s: %v\n", *configFile, err)
-	}
-
-	plansPath := dvc.DefaultPlansPath()
-	plans, _ := dvc.LoadPlans(plansPath) // non-fatal; missing file returns nil
-
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-	m := dvc.NewTUIModel(dvc.PlannerOptions{
-		Charts:     charts,
-		Global:     cfg,
-		ConfigPath: *configFile,
-		Plans:      plans,
-		PlansPath:  plansPath,
-		Defaults: dvc.Defaults{
-			From:      today.Format("2006-01-02"),
-			To:        today.AddDate(0, 0, 14).Format("2006-01-02"),
-			Budget:    "100",
-			MinNights: "1",
-		},
-	})
-
-	p := tea.NewProgram(m)
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "tui: %v\n", err)
-		os.Exit(1)
 	}
 }
