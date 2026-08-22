@@ -1,0 +1,96 @@
+name: Test
+
+# Runs `go vet` and the full Go test suite, including the Postgres-backed
+# half that internal/ledger/testsupport.go's OpenTest/OpenTestDSN silently
+# t.Skip() when LEDGER_TEST_DSN is unset. Before this workflow existed,
+# nothing ran go test in CI at all, so ~24 test files exercising the ledger
+# store had never actually run here — see the "verify db tests ran" step
+# below, which exists specifically to keep that from happening again
+# unnoticed.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Mirrors the `test-db` target in the Makefile (same image, same
+    # POSTGRES_PASSWORD/POSTGRES_DB), but as a GitHub Actions *service
+    # container* rather than a throwaway `docker run`. That changes the
+    # port: the Makefile publishes the local container on host port 5433
+    # (5432 is left free for a developer's own Postgres), but a service
+    # container here is a separate machine on the job's network reachable
+    # only at its normal port, 5432. Do not copy the Makefile's :5433 into
+    # LEDGER_TEST_DSN below — that would just fail to connect.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: lineleader_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # search_path is appended as a query param by scopeDSNToSchema (see
+    # internal/ledger/testsupport.go), so this must be a valid base DSN
+    # URL for that to parse and rewrite — sslmode=disable is required
+    # because the service container has no TLS listener.
+    env:
+      LEDGER_TEST_DSN: postgres://postgres:test@localhost:5432/lineleader_test?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Read from go.mod instead of pinning a version here, so this
+          # workflow can never drift out of sync with the toolchain the
+          # module actually declares (currently go 1.26).
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # The whole point of this workflow is to run the Postgres-backed
+      # tests, not just the ones that don't need a database. OpenTest/
+      # OpenTestDSN skip (not fail) when LEDGER_TEST_DSN is unset, so a
+      # misconfigured DSN above would make this job go green while quietly
+      # skipping every ledger test — exactly the failure mode that left
+      # this suite un-run for so long. TestOpenIsIdempotent is DB-backed,
+      # unconditional (no build tags, no sub-skips), and matches -run
+      # TestOpen, so it's a reliable canary: if it SKIPs, the DSN/service
+      # wiring above is broken and the job should fail loudly instead of
+      # reporting success.
+      #
+      # Both halves of the check below matter. Grepping only for "--- SKIP"
+      # would pass vacuously if the canary ever stops existing: rename or
+      # delete TestOpenIsIdempotent and `-run TestOpen` matches nothing,
+      # which Go reports as "no tests to run" and PASS, leaving no SKIP line
+      # to find. Requiring an explicit "--- PASS: TestOpenIsIdempotent" pins
+      # the canary's presence, so this step fails loudly both on a broken
+      # DSN and on a canary that quietly went away.
+      - name: Verify ledger DB tests actually ran (not skipped)
+        run: |
+          go test ./internal/ledger/ -run TestOpen -v -count=1 2>&1 | tee /tmp/ledger-test.log
+          if grep -q -- '--- SKIP' /tmp/ledger-test.log; then
+            echo "::error::internal/ledger tests were SKIPped — LEDGER_TEST_DSN wiring is broken, so the DB-backed suite never ran."
+            exit 1
+          fi
+          if ! grep -q -- '--- PASS: TestOpenIsIdempotent' /tmp/ledger-test.log; then
+            echo "::error::canary TestOpenIsIdempotent did not run — it was renamed or removed, so this guard stopped checking anything. Point it at another unconditional DB-backed test."
+            exit 1
+          fi
