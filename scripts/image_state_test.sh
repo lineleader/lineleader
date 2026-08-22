@@ -5,14 +5,15 @@
 #
 # Root cause: the runtime image runs as USER nonroot:nonroot (uid/gid
 # 65532, distroless/static-debian12:nonroot) and deploy/percival/
-# docker-compose.yml mounts a *named volume* at /state for config.json.
-# Docker only special-cases a named volume's ownership on first use: if
-# the mount point does not already exist inside the image, Docker creates
-# it fresh as root:root 0755, and the nonroot process can never write
-# there (dvc.SaveConfig fails, and handlers.toggleResortFilter turns that
-# into an HTTP 500). If the mount point already exists in the image,
-# Docker "copies up" that directory (including its ownership) into a
-# brand-new or still-empty volume instead.
+# docker-compose.yml mounts a *named volume* at /state for config.json /
+# plans.json. Docker only special-cases a named volume's ownership on
+# first use: if the mount point does not already exist inside the image,
+# Docker creates it fresh as root:root 0755, and the nonroot process can
+# never write there (dvc.SaveConfig / dvc.SavePlans fail, and
+# handlers.toggleResortFilter turns that into an HTTP 500). If the mount
+# point already exists in the image, Docker "copies up" that directory
+# (including its ownership) into a brand-new or still-empty volume
+# instead.
 #
 # So the fix is for the image to contain an empty, nonroot-owned /state
 # directory. This test builds the real repo Dockerfile and proves the

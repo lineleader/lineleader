@@ -18,6 +18,8 @@ func newTestSession(t *testing.T) *Session {
 		[]*dvc.ResortChart{minimalChart()},
 		dvc.Config{},
 		filepath.Join(dir, "config.json"),
+		nil,
+		filepath.Join(dir, "plans.json"),
 		Defaults{
 			From:      "2026-01-04",
 			To:        "2026-01-08",
@@ -39,6 +41,8 @@ func newTestSessionWithStore(t *testing.T, store *ledger.Store) *Session {
 		[]*dvc.ResortChart{minimalChart()},
 		dvc.Config{},
 		filepath.Join(dir, "config.json"),
+		nil,
+		filepath.Join(dir, "plans.json"),
 		Defaults{
 			From:      "2026-01-04",
 			To:        "2026-01-08",

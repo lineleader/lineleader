@@ -59,7 +59,8 @@ services:
       # not from the rest of the LAN. Swap for the line above to use it:
       # - "100.119.145.113:8080:8080"
     volumes:
-      # config.json — the only state this container keeps outside Postgres.
+      # config.json / plans.json — the only state this container keeps
+      # outside Postgres.
       - state:/state
     # No healthcheck: the runtime image is distroless (no shell, no curl,
     # no wget) so there's nothing here to shell out to. GET /healthz is

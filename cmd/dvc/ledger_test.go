@@ -46,6 +46,7 @@ func testServer(t *testing.T) string {
 	srv := web.NewServer(web.Options{
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		ConfigPath: filepath.Join(dir, "config.json"),
+		PlansPath:  filepath.Join(dir, "plans.json"),
 		Ledger:     store,
 		Defaults:   web.Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
 	})

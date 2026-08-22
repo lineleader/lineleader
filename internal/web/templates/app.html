@@ -6,10 +6,12 @@
       <input id="budget" name="budget" type="text" value="{{.Budget}}" autocomplete="off">
       <span class="remaining">Remaining: {{.Remaining}} pts</span>
       {{if .HasSelectedCost}}<span class="selected-cost">Selected: {{.SelectedCostLabel}}</span>{{end}}
+      {{if .LoadedPlanName}}<span class="loaded-plan">Plan: {{.LoadedPlanName}}</span>{{end}}
       {{if .BudgetErr}}<span class="err">{{.BudgetErr}}</span>{{end}}
     </form>
     <div class="actions">
       <button type="button" hx-get="/filters" hx-target="#panel" hx-swap="outerHTML">Filters</button>
+      <button type="button" hx-get="/plans" hx-target="#panel" hx-swap="outerHTML">Plans</button>
       <button type="button" hx-post="/trips" hx-target="#app" hx-swap="outerHTML">+ Add trip</button>
       <a class="btn-link" href="/ledger">Ledger</a>
     </div>

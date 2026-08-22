@@ -31,6 +31,7 @@ const (
 func main() {
 	dataDir := flag.String("data-dir", "data/point-charts", "directory with JSON chart files")
 	configFile := flag.String("config", dvc.DefaultConfigPath(), "app config file (JSON)")
+	plansFile := flag.String("plans", dvc.DefaultPlansPath(), "plans file (JSON)")
 	ledgerDSN := flag.String("ledger-dsn", os.Getenv("LEDGER_DSN"), "points ledger Postgres DSN (or set LEDGER_DSN)")
 	addr := flag.String("addr", ":8080", "listen address")
 	authSecretFile := flag.String("auth-secret-file", "", "path to a file containing the shared auth secret (alternative to AUTH_SECRET; for mounted Docker secrets)")
@@ -63,6 +64,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "warning: loading config %s: %v\n", *configFile, err)
 	}
 
+	plans, _ := dvc.LoadPlans(*plansFile)
+
 	ledgerStore, err := ledger.Open(*ledgerDSN)
 	if err != nil {
 		// Don't log *ledgerDSN — it can embed a password.
@@ -75,6 +78,8 @@ func main() {
 		Charts:        charts,
 		Config:        cfg,
 		ConfigPath:    *configFile,
+		Plans:         plans,
+		PlansPath:     *plansFile,
 		Ledger:        ledgerStore,
 		AuthSecret:    authSecret,
 		SecureCookies: !*insecureCookies,

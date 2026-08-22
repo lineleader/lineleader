@@ -19,6 +19,7 @@ func newAuthTestServer(t *testing.T, secret string, secureCookies bool) *httptes
 		Charts:        []*dvc.ResortChart{minimalChart()},
 		Config:        dvc.Config{},
 		ConfigPath:    filepath.Join(dir, "config.json"),
+		PlansPath:     filepath.Join(dir, "plans.json"),
 		Defaults:      Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
 		AuthSecret:    secret,
 		SecureCookies: secureCookies,

@@ -80,51 +80,22 @@ type Defaults struct {
 	From, To, Budget, MinNights string
 }
 
-// inputField holds the label and current text value for one search parameter.
-type inputField struct {
-	label string
-	value string
-}
-
-// TripSpec is the serialisable form of one trip's input fields plus the stay
-// the user had selected (if any) when the plan was saved.
-type TripSpec struct {
-	From      string      `json:"from"`
-	To        string      `json:"to"`
-	MinNights string      `json:"min_nights"`
-	Selected  *StayResult `json:"selected,omitempty"`
-	// FilterMode selects whether this trip inherits the global filters
-	// (zero value) or overrides them with its own Filters.
-	FilterMode FilterMode `json:"filter_mode,omitempty"`
-	// Filters holds the trip's own exclusions when FilterMode is override.
-	// It is a pointer so a zero/inherit TripSpec omits the key entirely:
-	// omitempty does not treat an empty struct value as empty.
-	Filters *FilterSet `json:"filters,omitempty"`
-}
-
-// Trip represents one planned stay within a multi-trip planning session.
-type Trip struct {
-	Fields     [3]inputField // 0=From, 1=To, 2=MinNights (Budget is global)
-	Results    []StayResult
-	Selected   *StayResult // heap-allocated copy; nil = no selection
-	Err        string      // per-trip parse/search error
-	FilterMode FilterMode  // inherit (zero value) or override the global filters
-	Filters    FilterSet   // this trip's exclusions when FilterMode is override
-}
-
 // Planner is the concurrency-safe single source of truth for a multi-trip
-// planning session. It holds the trips and the global budget and filters, and
-// recomputes search results whenever its state changes.
+// planning session. It holds the trips, the global budget and filters, and the
+// loaded plans, and recomputes search results whenever its state changes.
 //
 // Every exported mutator (and later, reader) locks mu; the private recompute*
 // helpers assume the lock is already held.
 type Planner struct {
-	mu         sync.Mutex
-	charts     []*ResortChart
-	budget     string // raw input string, like the TUI's budgetField.value
-	trips      []Trip
-	global     Config
-	configPath string
+	mu             sync.Mutex
+	charts         []*ResortChart
+	budget         string // raw input string, like the TUI's budgetField.value
+	trips          []Trip
+	global         Config
+	plans          []Plan
+	loadedPlanName string
+	configPath     string
+	plansPath      string
 }
 
 // PlannerOptions configures a new Planner.
@@ -132,6 +103,8 @@ type PlannerOptions struct {
 	Charts     []*ResortChart
 	Global     Config
 	ConfigPath string
+	Plans      []Plan
+	PlansPath  string
 	Defaults   Defaults
 }
 
@@ -142,7 +115,9 @@ func NewPlanner(opts PlannerOptions) *Planner {
 		charts:     opts.Charts,
 		budget:     opts.Defaults.Budget,
 		global:     opts.Global,
+		plans:      opts.Plans,
 		configPath: opts.ConfigPath,
+		plansPath:  opts.PlansPath,
 		trips: []Trip{{
 			Fields: [3]inputField{
 				{label: "From", value: opts.Defaults.From},
@@ -388,16 +363,158 @@ func (p *Planner) ResetTripFilters(i int) {
 	p.recomputeAll()
 }
 
+// snapshotPlan builds a Plan capturing the current trips, budget, global
+// filters, and each trip's per-trip filter mode/filters. The caller must hold
+// p.mu.
+//
+// Per trip, Filters is set to a pointer to the trip's FilterSet only when the
+// trip is in override mode; inherit trips leave Filters nil so the JSON key is
+// omitted (matching the omitempty intent on TripSpec.Filters). Global
+// exclusions are copied onto the Plan only when non-empty.
+func (p *Planner) snapshotPlan(name string) Plan {
+	specs := make([]TripSpec, len(p.trips))
+	for i := range p.trips {
+		t := &p.trips[i]
+		spec := TripSpec{
+			From:       t.Fields[0].value,
+			To:         t.Fields[1].value,
+			MinNights:  t.Fields[2].value,
+			Selected:   t.Selected,
+			FilterMode: t.FilterMode,
+		}
+		if t.FilterMode == FilterModeOverride {
+			f := cloneFilterSet(t.Filters)
+			spec.Filters = &f
+		}
+		specs[i] = spec
+	}
+	pl := Plan{
+		Name:   name,
+		Budget: p.budget,
+		Trips:  specs,
+	}
+	if len(p.global.ExcludeResorts) > 0 {
+		pl.ExcludeResorts = append([]string(nil), p.global.ExcludeResorts...)
+	}
+	if len(p.global.ExcludeRoomTypes) > 0 {
+		pl.ExcludeRoomTypes = append([]string(nil), p.global.ExcludeRoomTypes...)
+	}
+	return pl
+}
+
+// SavePlan upserts the current state as a named plan, persists the plans file,
+// and records name as the loaded plan. Saving an existing name overwrites it
+// rather than appending a duplicate.
+func (p *Planner) SavePlan(name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	plan := p.snapshotPlan(name)
+	found := false
+	for i := range p.plans {
+		if p.plans[i].Name == name {
+			p.plans[i] = plan
+			found = true
+			break
+		}
+	}
+	if !found {
+		p.plans = append(p.plans, plan)
+	}
+	p.loadedPlanName = name
+	return SavePlans(p.plansPath, p.plans)
+}
+
+// applyPlan replaces the live trips, budget, and global filters from a saved
+// Plan. Per spec, the trip's FilterMode is restored and Filters is the deref of
+// spec.Filters (empty when nil). The caller must hold p.mu and must recompute
+// afterward.
+func (p *Planner) applyPlan(pl Plan) {
+	trips := make([]Trip, len(pl.Trips))
+	for i, spec := range pl.Trips {
+		t := Trip{
+			Fields: [3]inputField{
+				{label: "From", value: spec.From},
+				{label: "To", value: spec.To},
+				{label: "Min nights", value: spec.MinNights},
+			},
+			Selected:   spec.Selected,
+			FilterMode: spec.FilterMode,
+		}
+		t.Filters = FilterSet{}
+		if spec.Filters != nil {
+			t.Filters = *spec.Filters
+		}
+		trips[i] = t
+	}
+	p.trips = trips
+	p.budget = pl.Budget
+	p.global = Config{
+		ExcludeResorts:   append([]string(nil), pl.ExcludeResorts...),
+		ExcludeRoomTypes: append([]string(nil), pl.ExcludeRoomTypes...),
+	}
+}
+
+// LoadPlan finds a plan by name and applies it, recomputing all trips and
+// recording it as the loaded plan. It returns false (leaving state untouched)
+// when no plan matches name.
+func (p *Planner) LoadPlan(name string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.plans {
+		if p.plans[i].Name == name {
+			p.applyPlan(p.plans[i])
+			p.loadedPlanName = name
+			p.recomputeAll()
+			return true
+		}
+	}
+	return false
+}
+
+// DeletePlan removes the named plan and persists the plans file. Deleting the
+// currently loaded plan clears LoadedPlanName. Deleting an unknown name is a
+// no-op (no write, nil error).
+func (p *Planner) DeletePlan(name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.plans {
+		if p.plans[i].Name == name {
+			p.plans = slices.Delete(p.plans, i, i+1)
+			if p.loadedPlanName == name {
+				p.loadedPlanName = ""
+			}
+			return SavePlans(p.plansPath, p.plans)
+		}
+	}
+	return nil
+}
+
+// Plans returns a defensive copy of the saved plans for the UI to render.
+func (p *Planner) Plans() []Plan {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]Plan(nil), p.plans...)
+}
+
+// LoadedPlanName returns the name of the plan last loaded or saved, or "" when
+// none.
+func (p *Planner) LoadedPlanName() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.loadedPlanName
+}
+
 // Snapshot is a fully detached, render-ready projection of the Planner's state.
 // It is the stable read contract the TUI and web layers render from: the returned
 // Trips slice and each TripSnapshot.Results slice are freshly allocated so callers
 // may hold them across calls and even mutate them without affecting the Planner.
 type Snapshot struct {
-	Budget        string
-	BudgetErr     string
-	Remaining     int
-	GlobalFilters Config
-	Trips         []TripSnapshot
+	Budget         string
+	BudgetErr      string
+	LoadedPlanName string
+	Remaining      int
+	GlobalFilters  Config
+	Trips          []TripSnapshot
 }
 
 // TripSnapshot is one trip's detached view within a Snapshot.
@@ -426,7 +543,8 @@ func (p *Planner) Snapshot() Snapshot {
 
 	budget, err := strconv.Atoi(p.budget)
 	s := Snapshot{
-		Budget: p.budget,
+		Budget:         p.budget,
+		LoadedPlanName: p.loadedPlanName,
 		GlobalFilters: Config{
 			ExcludeResorts:   append([]string(nil), p.global.ExcludeResorts...),
 			ExcludeRoomTypes: append([]string(nil), p.global.ExcludeRoomTypes...),

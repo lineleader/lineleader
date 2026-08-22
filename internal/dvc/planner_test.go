@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -711,6 +712,248 @@ func TestToggleTripResort_TwiceReturnsToSeededState(t *testing.T) {
 	}
 }
 
+// --- Plan operations ---
+
+// newPlanPlanner builds a Planner with a plansPath under t.TempDir and two
+// trips: trip 0 inherits, trip 1 overrides with specific filters.
+func newPlanPlanner(t *testing.T) *Planner {
+	t.Helper()
+	p := NewPlanner(PlannerOptions{
+		Charts:     []*ResortChart{minimalChart()},
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		PlansPath:  filepath.Join(t.TempDir(), "plans.json"),
+		Defaults: Defaults{
+			From:      "2026-01-04",
+			To:        "2026-01-08",
+			Budget:    "200",
+			MinNights: "1",
+		},
+	})
+	p.trips = append(p.trips, Trip{
+		Fields: [3]inputField{
+			{label: "From", value: "2026-02-01"},
+			{label: "To", value: "2026-02-05"},
+			{label: "Min nights", value: "2"},
+		},
+		FilterMode: FilterModeOverride,
+		Filters: FilterSet{
+			ExcludeResorts:   []string{"AKV"},
+			ExcludeRoomTypes: []string{"RESORT STUDIO"},
+		},
+	})
+	p.recomputeAll()
+	return p
+}
+
+func TestSavePlanLoadPlan_RoundTripsPerTripFilters(t *testing.T) {
+	p := newPlanPlanner(t)
+	// Set a global filter so the global round-trip is exercised too.
+	p.global.ExcludeResorts = []string{"VERO"}
+
+	if err := p.SavePlan("trip-plan"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	// Mutate live state so a successful Load is observable.
+	p.SetBudget("999")
+	p.SetTripField(0, 0, "2030-12-01")
+	p.global.ExcludeResorts = nil
+	p.trips[1].FilterMode = FilterModeInherit
+	p.trips[1].Filters = FilterSet{}
+
+	if !p.LoadPlan("trip-plan") {
+		t.Fatal("LoadPlan returned false for an existing plan")
+	}
+
+	if p.budget != "200" {
+		t.Errorf("budget = %q, want 200", p.budget)
+	}
+	if got := p.trips[0].Fields[0].value; got != "2026-01-04" {
+		t.Errorf("trip 0 From = %q, want 2026-01-04", got)
+	}
+	if !slices.Contains(p.global.ExcludeResorts, "VERO") {
+		t.Errorf("global ExcludeResorts = %v, want VERO", p.global.ExcludeResorts)
+	}
+	// Inherit trip restored as inherit, empty filters.
+	if p.trips[0].FilterMode != FilterModeInherit {
+		t.Errorf("trip 0 FilterMode = %q, want inherit", p.trips[0].FilterMode)
+	}
+	if len(p.trips[0].Filters.ExcludeResorts) != 0 || len(p.trips[0].Filters.ExcludeRoomTypes) != 0 {
+		t.Errorf("trip 0 Filters = %+v, want empty", p.trips[0].Filters)
+	}
+	// Override trip restored with its specific filters.
+	if p.trips[1].FilterMode != FilterModeOverride {
+		t.Errorf("trip 1 FilterMode = %q, want override", p.trips[1].FilterMode)
+	}
+	wantFilters := FilterSet{
+		ExcludeResorts:   []string{"AKV"},
+		ExcludeRoomTypes: []string{"RESORT STUDIO"},
+	}
+	if !reflect.DeepEqual(p.trips[1].Filters, wantFilters) {
+		t.Errorf("trip 1 Filters = %+v, want %+v", p.trips[1].Filters, wantFilters)
+	}
+	if p.LoadedPlanName() != "trip-plan" {
+		t.Errorf("LoadedPlanName = %q, want trip-plan", p.LoadedPlanName())
+	}
+}
+
+func TestSavePlan_UpsertsByName(t *testing.T) {
+	p := newPlanPlanner(t)
+	if err := p.SavePlan("p"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+	p.SetBudget("321")
+	if err := p.SavePlan("p"); err != nil {
+		t.Fatalf("SavePlan overwrite: %v", err)
+	}
+
+	plans := p.Plans()
+	if len(plans) != 1 {
+		t.Fatalf("Plans() = %d, want 1 (no duplicate)", len(plans))
+	}
+	if plans[0].Budget != "321" {
+		t.Errorf("plan Budget = %q, want 321 (overwritten)", plans[0].Budget)
+	}
+}
+
+func TestDeletePlan_RemovesAndClearsLoadedName(t *testing.T) {
+	p := newPlanPlanner(t)
+	if err := p.SavePlan("a"); err != nil {
+		t.Fatalf("SavePlan a: %v", err)
+	}
+	if err := p.SavePlan("b"); err != nil {
+		t.Fatalf("SavePlan b: %v", err)
+	}
+	// b is the loaded plan (last saved). Delete a first: loaded name unchanged.
+	if err := p.DeletePlan("a"); err != nil {
+		t.Fatalf("DeletePlan a: %v", err)
+	}
+	if p.LoadedPlanName() != "b" {
+		t.Errorf("after deleting a: LoadedPlanName = %q, want b", p.LoadedPlanName())
+	}
+	if len(p.Plans()) != 1 {
+		t.Fatalf("Plans() = %d, want 1", len(p.Plans()))
+	}
+	// Delete b, the loaded plan: name cleared.
+	if err := p.DeletePlan("b"); err != nil {
+		t.Fatalf("DeletePlan b: %v", err)
+	}
+	if p.LoadedPlanName() != "" {
+		t.Errorf("after deleting loaded plan: LoadedPlanName = %q, want empty", p.LoadedPlanName())
+	}
+	if len(p.Plans()) != 0 {
+		t.Errorf("Plans() = %d, want 0", len(p.Plans()))
+	}
+}
+
+func TestLoadPlan_UnknownNameLeavesStateUntouched(t *testing.T) {
+	p := newPlanPlanner(t)
+	budgetBefore := p.budget
+	tripsBefore := len(p.trips)
+	fromBefore := p.trips[0].Fields[0].value
+
+	if p.LoadPlan("does-not-exist") {
+		t.Fatal("LoadPlan returned true for an unknown name")
+	}
+	if p.budget != budgetBefore {
+		t.Errorf("budget mutated: %q, want %q", p.budget, budgetBefore)
+	}
+	if len(p.trips) != tripsBefore {
+		t.Errorf("trips count mutated: %d, want %d", len(p.trips), tripsBefore)
+	}
+	if p.trips[0].Fields[0].value != fromBefore {
+		t.Errorf("trip 0 From mutated: %q, want %q", p.trips[0].Fields[0].value, fromBefore)
+	}
+	if p.LoadedPlanName() != "" {
+		t.Errorf("LoadedPlanName = %q, want empty", p.LoadedPlanName())
+	}
+}
+
+func TestSavePlan_PersistsAndReloadsPerTripFilters(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	p := NewPlanner(PlannerOptions{
+		Charts:    []*ResortChart{minimalChart()},
+		PlansPath: plansPath,
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+	p.trips = append(p.trips, Trip{
+		Fields: [3]inputField{
+			{label: "From", value: "2026-02-01"},
+			{label: "To", value: "2026-02-05"},
+			{label: "Min nights", value: "2"},
+		},
+		FilterMode: FilterModeOverride,
+		Filters: FilterSet{
+			ExcludeResorts:   []string{"AKV"},
+			ExcludeRoomTypes: []string{"RESORT STUDIO"},
+		},
+	})
+	p.recomputeAll()
+
+	if err := p.SavePlan("persisted"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+	if _, err := os.Stat(plansPath); err != nil {
+		t.Fatalf("plans file not written: %v", err)
+	}
+
+	plans, err := LoadPlans(plansPath)
+	if err != nil {
+		t.Fatalf("LoadPlans: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("loaded %d plans, want 1", len(plans))
+	}
+	specs := plans[0].Trips
+	if len(specs) != 2 {
+		t.Fatalf("loaded %d trips, want 2", len(specs))
+	}
+	// Inherit trip must omit the filters key (nil pointer).
+	if specs[0].Filters != nil {
+		t.Errorf("inherit trip Filters = %+v, want nil", specs[0].Filters)
+	}
+	if specs[0].FilterMode != FilterModeInherit {
+		t.Errorf("inherit trip FilterMode = %q, want inherit", specs[0].FilterMode)
+	}
+	// Override trip must round-trip its filters through JSON.
+	if specs[1].FilterMode != FilterModeOverride {
+		t.Errorf("override trip FilterMode = %q, want override", specs[1].FilterMode)
+	}
+	if specs[1].Filters == nil {
+		t.Fatal("override trip Filters = nil, want a value")
+	}
+	want := FilterSet{
+		ExcludeResorts:   []string{"AKV"},
+		ExcludeRoomTypes: []string{"RESORT STUDIO"},
+	}
+	if !reflect.DeepEqual(*specs[1].Filters, want) {
+		t.Errorf("override trip Filters = %+v, want %+v", *specs[1].Filters, want)
+	}
+}
+
+func TestSavePlan_InheritTripSerializesWithoutFiltersKey(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	p := NewPlanner(PlannerOptions{
+		Charts:    []*ResortChart{minimalChart()},
+		PlansPath: plansPath,
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+	if err := p.SavePlan("inherit-only"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+	data, err := os.ReadFile(plansPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "\"filters\"") {
+		t.Errorf("inherit trip serialized a filters key:\n%s", data)
+	}
+}
+
 func TestToggleGlobalResort_SaveErrorReturnedButStateMutated(t *testing.T) {
 	p := newGlobalFilterPlanner(t)
 	// Point configPath at a path whose parent is a file, so MkdirAll/Save fails.
@@ -754,7 +997,8 @@ func newMultiChartPlanner(t *testing.T, budget string) *Planner {
 
 func TestSnapshot_BudgetErrorAndFields(t *testing.T) {
 	p := NewPlanner(PlannerOptions{
-		Charts: []*ResortChart{minimalChart()},
+		Charts:    []*ResortChart{minimalChart()},
+		PlansPath: filepath.Join(t.TempDir(), "plans.json"),
 		Defaults: Defaults{
 			From:      "2026-01-04",
 			To:        "2026-01-08",
@@ -762,6 +1006,9 @@ func TestSnapshot_BudgetErrorAndFields(t *testing.T) {
 			MinNights: "1",
 		},
 	})
+	if err := p.SavePlan("plan-a"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
 
 	s := p.Snapshot()
 	if s.Budget != "not-a-number" {
@@ -769,6 +1016,9 @@ func TestSnapshot_BudgetErrorAndFields(t *testing.T) {
 	}
 	if s.BudgetErr != "invalid Budget" {
 		t.Errorf("BudgetErr = %q, want %q", s.BudgetErr, "invalid Budget")
+	}
+	if s.LoadedPlanName != "plan-a" {
+		t.Errorf("LoadedPlanName = %q, want %q", s.LoadedPlanName, "plan-a")
 	}
 
 	p.SetBudget("200")
@@ -810,7 +1060,7 @@ func TestSnapshot_RemainingAndEffectiveBudget(t *testing.T) {
 
 func TestSnapshot_SpecFilterModeAndEffectiveFilters(t *testing.T) {
 	p := newPerTripPlanner(t, Config{})
-	p.ToggleGlobalResort("GLOB")  // global exclusion (inherit trip sees it)
+	p.ToggleGlobalResort("GLOB") // global exclusion (inherit trip sees it)
 	p.ToggleTripResort(1, "TRIP") // trip 1 -> override seeded from global, plus TRIP
 
 	s := p.Snapshot()
@@ -979,5 +1229,415 @@ func TestFilterOptions_OutOfRangeTreatedAsGlobal(t *testing.T) {
 		if v.Resorts[i] != g.Resorts[i] {
 			t.Errorf("resort %d = %+v, want %+v", i, v.Resorts[i], g.Resorts[i])
 		}
+	}
+}
+
+// --- Test hardening: legacy load + per-trip round-trip (lineleader-fpl.9) ---
+
+// plannerFromFile builds a fresh Planner that loads its plans from path, as the
+// app does at startup: LoadPlans -> PlannerOptions.Plans. global is the
+// in-memory global config the Planner starts with (overwritten by LoadPlan).
+func plannerFromFile(t *testing.T, charts []*ResortChart, plansPath string, global Config) *Planner {
+	t.Helper()
+	plans, err := LoadPlans(plansPath)
+	if err != nil {
+		t.Fatalf("LoadPlans(%s): %v", plansPath, err)
+	}
+	return NewPlanner(PlannerOptions{
+		Charts:    charts,
+		Global:    global,
+		Plans:     plans,
+		PlansPath: plansPath,
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+}
+
+// SCENARIO 1 — LEGACY PLAN LOAD: a plans.json predating per-trip filters (no
+// filter_mode / filters keys) must load with every trip resolving as inherit,
+// and an inherit trip's Results must equal those of applying the GLOBAL filters.
+func TestLoadPlan_LegacyJSONResolvesAsInherit(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	// Hand-written legacy JSON: no filter_mode, no filters, but a global
+	// exclude list on the plan (the only filter state legacy plans carried).
+	legacy := `{
+  "plans": [
+    {
+      "name": "legacy",
+      "budget": "200",
+      "trips": [
+        {"from": "2026-01-04", "to": "2026-01-08", "min_nights": "1"},
+        {"from": "2026-01-10", "to": "2026-01-14", "min_nights": "2"}
+      ],
+      "exclude_room_types": ["STUDIO"]
+    }
+  ]
+}`
+	if err := os.WriteFile(plansPath, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy plans: %v", err)
+	}
+
+	p := plannerFromFile(t, []*ResortChart{minimalChart()}, plansPath, Config{})
+	if !p.LoadPlan("legacy") {
+		t.Fatal("LoadPlan(legacy) returned false")
+	}
+
+	s := p.Snapshot()
+	if len(s.Trips) != 2 {
+		t.Fatalf("Trips = %d, want 2", len(s.Trips))
+	}
+	// Backward-compat guarantee: every trip resolves as inherit.
+	for i, tr := range s.Trips {
+		if tr.Spec.FilterMode != FilterModeInherit {
+			t.Errorf("trip %d FilterMode = %q, want inherit", i, tr.Spec.FilterMode)
+		}
+		if tr.Spec.Filters != nil {
+			t.Errorf("trip %d Spec.Filters = %+v, want nil", i, tr.Spec.Filters)
+		}
+	}
+	// The plan's global exclusion (STUDIO is the only room type) was restored
+	// into p.global, so inherit trips reflect it: zero results.
+	if got := p.global.ExcludeRoomTypes; !slices.Contains(got, "STUDIO") {
+		t.Errorf("plan global ExcludeRoomTypes = %v, want STUDIO restored", got)
+	}
+	for i, tr := range s.Trips {
+		if len(tr.Results) != 0 {
+			t.Errorf("inherit trip %d kept globally-excluded room type: %d results", i, len(tr.Results))
+		}
+		// EffectiveFilters for an inherit trip equals the restored global set.
+		if !reflect.DeepEqual(tr.EffectiveFilters, p.global.AsFilterSet()) {
+			t.Errorf("trip %d EffectiveFilters = %+v, want global %+v", i, tr.EffectiveFilters, p.global.AsFilterSet())
+		}
+	}
+}
+
+// SCENARIO 2 — PER-TRIP SERIALIZE/DESERIALIZE: a Planner with trip 0 inherit and
+// trip 1 override saves, then a FRESH Planner reads the file and LoadPlan
+// restores both trips' modes/filters and their Results match.
+func TestPerTripFilters_RoundTripThroughFreshPlanner(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	orig := NewPlanner(PlannerOptions{
+		Charts:    twoResortCharts(),
+		PlansPath: plansPath,
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+	// trip 0 inherit; trip 1 override excluding resort AAA.
+	orig.AddTrip()
+	orig.ToggleTripResort(1, "AAA")
+	if orig.trips[1].FilterMode != FilterModeOverride {
+		t.Fatalf("precondition: trip 1 should be override, got %q", orig.trips[1].FilterMode)
+	}
+	wantTrip0 := append([]StayResult(nil), orig.trips[0].Results...)
+	wantTrip1 := append([]StayResult(nil), orig.trips[1].Results...)
+	wantFilters := cloneFilterSet(orig.trips[1].Filters)
+
+	if err := orig.SavePlan("rt"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	// FRESH Planner reads the same file.
+	fresh := plannerFromFile(t, twoResortCharts(), plansPath, Config{})
+	if !fresh.LoadPlan("rt") {
+		t.Fatal("fresh LoadPlan(rt) returned false")
+	}
+
+	if fresh.trips[0].FilterMode != FilterModeInherit {
+		t.Errorf("trip 0 FilterMode = %q, want inherit", fresh.trips[0].FilterMode)
+	}
+	if fresh.trips[1].FilterMode != FilterModeOverride {
+		t.Errorf("trip 1 FilterMode = %q, want override", fresh.trips[1].FilterMode)
+	}
+	if !reflect.DeepEqual(fresh.trips[1].Filters, wantFilters) {
+		t.Errorf("trip 1 Filters = %+v, want %+v", fresh.trips[1].Filters, wantFilters)
+	}
+	if !slices.EqualFunc(fresh.trips[0].Results, wantTrip0, stayEquals) {
+		t.Errorf("trip 0 Results differ after round-trip: got %d, want %d", len(fresh.trips[0].Results), len(wantTrip0))
+	}
+	if !slices.EqualFunc(fresh.trips[1].Results, wantTrip1, stayEquals) {
+		t.Errorf("trip 1 Results differ after round-trip: got %d, want %d", len(fresh.trips[1].Results), len(wantTrip1))
+	}
+}
+
+// SCENARIO 3 — MIXED PLAN: some trips override, some inherit; per-trip isolation
+// survives save/load and mutating one override trip never bleeds into another or
+// into an inherit trip.
+func TestMixedPlan_IsolationSurvivesSaveLoad(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	orig := NewPlanner(PlannerOptions{
+		Charts:    twoResortCharts(),
+		PlansPath: plansPath,
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+	orig.AddTrip() // trip 1
+	orig.AddTrip() // trip 2
+	// trip 0 inherit; trip 1 override excl AAA; trip 2 override excl BBB.
+	orig.ToggleTripResort(1, "AAA")
+	orig.ToggleTripResort(2, "BBB")
+
+	if err := orig.SavePlan("mixed"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	fresh := plannerFromFile(t, twoResortCharts(), plansPath, Config{})
+	if !fresh.LoadPlan("mixed") {
+		t.Fatal("LoadPlan(mixed) returned false")
+	}
+	if len(fresh.trips) != 3 {
+		t.Fatalf("trips = %d, want 3", len(fresh.trips))
+	}
+	if fresh.trips[0].FilterMode != FilterModeInherit {
+		t.Errorf("trip 0 mode = %q, want inherit", fresh.trips[0].FilterMode)
+	}
+	if !slices.Equal(fresh.trips[1].Filters.ExcludeResorts, []string{"AAA"}) {
+		t.Errorf("trip 1 ExcludeResorts = %v, want [AAA]", fresh.trips[1].Filters.ExcludeResorts)
+	}
+	if !slices.Equal(fresh.trips[2].Filters.ExcludeResorts, []string{"BBB"}) {
+		t.Errorf("trip 2 ExcludeResorts = %v, want [BBB]", fresh.trips[2].Filters.ExcludeResorts)
+	}
+
+	// Mutate trip 1's override; trip 2 and the inherit trip 0 must be untouched.
+	trip2Before := cloneFilterSet(fresh.trips[2].Filters)
+	fresh.ToggleTripResort(1, "BBB") // now trip 1 excludes AAA + BBB
+	if !slices.Equal(fresh.trips[2].Filters.ExcludeResorts, trip2Before.ExcludeResorts) {
+		t.Errorf("mutating trip 1 bled into trip 2: %v", fresh.trips[2].Filters.ExcludeResorts)
+	}
+	if fresh.trips[0].FilterMode != FilterModeInherit ||
+		len(fresh.trips[0].Filters.ExcludeResorts) != 0 {
+		t.Errorf("mutating trip 1 bled into inherit trip 0: mode=%q filters=%+v",
+			fresh.trips[0].FilterMode, fresh.trips[0].Filters)
+	}
+}
+
+// SCENARIO 4 — CONFIG vs PLAN: global exclusions live in config.json (SaveConfig)
+// AND are snapshotted onto the Plan. Loading a plan restores the plan's global
+// filters into p.global and an inherit trip reflects them.
+func TestConfigVsPlan_PlanGlobalsRestoredOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	plansPath := filepath.Join(dir, "plans.json")
+
+	p := NewPlanner(PlannerOptions{
+		Charts:     twoResortCharts(),
+		ConfigPath: configPath,
+		PlansPath:  plansPath,
+		Defaults: Defaults{
+			From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1",
+		},
+	})
+	// Global exclude AAA: persists to config.json AND, on SavePlan, onto the plan.
+	if err := p.ToggleGlobalResort("AAA"); err != nil {
+		t.Fatalf("ToggleGlobalResort: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !slices.Contains(cfg.ExcludeResorts, "AAA") {
+		t.Errorf("config.json ExcludeResorts = %v, want AAA", cfg.ExcludeResorts)
+	}
+	if err := p.SavePlan("cfg-plan"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+	// Plan snapshot carries the global exclusion.
+	plans := p.Plans()
+	if !slices.Contains(plans[0].ExcludeResorts, "AAA") {
+		t.Errorf("plan ExcludeResorts = %v, want AAA snapshotted", plans[0].ExcludeResorts)
+	}
+
+	// Fresh Planner starts with NO global filters; LoadPlan restores them.
+	fresh := plannerFromFile(t, twoResortCharts(), plansPath, Config{})
+	if len(fresh.global.ExcludeResorts) != 0 {
+		t.Fatalf("precondition: fresh global should be empty, got %v", fresh.global.ExcludeResorts)
+	}
+	if !fresh.LoadPlan("cfg-plan") {
+		t.Fatal("LoadPlan(cfg-plan) returned false")
+	}
+	if !slices.Contains(fresh.global.ExcludeResorts, "AAA") {
+		t.Errorf("after load p.global.ExcludeResorts = %v, want AAA", fresh.global.ExcludeResorts)
+	}
+	// Inherit trip reflects the restored global in EffectiveFilters/Results.
+	s := fresh.Snapshot()
+	if !slices.Contains(s.Trips[0].EffectiveFilters.ExcludeResorts, "AAA") {
+		t.Errorf("inherit trip EffectiveFilters = %+v, want AAA", s.Trips[0].EffectiveFilters)
+	}
+	if got := resortsInResults(s.Trips[0].Results); got["AAA Resort"] {
+		t.Errorf("inherit trip still shows excluded AAA Resort: %v", got)
+	}
+}
+
+// REGRESSION 5 — a per-trip INVALID date leaves that trip's PRIOR Results intact
+// (the "left as-is" semantic in recomputeTrip) and does not disturb other trips.
+func TestRecomputeTrip_InvalidDateKeepsPriorResults(t *testing.T) {
+	p := newTestPlanner("200")
+	p.AddTrip()
+	if len(p.trips[0].Results) == 0 || len(p.trips[1].Results) == 0 {
+		t.Fatalf("precondition: need results, got %d/%d", len(p.trips[0].Results), len(p.trips[1].Results))
+	}
+	priorTrip0 := append([]StayResult(nil), p.trips[0].Results...)
+	trip1Results := append([]StayResult(nil), p.trips[1].Results...)
+
+	// Set trip 0's From to garbage. recomputeAll re-runs all trips: trip 0 gets
+	// Err but keeps its prior Results; trip 1 recomputes normally.
+	p.SetTripField(0, 0, "not-a-date")
+
+	if p.trips[0].Err != "invalid From date" {
+		t.Errorf("trip 0 Err = %q, want invalid From date", p.trips[0].Err)
+	}
+	if !slices.EqualFunc(p.trips[0].Results, priorTrip0, stayEquals) {
+		t.Errorf("trip 0 Results changed on invalid date: got %d, want prior %d",
+			len(p.trips[0].Results), len(priorTrip0))
+	}
+	if p.trips[1].Err != "" {
+		t.Errorf("trip 1 Err = %q, want empty (unaffected)", p.trips[1].Err)
+	}
+	if !slices.EqualFunc(p.trips[1].Results, trip1Results, stayEquals) {
+		t.Errorf("trip 1 Results disturbed by trip 0's invalid date")
+	}
+}
+
+// REGRESSION 7 — AddTrip's new trip's EffectiveBudget already reflects an
+// existing selection in ANOTHER trip (clone-then-recompute subtracts the prior
+// selection's points, not just date cloning).
+func TestAddTrip_NewTripBudgetReflectsExistingSelection(t *testing.T) {
+	p := newTestPlanner("200")
+	p.ToggleSelection(0, 0)
+	selPts := p.trips[0].Selected.Points
+	if selPts == 0 {
+		t.Fatal("precondition: expected non-zero selected points")
+	}
+
+	p.AddTrip()
+	s := p.Snapshot()
+	if len(s.Trips) != 2 {
+		t.Fatalf("Trips = %d, want 2", len(s.Trips))
+	}
+	if want := 200 - selPts; s.Trips[1].EffectiveBudget != want {
+		t.Errorf("new trip EffectiveBudget = %d, want %d (200 - %d selected elsewhere)",
+			s.Trips[1].EffectiveBudget, want, selPts)
+	}
+}
+
+// EDGE — empty plans.json -> LoadPlans returns nil and no panic. Covers both a
+// missing file and an empty JSON object (no "plans" key); both yield a nil slice.
+// An explicit empty array yields a non-nil, length-0 slice, which is also handled
+// without panic downstream.
+func TestLoadPlans_EmptyReturnsNil(t *testing.T) {
+	dir := t.TempDir()
+
+	// Missing file.
+	if plans, err := LoadPlans(filepath.Join(dir, "absent.json")); err != nil || plans != nil {
+		t.Errorf("missing file: got (%v, %v), want (nil, nil)", plans, err)
+	}
+
+	// Empty JSON object (legacy plans file with no plans written yet).
+	emptyObj := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(emptyObj, []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if plans, err := LoadPlans(emptyObj); err != nil || plans != nil {
+		t.Errorf("empty object: got (%v, %v), want (nil, nil)", plans, err)
+	}
+
+	// Explicit empty array: non-nil but length 0, no panic.
+	emptyArr := filepath.Join(dir, "arr.json")
+	if err := os.WriteFile(emptyArr, []byte(`{"plans": []}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	plans, err := LoadPlans(emptyArr)
+	if err != nil {
+		t.Fatalf("empty array LoadPlans: %v", err)
+	}
+	if len(plans) != 0 {
+		t.Errorf("empty array: len = %d, want 0", len(plans))
+	}
+}
+
+// EDGE — a plan with zero trips is handled defensively (no panic on
+// LoadPlan/Snapshot).
+func TestLoadPlan_ZeroTripsDefensive(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	zero := `{"plans": [{"name": "empty", "budget": "200", "trips": []}]}`
+	if err := os.WriteFile(plansPath, []byte(zero), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p := plannerFromFile(t, []*ResortChart{minimalChart()}, plansPath, Config{})
+
+	if !p.LoadPlan("empty") {
+		t.Fatal("LoadPlan(empty) returned false")
+	}
+	if len(p.trips) != 0 {
+		t.Errorf("trips = %d, want 0", len(p.trips))
+	}
+	// Snapshot must not panic on a zero-trip planner.
+	s := p.Snapshot()
+	if len(s.Trips) != 0 {
+		t.Errorf("Snapshot Trips = %d, want 0", len(s.Trips))
+	}
+	// FilterOptions for any index degrades to global without panic.
+	_ = p.FilterOptions(0)
+	_ = p.FilterOptions(-1)
+}
+
+// EDGE — a FilterSet with ONLY room types round-trips through save/load.
+func TestPerTripFilters_OnlyRoomTypesRoundTrip(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	orig := NewPlanner(PlannerOptions{
+		Charts:    twoResortCharts(),
+		PlansPath: plansPath,
+		Defaults:  Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1"},
+	})
+	orig.ToggleTripRoomType(0, "STUDIO") // override with only a room-type exclusion
+	if len(orig.trips[0].Filters.ExcludeResorts) != 0 {
+		t.Fatalf("precondition: no resort exclusions, got %v", orig.trips[0].Filters.ExcludeResorts)
+	}
+	if err := orig.SavePlan("rooms-only"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	fresh := plannerFromFile(t, twoResortCharts(), plansPath, Config{})
+	if !fresh.LoadPlan("rooms-only") {
+		t.Fatal("LoadPlan returned false")
+	}
+	if fresh.trips[0].FilterMode != FilterModeOverride {
+		t.Errorf("mode = %q, want override", fresh.trips[0].FilterMode)
+	}
+	if !slices.Equal(fresh.trips[0].Filters.ExcludeRoomTypes, []string{"STUDIO"}) {
+		t.Errorf("ExcludeRoomTypes = %v, want [STUDIO]", fresh.trips[0].Filters.ExcludeRoomTypes)
+	}
+	if len(fresh.trips[0].Filters.ExcludeResorts) != 0 {
+		t.Errorf("ExcludeResorts = %v, want empty", fresh.trips[0].Filters.ExcludeResorts)
+	}
+}
+
+// EDGE (mirror) — a FilterSet with ONLY resorts round-trips through save/load.
+func TestPerTripFilters_OnlyResortsRoundTrip(t *testing.T) {
+	plansPath := filepath.Join(t.TempDir(), "plans.json")
+	orig := NewPlanner(PlannerOptions{
+		Charts:    twoResortCharts(),
+		PlansPath: plansPath,
+		Defaults:  Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "200", MinNights: "1"},
+	})
+	orig.ToggleTripResort(0, "AAA") // override with only a resort exclusion
+	if len(orig.trips[0].Filters.ExcludeRoomTypes) != 0 {
+		t.Fatalf("precondition: no room-type exclusions, got %v", orig.trips[0].Filters.ExcludeRoomTypes)
+	}
+	if err := orig.SavePlan("resorts-only"); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	fresh := plannerFromFile(t, twoResortCharts(), plansPath, Config{})
+	if !fresh.LoadPlan("resorts-only") {
+		t.Fatal("LoadPlan returned false")
+	}
+	if !slices.Equal(fresh.trips[0].Filters.ExcludeResorts, []string{"AAA"}) {
+		t.Errorf("ExcludeResorts = %v, want [AAA]", fresh.trips[0].Filters.ExcludeResorts)
+	}
+	if len(fresh.trips[0].Filters.ExcludeRoomTypes) != 0 {
+		t.Errorf("ExcludeRoomTypes = %v, want empty", fresh.trips[0].Filters.ExcludeRoomTypes)
 	}
 }

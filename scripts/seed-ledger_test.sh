@@ -126,6 +126,7 @@ LEDGER_DSN="$test_dsn" AUTH_SECRET="$AUTH_SECRET" \
   --insecure-cookies \
   --data-dir "$REPO_ROOT/data/point-charts" \
   --config "$work_dir/config.json" \
+  --plans "$work_dir/plans.json" \
   >"$work_dir/server.log" 2>&1 &
 server_pid=$!
 

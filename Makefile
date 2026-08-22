@@ -83,3 +83,7 @@ docker-run: docker-build
 .PHONY: clean
 clean:
 	rm -rf bin/*
+
+.PHONY: tui
+tui: dvc
+	./bin/dvc tui

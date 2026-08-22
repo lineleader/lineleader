@@ -11,10 +11,11 @@ import (
 
 // View structs passed to templates.
 type appView struct {
-	Budget    string
-	BudgetErr string
-	Remaining int
-	Trips     []tripView
+	Budget         string
+	BudgetErr      string
+	Remaining      int
+	LoadedPlanName string
+	Trips          []tripView
 
 	// ShowCosts gates every dollar affordance on the results tables and trip
 	// summary chips (see tripView.ShowCosts's doc comment) — false whenever
@@ -130,6 +131,12 @@ type roomTypeOption struct {
 	Enabled bool
 }
 
+type plansView struct {
+	Plans          []dvc.Plan
+	LoadedPlanName string
+	Err            string
+}
+
 // stayKey is the identity composite used to mark the selected result row. It
 // includes Points because a real search can return two rows that are
 // otherwise identical (same resort/room type/view/check-in/check-out) but
@@ -140,8 +147,9 @@ type roomTypeOption struct {
 // (dvc.TripSpec.Selected / dvc.TripSnapshot.Selected) is always a full
 // dvc.StayResult with its own Points value copied from the row that was
 // selected — StayResult.Points has no omitempty and isn't a pointer, so it
-// round-trips through JSON unconditionally. There's no way for a stored
-// selection to legitimately lack Points.
+// round-trips through JSON (plans.json) unconditionally, including for
+// already-saved plans. There's no way for a stored selection to legitimately
+// lack Points.
 func stayKey(r dvc.StayResult) string {
 	return fmt.Sprintf("%s|%s|%s|%s|%s|%d",
 		r.Resort, r.RoomType, r.View,
@@ -165,11 +173,12 @@ func (s *Session) buildAppView(snap dvc.Snapshot) appView {
 	showCosts := ok && basis.Known()
 
 	v := appView{
-		Budget:    snap.Budget,
-		BudgetErr: snap.BudgetErr,
-		Remaining: snap.Remaining,
-		Trips:     make([]tripView, len(snap.Trips)),
-		ShowCosts: showCosts,
+		Budget:         snap.Budget,
+		BudgetErr:      snap.BudgetErr,
+		Remaining:      snap.Remaining,
+		LoadedPlanName: snap.LoadedPlanName,
+		Trips:          make([]tripView, len(snap.Trips)),
+		ShowCosts:      showCosts,
 	}
 
 	// totalSelectedCost sums every trip's selected stay's real cents (never

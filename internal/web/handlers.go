@@ -290,7 +290,78 @@ func (h *handlers) renderTripFilterToggle(w http.ResponseWriter, i int) {
 	h.render(w, "filters_trip_toggle", data)
 }
 
+// openPlans handles GET /plans.
+func (h *handlers) openPlans(w http.ResponseWriter, r *http.Request) {
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	h.renderPlans(w, "")
+}
+
+// savePlan handles POST /plans.
+func (h *handlers) savePlan(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := r.FormValue("name")
+	if name == "" {
+		http.Error(w, "missing name", http.StatusBadRequest)
+		return
+	}
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	saveErr := ""
+	if err := h.session.p.SavePlan(name); err != nil {
+		saveErr = err.Error()
+	}
+	h.renderPlans(w, saveErr)
+}
+
+// updatePlan handles POST /plans/{name}/update — overwrites the named plan.
+func (h *handlers) updatePlan(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	saveErr := ""
+	if err := h.session.p.SavePlan(name); err != nil {
+		saveErr = err.Error()
+	}
+	h.renderPlans(w, saveErr)
+}
+
+// loadPlan handles POST /plans/{name}/load.
+func (h *handlers) loadPlan(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	h.session.p.LoadPlan(name)
+	snap := h.session.p.Snapshot()
+	h.session.reconcileCollapsed(snap)
+	h.render(w, "plan_load", struct{ App appView }{App: h.session.buildAppView(snap)})
+}
+
+// deletePlan handles DELETE /plans/{name}.
+func (h *handlers) deletePlan(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	saveErr := ""
+	if err := h.session.p.DeletePlan(name); err != nil {
+		saveErr = err.Error()
+	}
+	h.renderPlans(w, saveErr)
+}
+
 // closePanel handles GET /panel/close.
 func (h *handlers) closePanel(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "panel_empty", nil)
+}
+
+// renderPlans renders the plans panel. Caller must hold session lock.
+func (h *handlers) renderPlans(w http.ResponseWriter, errMsg string) {
+	h.render(w, "plans", plansView{
+		Plans:          h.session.p.Plans(),
+		LoadedPlanName: h.session.p.LoadedPlanName(),
+		Err:            errMsg,
+	})
 }
