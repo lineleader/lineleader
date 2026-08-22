@@ -40,8 +40,6 @@ type Options struct {
 	Charts     []*dvc.ResortChart
 	Config     dvc.Config
 	ConfigPath string
-	Plans      []dvc.Plan
-	PlansPath  string
 	Defaults   Defaults
 	Ledger     *ledger.Store // optional; when set, the /ledger pages are served
 
@@ -74,7 +72,7 @@ func NewServer(opts Options) http.Handler {
 	costs := newCostProvider(opts.Ledger)
 	h := &handlers{
 		tmpl:    tmpl,
-		session: NewSession(opts.Charts, opts.Config, opts.ConfigPath, opts.Plans, opts.PlansPath, opts.Defaults, costs),
+		session: NewSession(opts.Charts, opts.Config, opts.ConfigPath, opts.Defaults, costs),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthzHandler(opts.Ledger))
@@ -94,11 +92,6 @@ func NewServer(opts Options) http.Handler {
 	mux.HandleFunc("POST /trips/{i}/filters/resorts/{code}", h.toggleTripResort)
 	mux.HandleFunc("POST /trips/{i}/filters/roomtypes/{name}", h.toggleTripRoomType)
 	mux.HandleFunc("DELETE /trips/{i}/filters", h.resetTripFilters)
-	mux.HandleFunc("GET /plans", h.openPlans)
-	mux.HandleFunc("POST /plans", h.savePlan)
-	mux.HandleFunc("POST /plans/{name}/load", h.loadPlan)
-	mux.HandleFunc("POST /plans/{name}/update", h.updatePlan)
-	mux.HandleFunc("DELETE /plans/{name}", h.deletePlan)
 	mux.HandleFunc("GET /panel/close", h.closePanel)
 
 	if opts.Ledger != nil {

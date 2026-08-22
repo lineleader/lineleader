@@ -43,15 +43,15 @@ check-in/out dates, nights, and total points.
 
 **Web UI:**
 
-The same planning session is available in a browser. Each trip card has a
+The planner is also available as a browser app. Each trip card has a
 **Filters** button that opens a panel scoped to that trip, with an
 **Inherit** / **Override** switch. While inheriting, the trip's filter rows
 mirror the global exclusions and are read-only; switch to Override (or toggle
 a row) to edit that trip's own exclusions. Changes update only that trip via
 an out-of-band swap — other trips are untouched — and an
 `[filters: override]` / `[filters: inherit]` chip on the trip card reflects
-the current mode. Per-trip filter changes save with the plan; global filter
-changes persist to `config.json`.
+the current mode. Per-trip filter changes are in-memory only for now (lost on
+restart); global filter changes persist to `config.json`.
 
 **Show available data:**
 
@@ -92,8 +92,8 @@ trips that consume them. The ledger is a single chronological list whose running
 balance is derived: each row adds points (`Allotted`) or spends them (`Used`), and
 borrowing simply shows up as the running balance going negative until the next
 allotment restores it. It is stored in Postgres, which the server connects to
-via `--ledger-dsn` (or the `LEDGER_DSN` env var); all other data (charts,
-plans, config) stays in JSON. The schema self-applies idempotently on boot, so
+via `--ledger-dsn` (or the `LEDGER_DSN` env var); charts and the global
+filter config stay in JSON. The schema self-applies idempotently on boot, so
 pointing the server at an empty database is enough. If you still have the old
 SQLite ledger, see [Seeding the hosted ledger](#seeding-the-hosted-ledger) for
 the one-shot import.
@@ -230,7 +230,7 @@ ledger schema self-applies idempotently on boot, so there is no migration
 step.
 
 A named volume (`state`) is mounted at `/state` inside the container for
-`config.json`/`plans.json` — the only file state outside Postgres.
+`config.json` — the only file state outside Postgres.
 
 ### Seeding the hosted ledger
 

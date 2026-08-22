@@ -30,13 +30,11 @@ type Session struct {
 // is the ledger cost snapshot provider (see costProvider) — always non-nil
 // in practice (NewServer passes newCostProvider(opts.Ledger), which is
 // itself nil-store-safe), so buildAppView never needs to nil-check it.
-func NewSession(charts []*dvc.ResortChart, cfg dvc.Config, configPath string, plans []dvc.Plan, plansPath string, defaults Defaults, costs *costProvider) *Session {
+func NewSession(charts []*dvc.ResortChart, cfg dvc.Config, configPath string, defaults Defaults, costs *costProvider) *Session {
 	p := dvc.NewPlanner(dvc.PlannerOptions{
 		Charts:     charts,
 		Global:     cfg,
 		ConfigPath: configPath,
-		Plans:      plans,
-		PlansPath:  plansPath,
 		Defaults: dvc.Defaults{
 			From:      defaults.From,
 			To:        defaults.To,

@@ -35,16 +35,16 @@ COPY --from=build /out/server /app/server
 COPY --chown=nonroot:nonroot data/point-charts /app/data/point-charts
 
 # deploy/percival/docker-compose.yml mounts a named volume at /state for
-# config.json/plans.json. Docker only preserves ownership on a named
-# volume's *first* use: if the mount point doesn't already exist in the
-# image, Docker creates the volume fresh as root:root, and the nonroot
-# (65532) process below can never write to it — that's the root cause of
-# the 500 "open /state/config.json.tmp: permission denied" from the
-# /filters/resorts and /filters/roomtypes POST handlers (dvc.SaveConfig/
-# dvc.SavePlans). By instead making /state exist here, owned by
-# nonroot:nonroot, Docker's volume "copy-up" carries that ownership into
-# the volume — for both a brand-new volume and a still-empty
-# pre-existing one — so the app can write. See scripts/image_state_test.sh.
+# config.json. Docker only preserves ownership on a named volume's *first*
+# use: if the mount point doesn't already exist in the image, Docker
+# creates the volume fresh as root:root, and the nonroot (65532) process
+# below can never write to it — that's the root cause of the 500 "open
+# /state/config.json.tmp: permission denied" from the /filters/resorts and
+# /filters/roomtypes POST handlers (dvc.SaveConfig). By instead making
+# /state exist here, owned by nonroot:nonroot, Docker's volume "copy-up"
+# carries that ownership into the volume — for both a brand-new volume and
+# a still-empty pre-existing one — so the app can write. See
+# scripts/image_state_test.sh.
 COPY --from=build --chown=nonroot:nonroot /out/state /state
 
 WORKDIR /app
@@ -52,6 +52,6 @@ USER nonroot:nonroot
 
 EXPOSE 8080
 
-# --config/--plans point into /state, a volume mounted by docker-compose.
+# --config points into /state, a volume mounted by docker-compose.
 # --data-dir points at the charts baked into the image above.
-ENTRYPOINT ["/app/server", "--data-dir", "/app/data/point-charts", "--config", "/state/config.json", "--plans", "/state/plans.json"]
+ENTRYPOINT ["/app/server", "--data-dir", "/app/data/point-charts", "--config", "/state/config.json"]
