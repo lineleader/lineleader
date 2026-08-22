@@ -80,6 +80,22 @@ type Defaults struct {
 	From, To, Budget, MinNights string
 }
 
+// inputField holds the label and current text value for one search parameter.
+type inputField struct {
+	label string
+	value string
+}
+
+// Trip represents one planned stay within a multi-trip planning session.
+type Trip struct {
+	Fields     [3]inputField // 0=From, 1=To, 2=MinNights (Budget is global)
+	Results    []StayResult
+	Selected   *StayResult // heap-allocated copy; nil = no selection
+	Err        string      // per-trip parse/search error
+	FilterMode FilterMode  // inherit (zero value) or override the global filters
+	Filters    FilterSet   // this trip's exclusions when FilterMode is override
+}
+
 // Planner is the concurrency-safe single source of truth for a multi-trip
 // planning session. It holds the trips, the global budget and filters, and the
 // loaded plans, and recomputes search results whenever its state changes.
