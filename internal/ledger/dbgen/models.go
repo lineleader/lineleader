@@ -6,6 +6,7 @@ package dbgen
 
 import (
 	"database/sql"
+	"time"
 )
 
 type Contract struct {
@@ -35,4 +36,30 @@ type Entry struct {
 	Used        int32
 	Tag         string
 	ContractID  sql.NullInt64
+}
+
+type Trip struct {
+	ID               int64
+	Name             string
+	StartDate        time.Time
+	EndDate          time.Time
+	MinNights        int32
+	BudgetOverride   sql.NullInt32
+	FilterMode       string
+	ExcludeResorts   string
+	ExcludeRoomTypes string
+}
+
+type TripStay struct {
+	ID        int64
+	TripID    int64
+	Resort    string
+	RoomType  string
+	View      string
+	CheckIn   time.Time
+	CheckOut  time.Time
+	Nights    int32
+	Points    int32
+	QuoteHash string
+	EntryID   sql.NullInt64
 }

@@ -151,13 +151,13 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 		t.Fatalf("dues_rates after Open = %d, want 8 (not duplicated)", v)
 	}
 
-	// Both migrations must now be recorded as applied.
+	// All migrations must now be recorded as applied.
 	version, err := goose.GetDBVersion(admin)
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion: %v", err)
 	}
-	if version != 3 {
-		t.Fatalf("goose db version after Open = %d, want 3 (all migrations applied)", version)
+	if version != 4 {
+		t.Fatalf("goose db version after Open = %d, want 4 (all migrations applied)", version)
 	}
 
 	// Step 4: calling Open a second time must be a complete no-op.
@@ -180,8 +180,8 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion after second Open: %v", err)
 	}
-	if version2 != 3 {
-		t.Fatalf("goose db version after second Open = %d, want 3 (no new versions)", version2)
+	if version2 != 4 {
+		t.Fatalf("goose db version after second Open = %d, want 4 (no new versions)", version2)
 	}
 	var versionRows int
 	if err := admin.QueryRow(`SELECT count(*) FROM goose_db_version`).Scan(&versionRows); err != nil {
@@ -189,7 +189,7 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	}
 	// goose records one bootstrap row (version 0) plus one row per applied
 	// migration; a second Open must not add any more.
-	const wantVersionRows = 4 // 0 (bootstrap), 1, 2, 3
+	const wantVersionRows = 5 // 0 (bootstrap), 1, 2, 3, 4
 	if versionRows != wantVersionRows {
 		t.Fatalf("goose_db_version row count after second Open = %d, want %d (no duplicate version rows)", versionRows, wantVersionRows)
 	}
@@ -228,8 +228,8 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion: %v", err)
 	}
-	if version != 3 {
-		t.Fatalf("goose db version on fresh database = %d, want 2", version)
+	if version != 4 {
+		t.Fatalf("goose db version on fresh database = %d, want 4", version)
 	}
 
 	// The rest of Store's API should work immediately, too.
