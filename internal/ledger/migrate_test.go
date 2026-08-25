@@ -62,6 +62,15 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	// Step 2: real data to lose, inserted directly (bypassing Store, which
 	// doesn't exist yet in this test — the whole point is that no Store
 	// has ever run against this database).
+	//
+	// Everything in this step still says `contracts`/`entries`/`dues_rates`,
+	// plural, because at this point in the test that is genuinely what the
+	// tables are called: this is percival's pre-goose schema, laid down from
+	// the frozen testdata/legacy_schema.sql snapshot, and migration
+	// 00003_singular_table_names.sql has not run yet. Every assertion after
+	// Open() below uses the singular names, and the contrast is the point —
+	// it proves the rename carried the real rows across rather than
+	// quietly creating fresh empty tables beside them.
 	var contractID int64
 	if err := admin.QueryRow(
 		`INSERT INTO contracts (name, number, home_resort, annual_points, use_year_month)
@@ -122,23 +131,23 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	}
 
 	var e1Desc, e2Desc string
-	if err := admin.QueryRow(`SELECT description FROM entries WHERE id = $1`, entry1ID).Scan(&e1Desc); err != nil {
+	if err := admin.QueryRow(`SELECT description FROM entry WHERE id = $1`, entry1ID).Scan(&e1Desc); err != nil {
 		t.Fatalf("re-reading entry 1: %v", err)
 	}
-	if err := admin.QueryRow(`SELECT description FROM entries WHERE id = $1`, entry2ID).Scan(&e2Desc); err != nil {
+	if err := admin.QueryRow(`SELECT description FROM entry WHERE id = $1`, entry2ID).Scan(&e2Desc); err != nil {
 		t.Fatalf("re-reading entry 2: %v", err)
 	}
 	if e1Desc != "Point allocation" || e2Desc != "BLT studio" {
 		t.Fatalf("entries after Open: e1=%q e2=%q, want originals preserved", e1Desc, e2Desc)
 	}
-	if v := countRows(t, admin, "entries"); v != 2 {
+	if v := countRows(t, admin, "entry"); v != 2 {
 		t.Fatalf("entries after Open = %d, want 2 (unchanged)", v)
 	}
 
 	// dues_rates must still have exactly 8 rows — the baseline migration's
 	// seed step must recognize the pre-existing rows via its WHERE NOT
 	// EXISTS guard and skip inserting, not duplicate them.
-	if v := countRows(t, admin, "dues_rates"); v != 8 {
+	if v := countRows(t, admin, "dues_rate"); v != 8 {
 		t.Fatalf("dues_rates after Open = %d, want 8 (not duplicated)", v)
 	}
 
@@ -147,8 +156,8 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("goose db version after Open = %d, want 2 (both migrations applied)", version)
+	if version != 3 {
+		t.Fatalf("goose db version after Open = %d, want 3 (all migrations applied)", version)
 	}
 
 	// Step 4: calling Open a second time must be a complete no-op.
@@ -158,21 +167,21 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	}
 	defer store2.Close()
 
-	if v := countRows(t, admin, "contracts"); v != 1 {
+	if v := countRows(t, admin, "contract"); v != 1 {
 		t.Fatalf("contracts after second Open = %d, want 1 (unchanged)", v)
 	}
-	if v := countRows(t, admin, "entries"); v != 2 {
+	if v := countRows(t, admin, "entry"); v != 2 {
 		t.Fatalf("entries after second Open = %d, want 2 (unchanged)", v)
 	}
-	if v := countRows(t, admin, "dues_rates"); v != 8 {
+	if v := countRows(t, admin, "dues_rate"); v != 8 {
 		t.Fatalf("dues_rates after second Open = %d, want 8 (unchanged)", v)
 	}
 	version2, err := goose.GetDBVersion(admin)
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion after second Open: %v", err)
 	}
-	if version2 != 2 {
-		t.Fatalf("goose db version after second Open = %d, want 2 (no new versions)", version2)
+	if version2 != 3 {
+		t.Fatalf("goose db version after second Open = %d, want 3 (no new versions)", version2)
 	}
 	var versionRows int
 	if err := admin.QueryRow(`SELECT count(*) FROM goose_db_version`).Scan(&versionRows); err != nil {
@@ -180,7 +189,7 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	}
 	// goose records one bootstrap row (version 0) plus one row per applied
 	// migration; a second Open must not add any more.
-	const wantVersionRows = 3 // 0 (bootstrap), 1, 2
+	const wantVersionRows = 4 // 0 (bootstrap), 1, 2, 3
 	if versionRows != wantVersionRows {
 		t.Fatalf("goose_db_version row count after second Open = %d, want %d (no duplicate version rows)", versionRows, wantVersionRows)
 	}
@@ -205,13 +214,13 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	}
 	defer admin.Close()
 
-	if v := countRows(t, admin, "contracts"); v != 0 {
+	if v := countRows(t, admin, "contract"); v != 0 {
 		t.Fatalf("contracts on fresh database = %d, want 0", v)
 	}
-	if v := countRows(t, admin, "entries"); v != 0 {
+	if v := countRows(t, admin, "entry"); v != 0 {
 		t.Fatalf("entries on fresh database = %d, want 0", v)
 	}
-	if v := countRows(t, admin, "dues_rates"); v != 8 {
+	if v := countRows(t, admin, "dues_rate"); v != 8 {
 		t.Fatalf("dues_rates on fresh database = %d, want 8 (seeded by 00002)", v)
 	}
 
@@ -219,7 +228,7 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion: %v", err)
 	}
-	if version != 2 {
+	if version != 3 {
 		t.Fatalf("goose db version on fresh database = %d, want 2", version)
 	}
 
@@ -271,4 +280,82 @@ func TestOpen_SeededDuesSurviveDeletion(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("ListDuesRates after reopen = %v, want 0 (deletion must stick)", got)
 	}
+}
+
+// TestSingularRename_DownUpRoundTrips proves 00003_singular_table_names.sql
+// is genuinely reversible, which is the claim its Down block makes and the
+// thing that separates it from the baseline's deliberately-inert Down.
+//
+// It also pins the property that actually matters about a rename migration:
+// renaming carries the existing rows with it rather than creating fresh
+// empty tables alongside them. A row is inserted before the round trip and
+// must still be there, with the same id, after down-then-up.
+func TestSingularRename_DownUpRoundTrips(t *testing.T) {
+	dsn := OpenTestDSN(t)
+
+	store, err := Open(dsn)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	id, err := store.AddContract(context.Background(), Contract{
+		Name:         "Round trip",
+		AnnualPoints: 150,
+		UseYearMonth: time.April,
+	})
+	if err != nil {
+		t.Fatalf("AddContract: %v", err)
+	}
+	store.Close()
+
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("opening admin connection: %v", err)
+	}
+	defer admin.Close()
+
+	if err := gooseSetup(); err != nil {
+		t.Fatalf("gooseSetup: %v", err)
+	}
+
+	// Down to 2: the singular names must be gone and the plural ones back,
+	// still holding the row inserted above.
+	if err := goose.DownTo(admin, "migrations", 2); err != nil {
+		t.Fatalf("goose.DownTo(2): %v", err)
+	}
+	if v := countRows(t, admin, "contracts"); v != 1 {
+		t.Fatalf("contracts after Down = %d, want 1 (the rename must carry rows, not drop them)", v)
+	}
+	if to := regclass(t, admin, "contract"); to {
+		t.Fatal("table `contract` still exists after Down — the Down block did not rename it back")
+	}
+
+	// Up again: back to singular, same row, same id.
+	if err := goose.Up(admin, "migrations"); err != nil {
+		t.Fatalf("goose.Up: %v", err)
+	}
+	var gotID int64
+	if err := admin.QueryRow(`SELECT id FROM contract WHERE name = 'Round trip'`).Scan(&gotID); err != nil {
+		t.Fatalf("re-reading contract after Up: %v", err)
+	}
+	if gotID != id {
+		t.Fatalf("contract id after round trip = %d, want %d (ids must survive a rename)", gotID, id)
+	}
+	if to := regclass(t, admin, "contracts"); to {
+		t.Fatal("table `contracts` still exists after Up — the Up block did not rename it")
+	}
+}
+
+// regclass reports whether table resolves in the current search_path,
+// which OpenTestDSN has scoped to this test's own isolated schema. It is
+// used instead of information_schema.tables for the reason spelled out in
+// TestOpen_BaselineOverPreExistingDatabase: that view matches on an
+// unqualified table_name across every schema in the database, so it
+// false-positives against other tests running concurrently.
+func regclass(t *testing.T, db *sql.DB, table string) bool {
+	t.Helper()
+	var exists bool
+	if err := db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, table).Scan(&exists); err != nil {
+		t.Fatalf("to_regclass(%s): %v", table, err)
+	}
+	return exists
 }

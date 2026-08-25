@@ -95,10 +95,10 @@ func Migrate(sqlitePath, pgDSN string) (Summary, error) {
 // Postgres database that already has ledger rows in it.
 func ensureTargetEmpty(db *sql.DB) error {
 	var contracts, entries int
-	if err := db.QueryRow(`SELECT count(*) FROM contracts`).Scan(&contracts); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM contract`).Scan(&contracts); err != nil {
 		return fmt.Errorf("checking target contracts: %w", err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM entries`).Scan(&entries); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM entry`).Scan(&entries); err != nil {
 		return fmt.Errorf("checking target entries: %w", err)
 	}
 	if contracts > 0 || entries > 0 {
@@ -123,7 +123,7 @@ func copyAll(db *sql.DB, contracts []sqliteContract, entries []sqliteEntry) erro
 
 	for _, c := range contracts {
 		if _, err := tx.Exec(
-			`INSERT INTO contracts (id, name, number, home_resort, annual_points, use_year_month)
+			`INSERT INTO contract (id, name, number, home_resort, annual_points, use_year_month)
 			 OVERRIDING SYSTEM VALUE VALUES ($1, $2, $3, $4, $5, $6)`,
 			c.ID, c.Name, c.Number, c.HomeResort, c.AnnualPoints, c.UseYearMonth,
 		); err != nil {
@@ -133,7 +133,7 @@ func copyAll(db *sql.DB, contracts []sqliteContract, entries []sqliteEntry) erro
 
 	for _, e := range entries {
 		if _, err := tx.Exec(
-			`INSERT INTO entries (id, use_year, date, description, kind, allotted, used, tag, contract_id)
+			`INSERT INTO entry (id, use_year, date, description, kind, allotted, used, tag, contract_id)
 			 OVERRIDING SYSTEM VALUE VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 			e.ID, e.UseYear, e.Date, e.Description, e.Kind, e.Allotted, e.Used, e.Tag, e.ContractID,
 		); err != nil {
@@ -141,10 +141,10 @@ func copyAll(db *sql.DB, contracts []sqliteContract, entries []sqliteEntry) erro
 		}
 	}
 
-	if err := resetIdentitySequence(tx, "contracts"); err != nil {
+	if err := resetIdentitySequence(tx, "contract"); err != nil {
 		return err
 	}
-	if err := resetIdentitySequence(tx, "entries"); err != nil {
+	if err := resetIdentitySequence(tx, "entry"); err != nil {
 		return err
 	}
 
@@ -175,6 +175,14 @@ func resetIdentitySequence(tx *sql.Tx, table string) error {
 	}
 	return nil
 }
+
+// The two readSQLite* functions below deliberately still say `contracts`
+// and `entries`, plural, while every Postgres statement in this file says
+// `contract` and `entry`. That is not an oversight. They read the legacy
+// SQLite ledger, a frozen historical artifact whose schema was fixed years
+// before the Postgres tables were renamed to singular (migration
+// 00003_singular_table_names.sql) — renaming them here would simply fail
+// against every real .db file this tool exists to read.
 
 func readSQLiteContracts(db *sql.DB) ([]sqliteContract, error) {
 	rows, err := db.Query(

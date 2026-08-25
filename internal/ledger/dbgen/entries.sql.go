@@ -11,7 +11,7 @@ import (
 )
 
 const deleteEntry = `-- name: DeleteEntry :exec
-DELETE FROM entries WHERE id = $1
+DELETE FROM entry WHERE id = $1
 `
 
 func (q *Queries) DeleteEntry(ctx context.Context, id int64) error {
@@ -20,7 +20,7 @@ func (q *Queries) DeleteEntry(ctx context.Context, id int64) error {
 }
 
 const insertEntry = `-- name: InsertEntry :one
-INSERT INTO entries (use_year, date, description, kind, allotted, used, tag, contract_id)
+INSERT INTO entry (use_year, date, description, kind, allotted, used, tag, contract_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id
 `
@@ -54,7 +54,7 @@ func (q *Queries) InsertEntry(ctx context.Context, arg InsertEntryParams) (int64
 
 const listEntries = `-- name: ListEntries :many
 SELECT id, use_year, date, description, kind, allotted, used, tag, contract_id
-FROM entries
+FROM entry
 ORDER BY date, id
 `
 
@@ -92,7 +92,7 @@ func (q *Queries) ListEntries(ctx context.Context) ([]Entry, error) {
 }
 
 const updateEntry = `-- name: UpdateEntry :exec
-UPDATE entries
+UPDATE entry
 SET use_year = $1, date = $2, description = $3, kind = $4, allotted = $5, used = $6, tag = $7, contract_id = $8
 WHERE id = $9
 `

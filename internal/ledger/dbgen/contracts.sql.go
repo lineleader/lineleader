@@ -10,7 +10,7 @@ import (
 )
 
 const deleteContract = `-- name: DeleteContract :exec
-DELETE FROM contracts WHERE id = $1
+DELETE FROM contract WHERE id = $1
 `
 
 func (q *Queries) DeleteContract(ctx context.Context, id int64) error {
@@ -19,7 +19,7 @@ func (q *Queries) DeleteContract(ctx context.Context, id int64) error {
 }
 
 const insertContract = `-- name: InsertContract :one
-INSERT INTO contracts (name, number, home_resort, annual_points, use_year_month, term_years, purchase_price_cents, closing_costs_cents)
+INSERT INTO contract (name, number, home_resort, annual_points, use_year_month, term_years, purchase_price_cents, closing_costs_cents)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id
 `
@@ -53,7 +53,7 @@ func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) 
 
 const listContracts = `-- name: ListContracts :many
 SELECT id, name, number, home_resort, annual_points, use_year_month, term_years, purchase_price_cents, closing_costs_cents
-FROM contracts
+FROM contract
 ORDER BY id
 `
 
@@ -91,7 +91,7 @@ func (q *Queries) ListContracts(ctx context.Context) ([]Contract, error) {
 }
 
 const updateContract = `-- name: UpdateContract :exec
-UPDATE contracts
+UPDATE contract
 SET name = $1, number = $2, home_resort = $3, annual_points = $4, use_year_month = $5,
     term_years = $6, purchase_price_cents = $7, closing_costs_cents = $8
 WHERE id = $9

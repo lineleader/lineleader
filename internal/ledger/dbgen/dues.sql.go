@@ -10,7 +10,7 @@ import (
 )
 
 const deleteDuesRate = `-- name: DeleteDuesRate :exec
-DELETE FROM dues_rates WHERE use_year = $1
+DELETE FROM dues_rate WHERE use_year = $1
 `
 
 func (q *Queries) DeleteDuesRate(ctx context.Context, useYear int32) error {
@@ -20,7 +20,7 @@ func (q *Queries) DeleteDuesRate(ctx context.Context, useYear int32) error {
 
 const listDuesRates = `-- name: ListDuesRates :many
 SELECT use_year, rate_micros
-FROM dues_rates
+FROM dues_rate
 ORDER BY use_year
 `
 
@@ -48,7 +48,7 @@ func (q *Queries) ListDuesRates(ctx context.Context) ([]DuesRate, error) {
 }
 
 const upsertDuesRate = `-- name: UpsertDuesRate :exec
-INSERT INTO dues_rates (use_year, rate_micros) VALUES ($1, $2)
+INSERT INTO dues_rate (use_year, rate_micros) VALUES ($1, $2)
 ON CONFLICT (use_year) DO UPDATE SET rate_micros = EXCLUDED.rate_micros
 `
 

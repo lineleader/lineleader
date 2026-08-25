@@ -196,6 +196,26 @@ make dev
 Migrations self-apply on boot. To clean up the local database entirely (not
 just stop the container), run `docker compose down -v`.
 
+### Schema conventions
+
+**Tables are named in the singular** — `contract`, `entry`, `dues_rate` — for
+the single row they hold, not the collection. Every table added from now on
+follows this; migration `00003_singular_table_names.sql` renamed the original
+three, which were plural.
+
+The one deliberate exception is the legacy SQLite ledger that
+`cmd/ledger-migrate` reads. Its tables are still `contracts` and `entries`,
+because it is a frozen historical artifact that predates the rename and
+cannot be altered — every real `.db` file on disk has the plural spelling.
+So `cmd/ledger-migrate/migrate.go` mixes both conventions on purpose: plural
+in its two `readSQLite*` functions, singular everywhere it writes Postgres.
+
+Schema changes go in a new numbered file under
+`internal/ledger/migrations/`; sqlc reads that directory as its schema
+source, so `make sqlc` must be re-run after any change there, and the
+regenerated `internal/ledger/dbgen/` is committed (nothing generates code in
+CI).
+
 ## Deployment
 
 Hosted, single-user deployment per `docs/pitches/hosted-lineleader.md`. Chart
@@ -245,8 +265,10 @@ go run ./cmd/ledger-migrate \
     --dsn "$LEDGER_DSN"
 ```
 
-It copies both the `contracts` and `entries` tables, preserving ids and the
-`entries.contract_id` foreign key. It refuses to run if the target already
+It copies the contract and entry rows, preserving ids and the
+`entry.contract_id` foreign key. (The SQLite source still spells those
+tables `contracts` and `entries`; the Postgres tables were renamed to
+singular — see **Schema conventions** above.) It refuses to run if the target already
 has ledger rows — it's a migration, not a sync — and leaves the old
 `ledger.db` untouched on disk as a rollback path. A `make migrate-ledger`
 target wraps the same command (see the Makefile for the `SQLITE_PATH`
