@@ -221,7 +221,7 @@ func TestNewCostBasisIgnoresNonPositiveDuesRates(t *testing.T) {
 	// dues[2021] == 0 while computing growthMicros and panic.
 	dues := []DuesRate{
 		{2020, 1_000_000},
-		{2021, 0},         // bogus row: must be treated as absent, not divided by
+		{2021, 0}, // bogus row: must be treated as absent, not divided by
 		{2022, 1_210_000},
 	}
 	b := NewCostBasis(nil, dues)
