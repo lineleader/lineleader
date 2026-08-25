@@ -345,6 +345,64 @@ func TestSingularRename_DownUpRoundTrips(t *testing.T) {
 	}
 }
 
+// TestTripMigration_DownUpRoundTrips proves 00004_trip.sql's Down block is
+// wired correctly: unlike the singular-rename migration, trip/trip_stay are
+// dropped outright on Down (there is no data to carry across a DROP TABLE),
+// so this pins that Down removes both tables and Up recreates them empty,
+// rather than pinning row survival the way the rename test does.
+func TestTripMigration_DownUpRoundTrips(t *testing.T) {
+	dsn := OpenTestDSN(t)
+
+	store, err := Open(dsn)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := store.AddTrip(context.Background(), Trip{
+		Name:      "Round trip",
+		StartDate: time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, time.June, 8, 0, 0, 0, 0, time.UTC),
+		MinNights: 4,
+	}); err != nil {
+		t.Fatalf("AddTrip: %v", err)
+	}
+	store.Close()
+
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("opening admin connection: %v", err)
+	}
+	defer admin.Close()
+
+	if err := gooseSetup(); err != nil {
+		t.Fatalf("gooseSetup: %v", err)
+	}
+
+	// Down to 3: both trip tables must be gone.
+	if err := goose.DownTo(admin, "migrations", 3); err != nil {
+		t.Fatalf("goose.DownTo(3): %v", err)
+	}
+	if regclass(t, admin, "trip_stay") {
+		t.Fatal("table `trip_stay` still exists after Down — the Down block did not drop it")
+	}
+	if regclass(t, admin, "trip") {
+		t.Fatal("table `trip` still exists after Down — the Down block did not drop it")
+	}
+
+	// Up again: both tables recreated, empty.
+	if err := goose.Up(admin, "migrations"); err != nil {
+		t.Fatalf("goose.Up: %v", err)
+	}
+	if !regclass(t, admin, "trip") {
+		t.Fatal("table `trip` does not exist after Up")
+	}
+	if !regclass(t, admin, "trip_stay") {
+		t.Fatal("table `trip_stay` does not exist after Up")
+	}
+	if v := countRows(t, admin, "trip"); v != 0 {
+		t.Fatalf("trip rows after Up = %d, want 0 (Down dropped the table, taking the earlier row with it)", v)
+	}
+}
+
 // regclass reports whether table resolves in the current search_path,
 // which OpenTestDSN has scoped to this test's own isolated schema. It is
 // used instead of information_schema.tables for the reason spelled out in
