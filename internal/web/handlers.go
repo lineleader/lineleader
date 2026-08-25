@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -31,7 +32,7 @@ func (h *handlers) index(w http.ResponseWriter, r *http.Request) {
 	h.session.mu.Lock()
 	defer h.session.mu.Unlock()
 	snap := h.session.p.Snapshot()
-	h.render(w, "layout.html", struct{ App appView }{App: h.session.buildAppView(snap)})
+	h.render(w, "layout.html", struct{ App appView }{App: h.session.buildAppView(r.Context(), snap)})
 }
 
 // updateBudget handles POST /budget.
@@ -44,7 +45,7 @@ func (h *handlers) updateBudget(w http.ResponseWriter, r *http.Request) {
 	defer h.session.mu.Unlock()
 	h.session.p.SetBudget(r.FormValue("budget"))
 	snap := h.session.p.Snapshot()
-	h.render(w, "app", h.session.buildAppView(snap))
+	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
 }
 
 // addTrip handles POST /trips.
@@ -54,7 +55,7 @@ func (h *handlers) addTrip(w http.ResponseWriter, r *http.Request) {
 	h.session.p.AddTrip()
 	snap := h.session.p.Snapshot()
 	h.session.reconcileCollapsed(snap)
-	h.render(w, "app", h.session.buildAppView(snap))
+	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
 }
 
 // removeTrip handles DELETE /trips/{i}.
@@ -69,7 +70,7 @@ func (h *handlers) removeTrip(w http.ResponseWriter, r *http.Request) {
 	h.session.p.RemoveTrip(i)
 	snap := h.session.p.Snapshot()
 	h.session.reconcileCollapsed(snap)
-	h.render(w, "app", h.session.buildAppView(snap))
+	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
 }
 
 // updateField handles POST /trips/{i}/field.
@@ -93,7 +94,7 @@ func (h *handlers) updateField(w http.ResponseWriter, r *http.Request) {
 	h.session.p.SetTripField(i, 0, r.FormValue("from"))
 	h.session.p.SetTripField(i, 1, r.FormValue("to"))
 	h.session.p.SetTripField(i, 2, r.FormValue("min_nights"))
-	view := h.session.buildAppView(h.session.p.Snapshot())
+	view := h.session.buildAppView(r.Context(), h.session.p.Snapshot())
 	h.render(w, "results", view.Trips[i])
 }
 
@@ -119,7 +120,7 @@ func (h *handlers) toggleSelection(w http.ResponseWriter, r *http.Request) {
 	if i >= 0 && i < len(snap.Trips) && i < len(h.session.collapsed) {
 		h.session.collapsed[i] = snap.Trips[i].Selected != nil
 	}
-	h.render(w, "app", h.session.buildAppView(snap))
+	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
 }
 
 // toggleCollapsed handles POST /trips/{i}/collapse.
@@ -137,7 +138,7 @@ func (h *handlers) toggleCollapsed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.session.toggleCollapsed(i)
-	view := h.session.buildAppView(snap)
+	view := h.session.buildAppView(r.Context(), snap)
 	h.render(w, "trip", view.Trips[i])
 }
 
@@ -157,7 +158,7 @@ func (h *handlers) toggleResortFilter(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.renderFilterToggle(w)
+	h.renderFilterToggle(r.Context(), w)
 }
 
 // toggleRoomTypeFilter handles POST /filters/roomtypes/{name}.
@@ -169,18 +170,18 @@ func (h *handlers) toggleRoomTypeFilter(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.renderFilterToggle(w)
+	h.renderFilterToggle(r.Context(), w)
 }
 
 // renderFilterToggle renders the filters_toggle template (panel + OOB trip-list).
 // Caller must hold session lock.
-func (h *handlers) renderFilterToggle(w http.ResponseWriter) {
+func (h *handlers) renderFilterToggle(ctx context.Context, w http.ResponseWriter) {
 	data := struct {
 		Filters filtersView
 		App     appView
 	}{
 		Filters: toFiltersView(h.session.p.FilterOptions(-1)),
-		App:     h.session.buildAppView(h.session.p.Snapshot()),
+		App:     h.session.buildAppView(ctx, h.session.p.Snapshot()),
 	}
 	h.render(w, "filters_toggle", data)
 }
@@ -214,7 +215,7 @@ func (h *handlers) setTripFilterMode(w http.ResponseWriter, r *http.Request) {
 	h.session.mu.Lock()
 	defer h.session.mu.Unlock()
 	h.session.p.SetTripFilterMode(i, mode)
-	h.renderTripFilterToggle(w, i)
+	h.renderTripFilterToggle(r.Context(), w, i)
 }
 
 // toggleTripResort handles POST /trips/{i}/filters/resorts/{code}.
@@ -227,7 +228,7 @@ func (h *handlers) toggleTripResort(w http.ResponseWriter, r *http.Request) {
 	h.session.mu.Lock()
 	defer h.session.mu.Unlock()
 	h.session.p.ToggleTripResort(i, code)
-	h.renderTripFilterToggle(w, i)
+	h.renderTripFilterToggle(r.Context(), w, i)
 }
 
 // toggleTripRoomType handles POST /trips/{i}/filters/roomtypes/{name}. The mux
@@ -242,7 +243,7 @@ func (h *handlers) toggleTripRoomType(w http.ResponseWriter, r *http.Request) {
 	h.session.mu.Lock()
 	defer h.session.mu.Unlock()
 	h.session.p.ToggleTripRoomType(i, name)
-	h.renderTripFilterToggle(w, i)
+	h.renderTripFilterToggle(r.Context(), w, i)
 }
 
 // resetTripFilters handles DELETE /trips/{i}/filters — back to inherit.
@@ -254,7 +255,7 @@ func (h *handlers) resetTripFilters(w http.ResponseWriter, r *http.Request) {
 	h.session.mu.Lock()
 	defer h.session.mu.Unlock()
 	h.session.p.ResetTripFilters(i)
-	h.renderTripFilterToggle(w, i)
+	h.renderTripFilterToggle(r.Context(), w, i)
 }
 
 // tripIndex parses and range-checks the {i} path value, writing a 400 and
@@ -278,8 +279,8 @@ func (h *handlers) tripIndex(w http.ResponseWriter, r *http.Request) (int, bool)
 // renderTripFilterToggle renders the per-trip filters_trip_toggle template: the
 // filter PANEL plus ONLY the affected trip's results, OOB-swapped into
 // #trip-{i}-results. Other trips are untouched. Caller must hold session lock.
-func (h *handlers) renderTripFilterToggle(w http.ResponseWriter, i int) {
-	view := h.session.buildAppView(h.session.p.Snapshot())
+func (h *handlers) renderTripFilterToggle(ctx context.Context, w http.ResponseWriter, i int) {
+	view := h.session.buildAppView(ctx, h.session.p.Snapshot())
 	data := struct {
 		Filters filtersView
 		Trip    tripView

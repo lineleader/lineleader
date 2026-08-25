@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -15,7 +16,7 @@ import (
 // pre-cost UI, never a 500.
 func TestCostProvider_NilStoreIsSafe(t *testing.T) {
 	p := newCostProvider(nil)
-	basis, ok := p.Basis()
+	basis, ok := p.Basis(context.Background())
 	if ok {
 		t.Errorf("ok = true, want false for a nil store")
 	}
@@ -30,18 +31,18 @@ func TestCostProvider_NilStoreIsSafe(t *testing.T) {
 // debounce; without this, every keystroke would hit the database.
 func TestCostProvider_CachesWithinTTL(t *testing.T) {
 	calls := 0
-	fetch := func() (ledger.CostBasis, error) {
+	fetch := func(context.Context) (ledger.CostBasis, error) {
 		calls++
 		return ledger.CostBasis{}, nil
 	}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	p := &costProvider{fetch: fetch, now: func() time.Time { return now }}
 
-	if _, ok := p.Basis(); !ok {
+	if _, ok := p.Basis(context.Background()); !ok {
 		t.Fatalf("first Basis() ok = false, want true")
 	}
 	now = now.Add(costBasisTTL - time.Second)
-	if _, ok := p.Basis(); !ok {
+	if _, ok := p.Basis(context.Background()); !ok {
 		t.Fatalf("second Basis() ok = false, want true")
 	}
 	if calls != 1 {
@@ -53,16 +54,16 @@ func TestCostProvider_CachesWithinTTL(t *testing.T) {
 // costBasisTTL or later after the last fetch triggers a fresh one.
 func TestCostProvider_RefetchesAfterTTL(t *testing.T) {
 	calls := 0
-	fetch := func() (ledger.CostBasis, error) {
+	fetch := func(context.Context) (ledger.CostBasis, error) {
 		calls++
 		return ledger.CostBasis{}, nil
 	}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	p := &costProvider{fetch: fetch, now: func() time.Time { return now }}
 
-	p.Basis()
+	p.Basis(context.Background())
 	now = now.Add(costBasisTTL + time.Second)
-	p.Basis()
+	p.Basis(context.Background())
 	if calls != 2 {
 		t.Errorf("fetch called %d times, want 2 (once before, once after TTL expiry)", calls)
 	}
@@ -74,20 +75,20 @@ func TestCostProvider_RefetchesAfterTTL(t *testing.T) {
 // the cache (see ledger_handlers.go's Invalidate() calls).
 func TestCostProvider_Invalidate(t *testing.T) {
 	calls := 0
-	fetch := func() (ledger.CostBasis, error) {
+	fetch := func(context.Context) (ledger.CostBasis, error) {
 		calls++
 		return ledger.CostBasis{}, nil
 	}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	p := &costProvider{fetch: fetch, now: func() time.Time { return now }}
 
-	p.Basis()
-	p.Basis()
+	p.Basis(context.Background())
+	p.Basis(context.Background())
 	if calls != 1 {
 		t.Fatalf("fetch called %d times before Invalidate, want 1", calls)
 	}
 	p.Invalidate()
-	p.Basis()
+	p.Basis(context.Background())
 	if calls != 2 {
 		t.Errorf("fetch called %d times after Invalidate, want 2", calls)
 	}
@@ -97,12 +98,12 @@ func TestCostProvider_Invalidate(t *testing.T) {
 // a failed fetch degrades to ok=false (the planner's pre-cost rendering)
 // rather than panicking or surfacing the error to the caller.
 func TestCostProvider_FetchErrorDegrades(t *testing.T) {
-	fetch := func() (ledger.CostBasis, error) {
+	fetch := func(context.Context) (ledger.CostBasis, error) {
 		return ledger.CostBasis{}, errors.New("boom")
 	}
 	p := &costProvider{fetch: fetch, now: time.Now}
 
-	basis, ok := p.Basis()
+	basis, ok := p.Basis(context.Background())
 	if ok {
 		t.Errorf("ok = true, want false on a failed fetch")
 	}
@@ -115,7 +116,7 @@ func TestCostProvider_FetchErrorDegrades(t *testing.T) {
 // goroutines at once — costProvider is shared across concurrent HTTP
 // handlers, so this must pass under `go test -race`.
 func TestCostProvider_ConcurrentAccessIsSafe(t *testing.T) {
-	fetch := func() (ledger.CostBasis, error) { return ledger.CostBasis{}, nil }
+	fetch := func(context.Context) (ledger.CostBasis, error) { return ledger.CostBasis{}, nil }
 	p := &costProvider{fetch: fetch, now: time.Now}
 
 	var wg sync.WaitGroup
@@ -123,7 +124,7 @@ func TestCostProvider_ConcurrentAccessIsSafe(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			p.Basis()
+			p.Basis(context.Background())
 		}()
 	}
 	wg.Wait()

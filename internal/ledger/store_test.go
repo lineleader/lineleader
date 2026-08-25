@@ -1,6 +1,8 @@
 package ledger
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -44,7 +46,7 @@ func TestContractCRUD(t *testing.T) {
 		AnnualPoints: 150,
 		UseYearMonth: time.April,
 	}
-	id, err := s.AddContract(c)
+	id, err := s.AddContract(context.Background(), c)
 	if err != nil {
 		t.Fatalf("AddContract: %v", err)
 	}
@@ -52,7 +54,7 @@ func TestContractCRUD(t *testing.T) {
 		t.Fatal("AddContract returned id 0")
 	}
 
-	got, err := s.ListContracts()
+	got, err := s.ListContracts(context.Background())
 	if err != nil {
 		t.Fatalf("ListContracts: %v", err)
 	}
@@ -67,18 +69,18 @@ func TestContractCRUD(t *testing.T) {
 	c.ID = id
 	c.AnnualPoints = 160
 	c.Number = "7654321.000"
-	if err := s.UpdateContract(c); err != nil {
+	if err := s.UpdateContract(context.Background(), c); err != nil {
 		t.Fatalf("UpdateContract: %v", err)
 	}
-	got, _ = s.ListContracts()
+	got, _ = s.ListContracts(context.Background())
 	if got[0].AnnualPoints != 160 || got[0].Number != "7654321.000" {
 		t.Errorf("after update = %+v, want points=160 number=7654321.000", got[0])
 	}
 
-	if err := s.DeleteContract(id); err != nil {
+	if err := s.DeleteContract(context.Background(), id); err != nil {
 		t.Fatalf("DeleteContract: %v", err)
 	}
-	got, _ = s.ListContracts()
+	got, _ = s.ListContracts(context.Background())
 	if len(got) != 0 {
 		t.Fatalf("after delete len = %d, want 0", len(got))
 	}
@@ -97,12 +99,12 @@ func TestContractCostFields(t *testing.T) {
 		PurchasePrice: 2_940_000, // $29,400.00
 		ClosingCosts:  58_835,    // $588.35
 	}
-	id, err := s.AddContract(c)
+	id, err := s.AddContract(context.Background(), c)
 	if err != nil {
 		t.Fatalf("AddContract: %v", err)
 	}
 
-	got, err := s.ListContracts()
+	got, err := s.ListContracts(context.Background())
 	if err != nil {
 		t.Fatalf("ListContracts: %v", err)
 	}
@@ -117,10 +119,10 @@ func TestContractCostFields(t *testing.T) {
 	c.TermYears = 41
 	c.PurchasePrice = 3_015_000
 	c.ClosingCosts = 66_500
-	if err := s.UpdateContract(c); err != nil {
+	if err := s.UpdateContract(context.Background(), c); err != nil {
 		t.Fatalf("UpdateContract: %v", err)
 	}
-	got, _ = s.ListContracts()
+	got, _ = s.ListContracts(context.Background())
 	if got[0].TermYears != 41 || got[0].PurchasePrice != 3_015_000 || got[0].ClosingCosts != 66_500 {
 		t.Errorf("after update = %+v, want term=41 price=3015000 closing=66500", got[0])
 	}
@@ -133,11 +135,11 @@ func TestContractCostFields(t *testing.T) {
 func TestContractCostFieldsDefaultToZero(t *testing.T) {
 	s := openTestStore(t)
 
-	id, err := s.AddContract(Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April})
+	id, err := s.AddContract(context.Background(), Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April})
 	if err != nil {
 		t.Fatalf("AddContract: %v", err)
 	}
-	got, err := s.ListContracts()
+	got, err := s.ListContracts(context.Background())
 	if err != nil {
 		t.Fatalf("ListContracts: %v", err)
 	}
@@ -155,7 +157,7 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
-	if _, err := s1.AddContract(Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April}); err != nil {
+	if _, err := s1.AddContract(context.Background(), Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April}); err != nil {
 		t.Fatalf("AddContract: %v", err)
 	}
 	s1.Close()
@@ -166,8 +168,35 @@ func TestOpenIsIdempotent(t *testing.T) {
 		t.Fatalf("second Open: %v", err)
 	}
 	defer s2.Close()
-	got, _ := s2.ListContracts()
+	got, _ := s2.ListContracts(context.Background())
 	if len(got) != 1 {
 		t.Fatalf("after reopen len = %d, want 1", len(got))
+	}
+}
+
+// TestContextCancelledBeforeQuery proves the threaded context.Context is
+// real, not just a signature change that drops ctx on the floor: a Store
+// method called with an already-cancelled context must fail rather than
+// reach the database, surfacing an error that errors.Is(err,
+// context.Canceled). Verified by mutation: reverting AddContract to pass
+// context.Background() to dbgen makes this test fail with err = <nil>,
+// because the insert then succeeds.
+//
+// This deliberately cancels BEFORE the call rather than mid-query. What is
+// at risk in this package is a method that accepts a ctx and then quietly
+// hands context.Background() to dbgen, which the pre-cancelled form catches
+// exactly. Aborting a genuinely in-flight query is a property of
+// database/sql and pgx, not of code written here, and testing it through
+// the Store API would need a deliberately slow query and a racing
+// goroutine — a flaky test of someone else's guarantee.
+func TestContextCancelledBeforeQuery(t *testing.T) {
+	s := openTestStore(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.AddContract(ctx, Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("AddContract with a cancelled context: err = %v, want errors.Is(err, context.Canceled)", err)
 	}
 }

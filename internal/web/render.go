@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"time"
@@ -154,14 +155,14 @@ func stayKey(r dvc.StayResult) string {
 // buildAppView projects a Planner Snapshot into a render-ready appView, layering
 // in the web's view-only collapsed flags. Caller must hold s.mu (so collapsed
 // and the snapshot stay consistent).
-func (s *Session) buildAppView(snap dvc.Snapshot) appView {
+func (s *Session) buildAppView(ctx context.Context, snap dvc.Snapshot) appView {
 	// basis/showCosts gate every dollar affordance below. s.costs is always
 	// non-nil in practice (see NewSession), and Basis() is itself
 	// nil-store-safe, so this never needs its own nil check — a missing or
 	// not-yet-known ledger just means ok/basis.Known() come back false and
 	// showCosts stays false, matching the pre-cost rendering every existing
 	// planner test (Options.Ledger == nil) expects byte-for-byte.
-	basis, ok := s.costs.Basis()
+	basis, ok := s.costs.Basis(ctx)
 	showCosts := ok && basis.Known()
 
 	v := appView{

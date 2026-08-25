@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -149,7 +150,7 @@ func TestAPIAddEntry_CreatedAndDefaultsUseYear(t *testing.T) {
 		t.Errorf("ContractID = %v, want nil", got.ContractID)
 	}
 
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func TestAPIAddEntry_DefaultsKindWhenEmpty(t *testing.T) {
 		t.Errorf("Kind = %q, want default %q", got.Kind, ledger.KindUsage)
 	}
 
-	entries, _ := store.ListEntries()
+	entries, _ := store.ListEntries(context.Background())
 	if len(entries) != 1 || entries[0].Kind != ledger.KindUsage {
 		t.Fatalf("store entry kind = %q, want %q", entries[0].Kind, ledger.KindUsage)
 	}
@@ -223,13 +224,13 @@ func TestAPIListEntries_IncludesRunningBalance(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-05"), Desc: "Trip",
 		Kind: ledger.KindUsage, Used: 30,
 	}); err != nil {
@@ -260,7 +261,7 @@ func TestAPIUpdateEntry_Persists(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id, err := store.AddEntry(ledger.Entry{
+	id, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Original",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	})
@@ -279,7 +280,7 @@ func TestAPIUpdateEntry_Persists(t *testing.T) {
 		t.Errorf("got = %+v", got)
 	}
 
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +293,7 @@ func TestAPIUpdateEntry_InvalidDate_400(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id, err := store.AddEntry(ledger.Entry{
+	id, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Original",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	})
@@ -327,7 +328,7 @@ func TestAPIDeleteEntry_NoContent(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id, err := store.AddEntry(ledger.Entry{
+	id, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "To delete",
 		Kind: ledger.KindAllocation, Allotted: 50,
 	})
@@ -341,7 +342,7 @@ func TestAPIDeleteEntry_NoContent(t *testing.T) {
 		t.Fatalf("status = %d, want 204", resp.StatusCode)
 	}
 
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +396,7 @@ func TestAPIContracts_AddListDelete(t *testing.T) {
 		t.Fatalf("delete status = %d, want 204", delResp.StatusCode)
 	}
 
-	remaining, err := store.ListContracts()
+	remaining, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,13 +428,13 @@ func TestAPISummaries(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2025, Date: dateParse(t, "2025-04-01"), Desc: "Alloc25",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2025, Date: dateParse(t, "2025-05-01"), Desc: "Trip25",
 		Kind: ledger.KindUsage, Used: 150,
 	}); err != nil {
@@ -462,14 +463,14 @@ func TestAPIDistribute_ReturnsCreatedEntries(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
 		Name: "Point allocation", AnnualPoints: 150, UseYearMonth: time.April,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	lastYear := time.Now().Year()
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: lastYear, Date: time.Date(lastYear, time.April, 1, 0, 0, 0, 0, time.UTC),
 		Desc: "Point allocation", Kind: ledger.KindAllocation, Allotted: 150, ContractID: &cid,
 	}); err != nil {

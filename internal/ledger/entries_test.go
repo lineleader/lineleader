@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -24,12 +25,12 @@ func TestEntryCRUD(t *testing.T) {
 		Kind:     KindAllocation,
 		Allotted: 120,
 	}
-	id, err := s.AddEntry(e)
+	id, err := s.AddEntry(context.Background(), e)
 	if err != nil {
 		t.Fatalf("AddEntry: %v", err)
 	}
 
-	got, err := s.ListEntries()
+	got, err := s.ListEntries(context.Background())
 	if err != nil {
 		t.Fatalf("ListEntries: %v", err)
 	}
@@ -50,18 +51,18 @@ func TestEntryCRUD(t *testing.T) {
 	upd.Allotted = 0
 	upd.Used = 240
 	upd.Tag = "Borrow"
-	if err := s.UpdateEntry(upd); err != nil {
+	if err := s.UpdateEntry(context.Background(), upd); err != nil {
 		t.Fatalf("UpdateEntry: %v", err)
 	}
-	got, _ = s.ListEntries()
+	got, _ = s.ListEntries(context.Background())
 	if got[0].Used != 240 || got[0].Tag != "Borrow" || got[0].Kind != KindUsage {
 		t.Errorf("after update: %+v", got[0])
 	}
 
-	if err := s.DeleteEntry(id); err != nil {
+	if err := s.DeleteEntry(context.Background(), id); err != nil {
 		t.Fatalf("DeleteEntry: %v", err)
 	}
-	got, _ = s.ListEntries()
+	got, _ = s.ListEntries(context.Background())
 	if len(got) != 0 {
 		t.Fatalf("after delete len = %d, want 0", len(got))
 	}
@@ -79,12 +80,12 @@ func TestRunningBalance(t *testing.T) {
 		{UseYear: 2021, Date: date(t, "2021-04-01"), Desc: "Single-use points", Kind: KindSingleUse, Allotted: 24},
 	}
 	for _, e := range seq {
-		if _, err := s.AddEntry(e); err != nil {
+		if _, err := s.AddEntry(context.Background(), e); err != nil {
 			t.Fatalf("AddEntry: %v", err)
 		}
 	}
 
-	got, err := s.ListEntries()
+	got, err := s.ListEntries(context.Background())
 	if err != nil {
 		t.Fatalf("ListEntries: %v", err)
 	}
@@ -102,9 +103,9 @@ func TestRunningBalance(t *testing.T) {
 func TestListEntriesOrdersByDateThenID(t *testing.T) {
 	s := openTestStore(t)
 	// Insert out of date order; ListEntries must sort by (date, id).
-	_, _ = s.AddEntry(Entry{UseYear: 2022, Date: date(t, "2022-09-17"), Desc: "later date", Kind: KindUsage, Used: 8})
-	_, _ = s.AddEntry(Entry{UseYear: 2022, Date: date(t, "2022-07-17"), Desc: "earlier date", Kind: KindUsage, Used: 5})
-	got, _ := s.ListEntries()
+	_, _ = s.AddEntry(context.Background(), Entry{UseYear: 2022, Date: date(t, "2022-09-17"), Desc: "later date", Kind: KindUsage, Used: 8})
+	_, _ = s.AddEntry(context.Background(), Entry{UseYear: 2022, Date: date(t, "2022-07-17"), Desc: "earlier date", Kind: KindUsage, Used: 5})
+	got, _ := s.ListEntries(context.Background())
 	if got[0].Desc != "earlier date" || got[1].Desc != "later date" {
 		t.Errorf("order = [%s, %s], want earlier first", got[0].Desc, got[1].Desc)
 	}

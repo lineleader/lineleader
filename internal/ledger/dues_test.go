@@ -1,6 +1,9 @@
 package ledger
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestDuesRatesSeeded pins the eight-year dues series from the owner's
 // sheet: a freshly opened store (Open runs schema.sql then seed.sql) lists
@@ -9,7 +12,7 @@ import "testing"
 func TestDuesRatesSeeded(t *testing.T) {
 	s := openTestStore(t)
 
-	got, err := s.ListDuesRates()
+	got, err := s.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatalf("ListDuesRates: %v", err)
 	}
@@ -37,10 +40,10 @@ func TestDuesRateUpsertAndDelete(t *testing.T) {
 	s := openTestStore(t)
 
 	// Insert a new year.
-	if err := s.UpsertDuesRate(DuesRate{UseYear: 2027, Rate: 8_500_000}); err != nil {
+	if err := s.UpsertDuesRate(context.Background(), DuesRate{UseYear: 2027, Rate: 8_500_000}); err != nil {
 		t.Fatalf("UpsertDuesRate (insert): %v", err)
 	}
-	got, err := s.ListDuesRates()
+	got, err := s.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatalf("ListDuesRates: %v", err)
 	}
@@ -49,19 +52,19 @@ func TestDuesRateUpsertAndDelete(t *testing.T) {
 	}
 
 	// Update an existing year in place.
-	if err := s.UpsertDuesRate(DuesRate{UseYear: 2027, Rate: 8_600_000}); err != nil {
+	if err := s.UpsertDuesRate(context.Background(), DuesRate{UseYear: 2027, Rate: 8_600_000}); err != nil {
 		t.Fatalf("UpsertDuesRate (update): %v", err)
 	}
-	got, _ = s.ListDuesRates()
+	got, _ = s.ListDuesRates(context.Background())
 	if len(got) != 9 || got[8] != (DuesRate{UseYear: 2027, Rate: 8_600_000}) {
 		t.Fatalf("after update, ListDuesRates = %+v", got)
 	}
 
 	// Delete it back out.
-	if err := s.DeleteDuesRate(2027); err != nil {
+	if err := s.DeleteDuesRate(context.Background(), 2027); err != nil {
 		t.Fatalf("DeleteDuesRate: %v", err)
 	}
-	got, _ = s.ListDuesRates()
+	got, _ = s.ListDuesRates(context.Background())
 	if len(got) != 8 {
 		t.Fatalf("after delete, ListDuesRates len = %d, want 8 (%+v)", len(got), got)
 	}
@@ -87,10 +90,10 @@ func TestUpsertDuesRateRejectsBadInput(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if err := s.UpsertDuesRate(c.d); err == nil {
+			if err := s.UpsertDuesRate(context.Background(), c.d); err == nil {
 				t.Fatalf("UpsertDuesRate(%+v) = nil error, want error", c.d)
 			}
-			got, err := s.ListDuesRates()
+			got, err := s.ListDuesRates(context.Background())
 			if err != nil {
 				t.Fatalf("ListDuesRates: %v", err)
 			}
@@ -113,10 +116,10 @@ func TestDuesSeedDoesNotResurrectDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
-	if err := s1.DeleteDuesRate(2019); err != nil {
+	if err := s1.DeleteDuesRate(context.Background(), 2019); err != nil {
 		t.Fatalf("DeleteDuesRate: %v", err)
 	}
-	got, _ := s1.ListDuesRates()
+	got, _ := s1.ListDuesRates(context.Background())
 	if len(got) != 7 {
 		t.Fatalf("after delete len = %d, want 7", len(got))
 	}
@@ -127,7 +130,7 @@ func TestDuesSeedDoesNotResurrectDeletion(t *testing.T) {
 		t.Fatalf("second Open: %v", err)
 	}
 	defer s2.Close()
-	got, err = s2.ListDuesRates()
+	got, err = s2.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatalf("ListDuesRates after reopen: %v", err)
 	}

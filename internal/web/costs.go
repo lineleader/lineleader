@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -36,7 +37,7 @@ type costProvider struct {
 
 	// fetch reads a fresh CostBasis from the store. It is nil when there is
 	// no ledger configured, in which case Basis always reports ok=false.
-	fetch func() (ledger.CostBasis, error)
+	fetch func(context.Context) (ledger.CostBasis, error)
 	// now is a test seam for controlling TTL expiry deterministically;
 	// production code always sets it to time.Now.
 	now func() time.Time
@@ -62,7 +63,14 @@ func newCostProvider(store *ledger.Store) *costProvider {
 // value, i.e. Known() == false — when there is no store, or the refresh
 // attempt failed; callers should render their pre-cost UI in that case,
 // exactly as if no contract or dues data existed yet.
-func (p *costProvider) Basis() (ledger.CostBasis, bool) {
+//
+// The fetch (when one runs) happens while p.mu is held, so if ctx is
+// cancelled mid-fetch — the caller's HTTP request was cancelled or timed
+// out — this degrades to ok=false and releases the lock like any other
+// fetch error; the next caller simply retries the fetch with its own
+// context. That's correct, just occasionally duplicated work: one client
+// disconnecting never poisons the cache for anyone else.
+func (p *costProvider) Basis(ctx context.Context) (ledger.CostBasis, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -73,7 +81,7 @@ func (p *costProvider) Basis() (ledger.CostBasis, bool) {
 		return p.basis, true
 	}
 
-	basis, err := p.fetch()
+	basis, err := p.fetch(ctx)
 	if err != nil {
 		// Degrade rather than serve a possibly very-stale basis as if it
 		// were fresh: a blip means the planner stops showing costs until

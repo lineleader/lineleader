@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func newTestSessionWithStore(t *testing.T, store *ledger.Store) *Session {
 // rate isn't asserted by callers — only that some non-empty $ cost appears.
 func addPricedContract(t *testing.T, store *ledger.Store) {
 	t.Helper()
-	if _, err := store.AddContract(ledger.Contract{
+	if _, err := store.AddContract(context.Background(), ledger.Contract{
 		Name:          "C1",
 		AnnualPoints:  100,
 		UseYearMonth:  time.January,
@@ -77,7 +78,7 @@ func TestBuildAppView_PerTripFilterFields(t *testing.T) {
 	s.p.ToggleTripResort(1, "TST")
 	s.reconcileCollapsed(s.p.Snapshot())
 
-	v := s.buildAppView(s.p.Snapshot())
+	v := s.buildAppView(context.Background(), s.p.Snapshot())
 	if len(v.Trips) != 2 {
 		t.Fatalf("len(Trips) = %d, want 2", len(v.Trips))
 	}
@@ -154,7 +155,7 @@ func TestBuildAppView_BudgetRemainingSelection(t *testing.T) {
 	s := newTestSession(t)
 	s.reconcileCollapsed(s.p.Snapshot())
 
-	v := s.buildAppView(s.p.Snapshot())
+	v := s.buildAppView(context.Background(), s.p.Snapshot())
 	if v.Budget != "100" {
 		t.Errorf("Budget = %q, want %q", v.Budget, "100")
 	}
@@ -167,7 +168,7 @@ func TestBuildAppView_BudgetRemainingSelection(t *testing.T) {
 
 	// Select the first result row of trip 0 and confirm it flows through.
 	s.p.ToggleSelection(0, 0)
-	v = s.buildAppView(s.p.Snapshot())
+	v = s.buildAppView(context.Background(), s.p.Snapshot())
 	t0 := v.Trips[0]
 	if !t0.HasSelection {
 		t.Fatalf("trip 0 HasSelection = false, want true")
@@ -192,7 +193,7 @@ func TestBuildAppView_NoLedgerHidesCosts(t *testing.T) {
 	s := newTestSession(t)
 	s.reconcileCollapsed(s.p.Snapshot())
 
-	v := s.buildAppView(s.p.Snapshot())
+	v := s.buildAppView(context.Background(), s.p.Snapshot())
 	if v.ShowCosts {
 		t.Errorf("appView ShowCosts = true, want false with no ledger configured")
 	}
@@ -225,7 +226,7 @@ func TestBuildAppView_PricesResultsAndSelection(t *testing.T) {
 	s := newTestSessionWithStore(t, store)
 	s.reconcileCollapsed(s.p.Snapshot())
 
-	v := s.buildAppView(s.p.Snapshot())
+	v := s.buildAppView(context.Background(), s.p.Snapshot())
 	t0 := v.Trips[0]
 	if !t0.ShowCosts {
 		t.Fatalf("trip ShowCosts = false, want true (contract priced, dues seeded)")
@@ -240,7 +241,7 @@ func TestBuildAppView_PricesResultsAndSelection(t *testing.T) {
 	}
 
 	s.p.ToggleSelection(0, 0)
-	v = s.buildAppView(s.p.Snapshot())
+	v = s.buildAppView(context.Background(), s.p.Snapshot())
 	t0 = v.Trips[0]
 	if t0.SelectedCostLabel == "" {
 		t.Errorf("trip SelectedCostLabel empty after selection, want a priced $ label")
@@ -292,7 +293,7 @@ func TestBuildAppView_SelectionMatchesOnPointsToo(t *testing.T) {
 		},
 	}
 
-	v := s.buildAppView(snap)
+	v := s.buildAppView(context.Background(), snap)
 	t0 := v.Trips[0]
 
 	selectedCount := 0
@@ -348,7 +349,7 @@ func TestBuildAppView_SumsSelectedCostAcrossTrips(t *testing.T) {
 
 	s.p.ToggleSelection(0, 0)
 	s.p.ToggleSelection(1, 0)
-	v := s.buildAppView(s.p.Snapshot())
+	v := s.buildAppView(context.Background(), s.p.Snapshot())
 
 	if len(v.Trips) != 2 {
 		t.Fatalf("len(Trips) = %d, want 2", len(v.Trips))
@@ -379,13 +380,13 @@ func TestBuildAppView_HasSelectedCost(t *testing.T) {
 	s := newTestSessionWithStore(t, store)
 	s.reconcileCollapsed(s.p.Snapshot())
 
-	v := s.buildAppView(s.p.Snapshot())
+	v := s.buildAppView(context.Background(), s.p.Snapshot())
 	if v.HasSelectedCost {
 		t.Errorf("appView HasSelectedCost = true, want false with nothing selected")
 	}
 
 	s.p.ToggleSelection(0, 0)
-	v = s.buildAppView(s.p.Snapshot())
+	v = s.buildAppView(context.Background(), s.p.Snapshot())
 	if !v.HasSelectedCost {
 		t.Errorf("appView HasSelectedCost = false, want true after selecting a priced stay")
 	}

@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"context"
 	"sort"
 	"time"
 )
@@ -262,12 +263,12 @@ func PriceSummaries(summaries []UseYearSummary, priced []Entry) {
 
 // CostBasis derives the current CostBasis from the store's contracts and
 // dues rates — the only I/O anywhere in the cost model.
-func (s *Store) CostBasis() (CostBasis, error) {
-	contracts, err := s.ListContracts()
+func (s *Store) CostBasis(ctx context.Context) (CostBasis, error) {
+	contracts, err := s.ListContracts(ctx)
 	if err != nil {
 		return CostBasis{}, err
 	}
-	dues, err := s.ListDuesRates()
+	dues, err := s.ListDuesRates(ctx)
 	if err != nil {
 		return CostBasis{}, err
 	}

@@ -21,8 +21,8 @@ func duesRateFromRow(row dbgen.DuesRate) DuesRate {
 }
 
 // ListDuesRates returns every stored dues rate ordered by use year ascending.
-func (s *Store) ListDuesRates() ([]DuesRate, error) {
-	rows, err := s.q.ListDuesRates(context.Background())
+func (s *Store) ListDuesRates(ctx context.Context) ([]DuesRate, error) {
+	rows, err := s.q.ListDuesRates(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -42,14 +42,14 @@ func (s *Store) ListDuesRates() ([]DuesRate, error) {
 // other side of that defense). d.UseYear only gets a loose sanity check — a
 // four-digit calendar year — since this table stores an open-ended series
 // and there's no real reason to hard-code a narrower operational range.
-func (s *Store) UpsertDuesRate(d DuesRate) error {
+func (s *Store) UpsertDuesRate(ctx context.Context, d DuesRate) error {
 	if d.Rate <= 0 {
 		return fmt.Errorf("UpsertDuesRate: rate must be positive, got %v", d.Rate)
 	}
 	if d.UseYear < 1000 || d.UseYear > 9999 {
 		return fmt.Errorf("UpsertDuesRate: use year %d is not a plausible calendar year", d.UseYear)
 	}
-	return s.q.UpsertDuesRate(context.Background(), dbgen.UpsertDuesRateParams{
+	return s.q.UpsertDuesRate(ctx, dbgen.UpsertDuesRateParams{
 		UseYear:    int32(d.UseYear),
 		RateMicros: int64(d.Rate),
 	})
@@ -59,6 +59,6 @@ func (s *Store) UpsertDuesRate(d DuesRate) error {
 // seed.sql only seeds when dues_rates is entirely empty (a table-level
 // guard, not per-row ON CONFLICT), a deleted year never reappears on a
 // later restart.
-func (s *Store) DeleteDuesRate(useYear int) error {
-	return s.q.DeleteDuesRate(context.Background(), int32(useYear))
+func (s *Store) DeleteDuesRate(ctx context.Context, useYear int) error {
+	return s.q.DeleteDuesRate(ctx, int32(useYear))
 }

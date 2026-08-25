@@ -134,18 +134,9 @@ func contractFromRow(row dbgen.Contract) Contract {
 	}
 }
 
-// Every Store method in this file, and in entries.go/dues.go/distribute.go,
-// calls its dbgen.Queries method with context.Background() rather than a
-// real context: no exported Store method takes a context.Context today
-// (Ping above is the one deliberate exception, predating sqlc). That is a
-// known, temporary gap — issue lineleader-tip tracks threading real
-// contexts through every exported method — not something to patch
-// site-by-site here, so there is deliberately no TODO on each of the 14
-// call sites this comment covers.
-
 // AddContract inserts c and returns its new id.
-func (s *Store) AddContract(c Contract) (int64, error) {
-	return s.q.InsertContract(context.Background(), dbgen.InsertContractParams{
+func (s *Store) AddContract(ctx context.Context, c Contract) (int64, error) {
+	return s.q.InsertContract(ctx, dbgen.InsertContractParams{
 		Name:               c.Name,
 		Number:             c.Number,
 		HomeResort:         c.HomeResort,
@@ -158,8 +149,8 @@ func (s *Store) AddContract(c Contract) (int64, error) {
 }
 
 // ListContracts returns all contracts ordered by id.
-func (s *Store) ListContracts() ([]Contract, error) {
-	rows, err := s.q.ListContracts(context.Background())
+func (s *Store) ListContracts(ctx context.Context) ([]Contract, error) {
+	rows, err := s.q.ListContracts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +162,8 @@ func (s *Store) ListContracts() ([]Contract, error) {
 }
 
 // UpdateContract overwrites the contract identified by c.ID.
-func (s *Store) UpdateContract(c Contract) error {
-	return s.q.UpdateContract(context.Background(), dbgen.UpdateContractParams{
+func (s *Store) UpdateContract(ctx context.Context, c Contract) error {
+	return s.q.UpdateContract(ctx, dbgen.UpdateContractParams{
 		Name:               c.Name,
 		Number:             c.Number,
 		HomeResort:         c.HomeResort,
@@ -186,6 +177,6 @@ func (s *Store) UpdateContract(c Contract) error {
 }
 
 // DeleteContract removes the contract with the given id.
-func (s *Store) DeleteContract(id int64) error {
-	return s.q.DeleteContract(context.Background(), id)
+func (s *Store) DeleteContract(ctx context.Context, id int64) error {
+	return s.q.DeleteContract(ctx, id)
 }

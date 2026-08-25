@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"html/template"
 	"io"
 	"net/http"
@@ -919,7 +920,7 @@ func TestLedgerDuesMutationInvalidatesCostProvider(t *testing.T) {
 
 	// A priced contract, so CostBasis.Known() is true — seed.sql already
 	// stores dues rates back to 2019, including 2026.
-	if _, err := store.AddContract(ledger.Contract{
+	if _, err := store.AddContract(context.Background(), ledger.Contract{
 		Name:          "C1",
 		AnnualPoints:  100,
 		UseYearMonth:  time.January,
@@ -930,7 +931,7 @@ func TestLedgerDuesMutationInvalidatesCostProvider(t *testing.T) {
 	}
 
 	costs := newCostProvider(store)
-	basis1, ok := costs.Basis()
+	basis1, ok := costs.Basis(context.Background())
 	if !ok || !basis1.Known() {
 		t.Fatalf("Basis() = (%+v, %v), want a known basis", basis1, ok)
 	}
@@ -944,7 +945,7 @@ func TestLedgerDuesMutationInvalidatesCostProvider(t *testing.T) {
 
 	// Prime the cache again so the mutation below has something stale to
 	// invalidate (Basis() above already cached it, but be explicit).
-	costs.Basis()
+	costs.Basis(context.Background())
 
 	form := url.Values{"year": {"2026"}, "rate": {"20"}}
 	req := httptest.NewRequest(http.MethodPost, "/ledger/dues?view=contracts", strings.NewReader(form.Encode()))
@@ -955,7 +956,7 @@ func TestLedgerDuesMutationInvalidatesCostProvider(t *testing.T) {
 		t.Fatalf("upsertDues status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	basis2, ok := costs.Basis()
+	basis2, ok := costs.Basis(context.Background())
 	if !ok {
 		t.Fatalf("Basis() after mutation: ok = false, want true")
 	}

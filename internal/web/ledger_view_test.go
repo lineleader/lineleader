@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lineleader/lineleader/internal/ledger"
@@ -13,7 +14,7 @@ func addEntries(t *testing.T, store *ledger.Store, n int) {
 	t.Helper()
 	for i := range n {
 		date := dateParse(t, "2026-01-01").AddDate(0, 0, i)
-		_, err := store.AddEntry(ledger.Entry{
+		_, err := store.AddEntry(context.Background(), ledger.Entry{
 			UseYear:  2026,
 			Date:     date,
 			Desc:     "Entry",
@@ -43,7 +44,7 @@ func TestRecentEntriesLength(t *testing.T) {
 			addEntries(t, store, c.total)
 			h := &ledgerHandlers{store: store}
 
-			view, err := h.buildLedgerView(0, 0, "")
+			view, err := h.buildLedgerView(context.Background(), 0, 0, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,7 +60,7 @@ func TestRecentEntriesReverseChronologicalAndEntriesUntouched(t *testing.T) {
 	addEntries(t, store, 25)
 	h := &ledgerHandlers{store: store}
 
-	view, err := h.buildLedgerView(0, 0, "")
+	view, err := h.buildLedgerView(context.Background(), 0, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestRecentEntryDeltaLabel(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			store := ledger.OpenTest(t)
-			_, err := store.AddEntry(ledger.Entry{
+			_, err := store.AddEntry(context.Background(), ledger.Entry{
 				UseYear: 2026, Date: dateParse(t, "2026-01-01"), Desc: "Row",
 				Kind: ledger.KindUsage, Allotted: c.allotted, Used: c.used,
 			})
@@ -120,7 +121,7 @@ func TestRecentEntryDeltaLabel(t *testing.T) {
 			}
 			h := &ledgerHandlers{store: store}
 
-			view, err := h.buildLedgerView(0, 0, "")
+			view, err := h.buildLedgerView(context.Background(), 0, 0, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -139,7 +140,7 @@ func TestRecentEntryDeltaLabel(t *testing.T) {
 
 func TestRecentEntryDateAndDesc(t *testing.T) {
 	store := ledger.OpenTest(t)
-	_, err := store.AddEntry(ledger.Entry{
+	_, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-07"), Desc: "Beach Club trip",
 		Kind: ledger.KindUsage, Used: 40,
 	})
@@ -148,7 +149,7 @@ func TestRecentEntryDateAndDesc(t *testing.T) {
 	}
 	h := &ledgerHandlers{store: store}
 
-	view, err := h.buildLedgerView(0, 0, "")
+	view, err := h.buildLedgerView(context.Background(), 0, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,14 +185,14 @@ func TestSpentByYear(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			store := ledger.OpenTest(t)
 			for _, y := range c.years {
-				_, err := store.AddEntry(ledger.Entry{
+				_, err := store.AddEntry(context.Background(), ledger.Entry{
 					UseYear: y, Date: dateParse(t, "2026-01-01"), Desc: "Alloc",
 					Kind: ledger.KindAllocation, Allotted: 100,
 				})
 				if err != nil {
 					t.Fatal(err)
 				}
-				_, err = store.AddEntry(ledger.Entry{
+				_, err = store.AddEntry(context.Background(), ledger.Entry{
 					UseYear: y, Date: dateParse(t, "2026-01-02"), Desc: "Trip",
 					Kind: ledger.KindUsage, Used: y - 2000, // distinct Used per year, != Net
 				})
@@ -201,7 +202,7 @@ func TestSpentByYear(t *testing.T) {
 			}
 			h := &ledgerHandlers{store: store}
 
-			view, err := h.buildLedgerView(0, 0, "")
+			view, err := h.buildLedgerView(context.Background(), 0, 0, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -285,13 +286,13 @@ func TestSpentByYearFiltersFutureYears(t *testing.T) {
 
 func TestBuildLedgerViewTotalUsesLastRunningBalance(t *testing.T) {
 	store := ledger.OpenTest(t)
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-01-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-01-02"), Desc: "Trip",
 		Kind: ledger.KindUsage, Used: 30,
 	}); err != nil {
@@ -299,11 +300,11 @@ func TestBuildLedgerViewTotalUsesLastRunningBalance(t *testing.T) {
 	}
 	h := &ledgerHandlers{store: store}
 
-	view, err := h.buildLedgerView(0, 0, "")
+	view, err := h.buildLedgerView(context.Background(), 0, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

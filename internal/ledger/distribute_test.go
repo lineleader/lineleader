@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -8,7 +9,7 @@ import (
 func TestUseYearSummaries(t *testing.T) {
 	s := openTestStore(t)
 	add := func(year int, kind string, allotted, used int) {
-		if _, err := s.AddEntry(Entry{UseYear: year, Date: date(t, "2026-04-01"), Kind: kind, Allotted: allotted, Used: used}); err != nil {
+		if _, err := s.AddEntry(context.Background(), Entry{UseYear: year, Date: date(t, "2026-04-01"), Kind: kind, Allotted: allotted, Used: used}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -19,7 +20,7 @@ func TestUseYearSummaries(t *testing.T) {
 	add(2026, KindSingleUse, 24, 0)
 	add(2026, KindUsage, 0, 100) // 2026 net: 294 - 100 = 194
 
-	got, err := s.UseYearSummaries()
+	got, err := s.UseYearSummaries(context.Background())
 	if err != nil {
 		t.Fatalf("UseYearSummaries: %v", err)
 	}
@@ -38,14 +39,14 @@ func TestUseYearSummaries(t *testing.T) {
 
 func TestDistributeNextYear(t *testing.T) {
 	s := openTestStore(t)
-	cA, _ := s.AddContract(Contract{Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April})
-	cB, _ := s.AddContract(Contract{Name: "Point allocation #2", AnnualPoints: 150, UseYearMonth: time.April})
+	cA, _ := s.AddContract(context.Background(), Contract{Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April})
+	cB, _ := s.AddContract(context.Background(), Contract{Name: "Point allocation #2", AnnualPoints: 150, UseYearMonth: time.April})
 
 	// Seed each contract's latest allocation at use year 2026.
 	mustAddAlloc(t, s, cA, 2026, 120)
 	mustAddAlloc(t, s, cB, 2026, 150)
 
-	created, err := s.distributeUpTo(2027)
+	created, err := s.distributeUpTo(context.Background(), 2027)
 	if err != nil {
 		t.Fatalf("distributeUpTo: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestDistributeNextYear(t *testing.T) {
 	}
 
 	// Idempotent: a second run with the same cap creates nothing (target 2028 > cap).
-	created2, err := s.distributeUpTo(2027)
+	created2, err := s.distributeUpTo(context.Background(), 2027)
 	if err != nil {
 		t.Fatalf("second distributeUpTo: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestDistributeNextYear(t *testing.T) {
 		t.Fatalf("second run created %d rows, want 0", len(created2))
 	}
 
-	all, _ := s.ListEntries()
+	all, _ := s.ListEntries(context.Background())
 	if len(all) != 4 {
 		t.Fatalf("total entries = %d, want 4", len(all))
 	}
@@ -79,8 +80,8 @@ func TestDistributeNextYear(t *testing.T) {
 func TestDistributeNextYearSkipsContractsWithoutAllocation(t *testing.T) {
 	s := openTestStore(t)
 	// Contract exists but has never posted an allocation — nothing to advance from.
-	_, _ = s.AddContract(Contract{Name: "New contract", AnnualPoints: 100, UseYearMonth: time.June})
-	created, err := s.distributeUpTo(2027)
+	_, _ = s.AddContract(context.Background(), Contract{Name: "New contract", AnnualPoints: 100, UseYearMonth: time.June})
+	created, err := s.distributeUpTo(context.Background(), 2027)
 	if err != nil {
 		t.Fatalf("distributeUpTo: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestDistributeNextYearSkipsContractsWithoutAllocation(t *testing.T) {
 func mustAddAlloc(t *testing.T, s *Store, contractID int64, year, points int) {
 	t.Helper()
 	id := contractID
-	if _, err := s.AddEntry(Entry{
+	if _, err := s.AddEntry(context.Background(), Entry{
 		UseYear:    year,
 		Date:       date(t, "2026-04-01"),
 		Desc:       "Point allocation",

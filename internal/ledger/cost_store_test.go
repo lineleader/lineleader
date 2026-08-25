@@ -1,6 +1,9 @@
 package ledger
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestStoreCostBasis wires Store.CostBasis (the one I/O boundary of the cost
 // model) to a real database: a priced contract plus the auto-seeded dues
@@ -8,7 +11,7 @@ import "testing"
 func TestStoreCostBasis(t *testing.T) {
 	s := openTestStore(t)
 
-	id, err := s.AddContract(Contract{
+	id, err := s.AddContract(context.Background(), Contract{
 		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: 4,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
 	})
@@ -16,7 +19,7 @@ func TestStoreCostBasis(t *testing.T) {
 		t.Fatalf("AddContract: %v", err)
 	}
 
-	basis, err := s.CostBasis()
+	basis, err := s.CostBasis(context.Background())
 	if err != nil {
 		t.Fatalf("CostBasis: %v", err)
 	}
@@ -36,14 +39,14 @@ func TestStoreCostBasis(t *testing.T) {
 func TestPriceEntries(t *testing.T) {
 	s := openTestStore(t)
 
-	id2019, err := s.AddContract(Contract{
+	id2019, err := s.AddContract(context.Background(), Contract{
 		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: 4,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
 	})
 	if err != nil {
 		t.Fatalf("AddContract: %v", err)
 	}
-	if _, err := s.AddContract(Contract{
+	if _, err := s.AddContract(context.Background(), Contract{
 		Name: "Point allocation #2", AnnualPoints: 150, UseYearMonth: 4,
 		TermYears: 41, PurchasePrice: 3_015_000, ClosingCosts: 66_500,
 	}); err != nil {
@@ -57,16 +60,16 @@ func TestPriceEntries(t *testing.T) {
 		{UseYear: 2027, Date: date(t, "2027-06-01"), Desc: "projected dues", Kind: KindUsage, Used: 50},
 	}
 	for _, e := range entries {
-		if _, err := s.AddEntry(e); err != nil {
+		if _, err := s.AddEntry(context.Background(), e); err != nil {
 			t.Fatalf("AddEntry(%s): %v", e.Desc, err)
 		}
 	}
 
-	basis, err := s.CostBasis()
+	basis, err := s.CostBasis(context.Background())
 	if err != nil {
 		t.Fatalf("CostBasis: %v", err)
 	}
-	got, err := s.ListEntries()
+	got, err := s.ListEntries(context.Background())
 	if err != nil {
 		t.Fatalf("ListEntries: %v", err)
 	}
@@ -97,7 +100,7 @@ func TestPriceEntries(t *testing.T) {
 func TestPriceSummaries(t *testing.T) {
 	s := openTestStore(t)
 
-	id2019, err := s.AddContract(Contract{
+	id2019, err := s.AddContract(context.Background(), Contract{
 		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: 4,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
 	})
@@ -112,22 +115,22 @@ func TestPriceSummaries(t *testing.T) {
 		{UseYear: 2027, Date: date(t, "2027-06-01"), Desc: "projected", Kind: KindUsage, Used: 10, ContractID: &id2019},
 	}
 	for _, e := range entries {
-		if _, err := s.AddEntry(e); err != nil {
+		if _, err := s.AddEntry(context.Background(), e); err != nil {
 			t.Fatalf("AddEntry(%s): %v", e.Desc, err)
 		}
 	}
 
-	basis, err := s.CostBasis()
+	basis, err := s.CostBasis(context.Background())
 	if err != nil {
 		t.Fatalf("CostBasis: %v", err)
 	}
-	priced, err := s.ListEntries()
+	priced, err := s.ListEntries(context.Background())
 	if err != nil {
 		t.Fatalf("ListEntries: %v", err)
 	}
 	basis.PriceEntries(priced)
 
-	summaries, err := s.UseYearSummaries()
+	summaries, err := s.UseYearSummaries(context.Background())
 	if err != nil {
 		t.Fatalf("UseYearSummaries: %v", err)
 	}

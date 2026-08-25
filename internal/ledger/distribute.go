@@ -11,8 +11,8 @@ import (
 
 // UseYearSummaries rolls every entry up by use year, ascending. Net is Allotted-Used;
 // a negative Net (OverBorrowed) means that use year spent more than it took in.
-func (s *Store) UseYearSummaries() ([]UseYearSummary, error) {
-	rows, err := s.q.UseYearSummaries(context.Background())
+func (s *Store) UseYearSummaries(ctx context.Context) ([]UseYearSummary, error) {
+	rows, err := s.q.UseYearSummaries(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -36,8 +36,8 @@ func (s *Store) UseYearSummaries() ([]UseYearSummary, error) {
 // current one; running it more than once in the same year is a no-op (see
 // distributeUpTo), so it is safe to trigger repeatedly. It creates rows only — banked
 // points are not rolled forward. The newly created entries are returned.
-func (s *Store) DistributeNextYear() ([]Entry, error) {
-	return s.distributeUpTo(time.Now().Year() + 1)
+func (s *Store) DistributeNextYear(ctx context.Context) ([]Entry, error) {
+	return s.distributeUpTo(ctx, time.Now().Year()+1)
 }
 
 // distributeUpTo advances each contract by one use year, but never past maxYear. For a
@@ -46,15 +46,15 @@ func (s *Store) DistributeNextYear() ([]Entry, error) {
 // N+1 <= maxYear and that year is not already present. The maxYear cap is what makes
 // repeat runs idempotent: once a contract reaches maxYear, the next target (maxYear+1)
 // exceeds the cap and is skipped.
-func (s *Store) distributeUpTo(maxYear int) ([]Entry, error) {
-	contracts, err := s.ListContracts()
+func (s *Store) distributeUpTo(ctx context.Context, maxYear int) ([]Entry, error) {
+	contracts, err := s.ListContracts(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var created []Entry
 	for _, c := range contracts {
-		latest, ok, err := s.latestAllocationYear(c.ID)
+		latest, ok, err := s.latestAllocationYear(ctx, c.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -65,7 +65,7 @@ func (s *Store) distributeUpTo(maxYear int) ([]Entry, error) {
 		if target > maxYear {
 			continue // already distributed up to the cap
 		}
-		if s.hasAllocationFor(c.ID, target) {
+		if s.hasAllocationFor(ctx, c.ID, target) {
 			continue
 		}
 		id := c.ID
@@ -77,7 +77,7 @@ func (s *Store) distributeUpTo(maxYear int) ([]Entry, error) {
 			Allotted:   c.AnnualPoints,
 			ContractID: &id,
 		}
-		newID, err := s.AddEntry(e)
+		newID, err := s.AddEntry(ctx, e)
 		if err != nil {
 			return nil, err
 		}
@@ -87,8 +87,8 @@ func (s *Store) distributeUpTo(maxYear int) ([]Entry, error) {
 	return created, nil
 }
 
-func (s *Store) latestAllocationYear(contractID int64) (int, bool, error) {
-	year, err := s.q.LatestAllocationYear(context.Background(), dbgen.LatestAllocationYearParams{
+func (s *Store) latestAllocationYear(ctx context.Context, contractID int64) (int, bool, error) {
+	year, err := s.q.LatestAllocationYear(ctx, dbgen.LatestAllocationYearParams{
 		ContractID: sql.NullInt64{Int64: contractID, Valid: true},
 		Kind:       KindAllocation,
 	})
@@ -101,8 +101,8 @@ func (s *Store) latestAllocationYear(contractID int64) (int, bool, error) {
 	return int(year), true, nil
 }
 
-func (s *Store) hasAllocationFor(contractID int64, useYear int) bool {
-	n, _ := s.q.CountAllocationFor(context.Background(), dbgen.CountAllocationForParams{
+func (s *Store) hasAllocationFor(ctx context.Context, contractID int64, useYear int) bool {
+	n, _ := s.q.CountAllocationFor(ctx, dbgen.CountAllocationForParams{
 		ContractID: sql.NullInt64{Int64: contractID, Valid: true},
 		Kind:       KindAllocation,
 		UseYear:    int32(useYear),

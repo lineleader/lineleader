@@ -44,8 +44,8 @@ func entryFromRow(row dbgen.Entry) (Entry, error) {
 }
 
 // AddEntry inserts e and returns its new id.
-func (s *Store) AddEntry(e Entry) (int64, error) {
-	return s.q.InsertEntry(context.Background(), dbgen.InsertEntryParams{
+func (s *Store) AddEntry(ctx context.Context, e Entry) (int64, error) {
+	return s.q.InsertEntry(ctx, dbgen.InsertEntryParams{
 		UseYear:     int32(e.UseYear),
 		Date:        e.Date.Format(DateLayout),
 		Description: e.Desc,
@@ -60,8 +60,8 @@ func (s *Store) AddEntry(e Entry) (int64, error) {
 // ListEntries returns every entry ordered by (date, id) with RunningBalance computed
 // as the cumulative (Allotted - Used) down the list. The running balance is derived
 // here, never stored, so negative balances (borrowing) fall out naturally.
-func (s *Store) ListEntries() ([]Entry, error) {
-	rows, err := s.q.ListEntries(context.Background())
+func (s *Store) ListEntries(ctx context.Context) ([]Entry, error) {
+	rows, err := s.q.ListEntries(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +81,8 @@ func (s *Store) ListEntries() ([]Entry, error) {
 }
 
 // UpdateEntry overwrites the entry identified by e.ID.
-func (s *Store) UpdateEntry(e Entry) error {
-	return s.q.UpdateEntry(context.Background(), dbgen.UpdateEntryParams{
+func (s *Store) UpdateEntry(ctx context.Context, e Entry) error {
+	return s.q.UpdateEntry(ctx, dbgen.UpdateEntryParams{
 		UseYear:     int32(e.UseYear),
 		Date:        e.Date.Format(DateLayout),
 		Description: e.Desc,
@@ -96,6 +96,6 @@ func (s *Store) UpdateEntry(e Entry) error {
 }
 
 // DeleteEntry removes the entry with the given id.
-func (s *Store) DeleteEntry(id int64) error {
-	return s.q.DeleteEntry(context.Background(), id)
+func (s *Store) DeleteEntry(ctx context.Context, id int64) error {
+	return s.q.DeleteEntry(ctx, id)
 }

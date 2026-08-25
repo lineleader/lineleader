@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
@@ -112,7 +113,7 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	defer store.Close()
 
 	// The contract and both entries must still be exactly there, same ids.
-	contracts, err := store.ListContracts()
+	contracts, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatalf("ListContracts: %v", err)
 	}
@@ -223,7 +224,7 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	}
 
 	// The rest of Store's API should work immediately, too.
-	if _, err := store.AddContract(Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April}); err != nil {
+	if _, err := store.AddContract(context.Background(), Contract{Name: "A", AnnualPoints: 120, UseYearMonth: time.April}); err != nil {
 		t.Fatalf("AddContract on fresh database: %v", err)
 	}
 }
@@ -242,16 +243,16 @@ func TestOpen_SeededDuesSurviveDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
-	if v, err := store.ListDuesRates(); err != nil || len(v) != 8 {
+	if v, err := store.ListDuesRates(context.Background()); err != nil || len(v) != 8 {
 		t.Fatalf("ListDuesRates after first Open = %v, %v; want 8 rows", v, err)
 	}
 
 	for _, y := range []int{2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026} {
-		if err := store.DeleteDuesRate(y); err != nil {
+		if err := store.DeleteDuesRate(context.Background(), y); err != nil {
 			t.Fatalf("DeleteDuesRate(%d): %v", y, err)
 		}
 	}
-	if v, err := store.ListDuesRates(); err != nil || len(v) != 0 {
+	if v, err := store.ListDuesRates(context.Background()); err != nil || len(v) != 0 {
 		t.Fatalf("ListDuesRates after deleting all rows = %v, %v; want 0 rows", v, err)
 	}
 	store.Close()
@@ -263,7 +264,7 @@ func TestOpen_SeededDuesSurviveDeletion(t *testing.T) {
 	}
 	defer store2.Close()
 
-	got, err := store2.ListDuesRates()
+	got, err := store2.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatalf("ListDuesRates after reopen: %v", err)
 	}

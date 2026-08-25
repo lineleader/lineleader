@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -74,7 +75,7 @@ func TestLedgerHistoryPageRenders(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Original",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	}); err != nil {
@@ -112,7 +113,7 @@ func TestLedgerContractsPageRenders(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	if _, err := store.AddContract(ledger.Contract{Name: "BoardWalk", AnnualPoints: 150, UseYearMonth: time.April}); err != nil {
+	if _, err := store.AddContract(context.Background(), ledger.Contract{Name: "BoardWalk", AnnualPoints: 150, UseYearMonth: time.April}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -194,7 +195,7 @@ func TestLedgerAddAndDeleteEntry(t *testing.T) {
 		t.Errorf("response missing the new entry; got:\n%s", out)
 	}
 
-	entries, _ := store.ListEntries()
+	entries, _ := store.ListEntries(context.Background())
 	if len(entries) != 1 || entries[0].Allotted != 120 {
 		t.Fatalf("store has %d entries, want 1 with 120 allotted", len(entries))
 	}
@@ -216,7 +217,7 @@ func TestLedgerAddAndDeleteEntry(t *testing.T) {
 	if strings.Contains(dout, "Point allocation") {
 		t.Errorf("deleted entry should no longer render; got:\n%s", dout)
 	}
-	entries, _ = store.ListEntries()
+	entries, _ = store.ListEntries(context.Background())
 	if len(entries) != 0 {
 		t.Fatalf("after delete, store has %d entries, want 0", len(entries))
 	}
@@ -226,14 +227,14 @@ func TestLedgerEditEntryRendersFormRow(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id1, err := store.AddEntry(ledger.Entry{
+	id1, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "First entry",
 		Kind: ledger.KindAllocation, Allotted: 100, Tag: "t1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := store.AddEntry(ledger.Entry{
+	id2, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-05"), Desc: "Second entry",
 		Kind: ledger.KindUsage, Used: 20, Tag: "t2",
 	})
@@ -305,11 +306,11 @@ func TestLedgerUpdateEntryPersists(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{Name: "Linked", AnnualPoints: 100, UseYearMonth: time.April})
+	cid, err := store.AddContract(context.Background(), ledger.Contract{Name: "Linked", AnnualPoints: 100, UseYearMonth: time.April})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := store.AddEntry(ledger.Entry{
+	id, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Original",
 		Kind: ledger.KindAllocation, Allotted: 100, Tag: "orig",
 	})
@@ -346,7 +347,7 @@ func TestLedgerUpdateEntryPersists(t *testing.T) {
 		t.Errorf("response should not still be in edit mode; got:\n%s", out)
 	}
 
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +370,7 @@ func TestLedgerUpdateEntryBadDateShowsError(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id, err := store.AddEntry(ledger.Entry{
+	id, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Original",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	})
@@ -397,7 +398,7 @@ func TestLedgerUpdateEntryBadDateShowsError(t *testing.T) {
 		t.Errorf("update error should still swap into the History body; got:\n%s", out)
 	}
 
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +411,7 @@ func TestLedgerUpdateEntryStoreErrorShowsError(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id, err := store.AddEntry(ledger.Entry{
+	id, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Original",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	})
@@ -438,7 +439,7 @@ func TestLedgerUpdateEntryStoreErrorShowsError(t *testing.T) {
 		t.Errorf("response should surface the store error; got:\n%s", out)
 	}
 
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +483,7 @@ func TestLedgerCancelEdit(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id, err := store.AddEntry(ledger.Entry{
+	id, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Some entry",
 		Kind: ledger.KindAllocation, Allotted: 100,
 	})
@@ -536,7 +537,7 @@ func TestLedgerAddContract(t *testing.T) {
 		t.Errorf("response missing new contract; got:\n%s", out)
 	}
 
-	contracts, err := store.ListContracts()
+	contracts, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +573,7 @@ func TestLedgerAddContractBadMonth(t *testing.T) {
 		t.Errorf("response should surface parseMonth error; got:\n%s", out)
 	}
 
-	contracts, err := store.ListContracts()
+	contracts, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +612,7 @@ func TestLedgerAddContractWithCostFields(t *testing.T) {
 		t.Fatalf("add contract status = %d, body:\n%s", resp.StatusCode, out)
 	}
 
-	contracts, err := store.ListContracts()
+	contracts, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +648,7 @@ func TestLedgerEditContractRendersFormRow(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id1, err := store.AddContract(ledger.Contract{
+	id1, err := store.AddContract(context.Background(), ledger.Contract{
 		Name: "Point allocation", Number: "111", HomeResort: "BWV",
 		AnnualPoints: 120, UseYearMonth: time.April,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
@@ -655,7 +656,7 @@ func TestLedgerEditContractRendersFormRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := store.AddContract(ledger.Contract{Name: "Other contract", AnnualPoints: 150, UseYearMonth: time.October})
+	id2, err := store.AddContract(context.Background(), ledger.Contract{Name: "Other contract", AnnualPoints: 150, UseYearMonth: time.October})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -724,11 +725,11 @@ func TestLedgerUpdateContractPersists(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April})
+	cid, err := store.AddContract(context.Background(), ledger.Contract{Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April})
 	if err != nil {
 		t.Fatal(err)
 	}
-	entryID, err := store.AddEntry(ledger.Entry{
+	entryID, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
 	})
@@ -758,7 +759,7 @@ func TestLedgerUpdateContractPersists(t *testing.T) {
 		t.Errorf("response should not still be in edit mode; got:\n%s", out)
 	}
 
-	contracts, err := store.ListContracts()
+	contracts, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -775,7 +776,7 @@ func TestLedgerUpdateContractPersists(t *testing.T) {
 
 	// The entry's contract_id must survive — the whole point of using
 	// UpdateContract rather than delete-and-re-add.
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -800,7 +801,7 @@ func TestLedgerCancelContractEdit(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	id, err := store.AddContract(ledger.Contract{Name: "Some contract", AnnualPoints: 100, UseYearMonth: time.April})
+	id, err := store.AddContract(context.Background(), ledger.Contract{Name: "Some contract", AnnualPoints: 100, UseYearMonth: time.April})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -827,7 +828,7 @@ func TestLedgerCancelContractEdit(t *testing.T) {
 // exercising contract editing itself).
 func backfillContract(t *testing.T, store *ledger.Store) int64 {
 	t.Helper()
-	cid, err := store.AddContract(ledger.Contract{
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
 		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
 	})
@@ -887,7 +888,7 @@ func TestLedgerUpsertDuesRate(t *testing.T) {
 		t.Errorf("response missing new dues row; got:\n%s", out)
 	}
 
-	dues, err := store.ListDuesRates()
+	dues, err := store.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -926,7 +927,7 @@ func TestLedgerUpsertDuesRateInvalid(t *testing.T) {
 	if !strings.Contains(out, "err") {
 		t.Errorf("response should surface the store's positivity error; got:\n%s", out)
 	}
-	dues, err := store.ListDuesRates()
+	dues, err := store.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,7 +957,7 @@ func TestLedgerDeleteDuesRate(t *testing.T) {
 		t.Fatalf("delete dues status = %d, body:\n%s", resp.StatusCode, out)
 	}
 
-	dues, err := store.ListDuesRates()
+	dues, err := store.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -971,7 +972,7 @@ func TestLedgerDeleteContract(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{Name: "Old Key", AnnualPoints: 100, UseYearMonth: time.October})
+	cid, err := store.AddContract(context.Background(), ledger.Contract{Name: "Old Key", AnnualPoints: 100, UseYearMonth: time.October})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -992,7 +993,7 @@ func TestLedgerDeleteContract(t *testing.T) {
 		t.Errorf("response should no longer list deleted contract; got:\n%s", out)
 	}
 
-	contracts, err := store.ListContracts()
+	contracts, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1018,17 +1019,17 @@ func TestLedgerHistoryHidesCostsWhenUnknown(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{Name: "Unpriced", AnnualPoints: 120, UseYearMonth: time.April})
+	cid, err := store.AddContract(context.Background(), ledger.Contract{Name: "Unpriced", AnnualPoints: 120, UseYearMonth: time.April})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Trip",
 		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
 	}); err != nil {
@@ -1086,16 +1087,16 @@ func TestLedgerContractsAlwaysOffersDuesForm(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	dues, err := store.ListDuesRates()
+	dues, err := store.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range dues {
-		if err := store.DeleteDuesRate(d.UseYear); err != nil {
+		if err := store.DeleteDuesRate(context.Background(), d.UseYear); err != nil {
 			t.Fatal(err)
 		}
 	}
-	remaining, err := store.ListDuesRates()
+	remaining, err := store.ListDuesRates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1134,20 +1135,20 @@ func TestLedgerHistoryShowsCostPerEntryAndUseYear(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
 		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Priced trip",
 		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
 	}); err != nil {
@@ -1187,20 +1188,20 @@ func TestLedgerRecentShowsCostsWhenKnown(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
 		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Priced trip",
 		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
 	}); err != nil {
@@ -1236,20 +1237,20 @@ func TestLedgerRecentActivityTableAlignsColumns(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, err := store.AddContract(ledger.Contract{
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
 		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
 		TermYears: 44, PurchasePrice: 2_940_000, ClosingCosts: 58_835,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &cid,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Priced trip",
 		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
 	}); err != nil {
@@ -1319,9 +1320,9 @@ func TestLedgerDistribute(t *testing.T) {
 	srv, store := newLedgerTestServer(t)
 	defer srv.Close()
 
-	cid, _ := store.AddContract(ledger.Contract{Name: "Alloc", AnnualPoints: 120, UseYearMonth: 4})
+	cid, _ := store.AddContract(context.Background(), ledger.Contract{Name: "Alloc", AnnualPoints: 120, UseYearMonth: 4})
 	id := cid
-	if _, err := store.AddEntry(ledger.Entry{
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
 		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
 		Kind: ledger.KindAllocation, Allotted: 120, ContractID: &id,
 	}); err != nil {
@@ -1339,7 +1340,7 @@ func TestLedgerDistribute(t *testing.T) {
 	if !strings.Contains(out, "Per use year") {
 		t.Errorf("distribute should swap into the History body; got:\n%s", out)
 	}
-	entries, _ := store.ListEntries()
+	entries, _ := store.ListEntries(context.Background())
 	if len(entries) != 2 {
 		t.Fatalf("after distribute, %d entries, want 2", len(entries))
 	}

@@ -210,7 +210,7 @@ func apiPathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 
 // listEntries handles GET /api/v1/ledger/entries.
 func (h *apiHandlers) listEntries(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.store.ListEntries()
+	entries, err := h.store.ListEntries(r.Context())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -234,7 +234,7 @@ func (h *apiHandlers) addEntry(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	id, err := h.store.AddEntry(e)
+	id, err := h.store.AddEntry(r.Context(), e)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -264,7 +264,7 @@ func (h *apiHandlers) updateEntry(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.store.UpdateEntry(e); err != nil {
+	if err := h.store.UpdateEntry(r.Context(), e); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -278,7 +278,7 @@ func (h *apiHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.store.DeleteEntry(id); err != nil {
+	if err := h.store.DeleteEntry(r.Context(), id); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -287,7 +287,7 @@ func (h *apiHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 
 // listContracts handles GET /api/v1/ledger/contracts.
 func (h *apiHandlers) listContracts(w http.ResponseWriter, r *http.Request) {
-	contracts, err := h.store.ListContracts()
+	contracts, err := h.store.ListContracts(r.Context())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -311,7 +311,7 @@ func (h *apiHandlers) addContract(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	id, err := h.store.AddContract(c)
+	id, err := h.store.AddContract(r.Context(), c)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -327,7 +327,7 @@ func (h *apiHandlers) deleteContract(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.store.DeleteContract(id); err != nil {
+	if err := h.store.DeleteContract(r.Context(), id); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -336,7 +336,7 @@ func (h *apiHandlers) deleteContract(w http.ResponseWriter, r *http.Request) {
 
 // summaries handles GET /api/v1/ledger/summaries.
 func (h *apiHandlers) summaries(w http.ResponseWriter, r *http.Request) {
-	summaries, err := h.store.UseYearSummaries()
+	summaries, err := h.store.UseYearSummaries(r.Context())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -352,7 +352,7 @@ func (h *apiHandlers) summaries(w http.ResponseWriter, r *http.Request) {
 // 201) since this is an action endpoint, not a single-resource create — it
 // may create zero, one, or several entries.
 func (h *apiHandlers) distribute(w http.ResponseWriter, r *http.Request) {
-	created, err := h.store.DistributeNextYear()
+	created, err := h.store.DistributeNextYear(r.Context())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return

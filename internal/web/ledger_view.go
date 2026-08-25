@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -226,20 +227,20 @@ var entryKinds = []string{
 // buildLedgerView reads the current ledger state into a view. editID marks
 // an entry row for inline editing; editContractID marks a contract row the
 // same way; errMsg surfaces a mutation error. Caller holds the lock.
-func (h *ledgerHandlers) buildLedgerView(editID, editContractID int64, errMsg string) (ledgerView, error) {
-	entries, err := h.store.ListEntries()
+func (h *ledgerHandlers) buildLedgerView(ctx context.Context, editID, editContractID int64, errMsg string) (ledgerView, error) {
+	entries, err := h.store.ListEntries(ctx)
 	if err != nil {
 		return ledgerView{}, err
 	}
-	summaries, err := h.store.UseYearSummaries()
+	summaries, err := h.store.UseYearSummaries(ctx)
 	if err != nil {
 		return ledgerView{}, err
 	}
-	contracts, err := h.store.ListContracts()
+	contracts, err := h.store.ListContracts(ctx)
 	if err != nil {
 		return ledgerView{}, err
 	}
-	dues, err := h.store.ListDuesRates()
+	dues, err := h.store.ListDuesRates(ctx)
 	if err != nil {
 		return ledgerView{}, err
 	}
@@ -248,7 +249,7 @@ func (h *ledgerHandlers) buildLedgerView(editID, editContractID int64, errMsg st
 		total = entries[n-1].RunningBalance
 	}
 
-	basis, err := h.store.CostBasis()
+	basis, err := h.store.CostBasis(ctx)
 	if err != nil {
 		return ledgerView{}, err
 	}

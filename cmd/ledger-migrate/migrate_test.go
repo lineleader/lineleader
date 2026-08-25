@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -109,7 +110,7 @@ func TestMigrate(t *testing.T) {
 	}
 	defer store.Close()
 
-	contracts, err := store.ListContracts()
+	contracts, err := store.ListContracts(context.Background())
 	if err != nil {
 		t.Fatalf("ListContracts: %v", err)
 	}
@@ -123,7 +124,7 @@ func TestMigrate(t *testing.T) {
 		t.Errorf("contract fields not preserved: %+v", contracts[0])
 	}
 
-	entries, err := store.ListEntries()
+	entries, err := store.ListEntries(context.Background())
 	if err != nil {
 		t.Fatalf("ListEntries: %v", err)
 	}
@@ -149,7 +150,7 @@ func TestMigrate(t *testing.T) {
 
 	// Sequence-reset proof: the next generated id must be max+1, not a
 	// collision with a migrated row.
-	newContractID, err := store.AddContract(ledger.Contract{Name: "New", AnnualPoints: 100, UseYearMonth: 1})
+	newContractID, err := store.AddContract(context.Background(), ledger.Contract{Name: "New", AnnualPoints: 100, UseYearMonth: 1})
 	if err != nil {
 		t.Fatalf("AddContract after migrate: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestMigrate(t *testing.T) {
 		t.Errorf("new contract id = %d, want 8 (sequence reset to max+1)", newContractID)
 	}
 
-	newEntryID, err := store.AddEntry(ledger.Entry{UseYear: 2026, Date: entries[0].Date, Desc: "New", Kind: ledger.KindUsage})
+	newEntryID, err := store.AddEntry(context.Background(), ledger.Entry{UseYear: 2026, Date: entries[0].Date, Desc: "New", Kind: ledger.KindUsage})
 	if err != nil {
 		t.Fatalf("AddEntry after migrate: %v", err)
 	}
