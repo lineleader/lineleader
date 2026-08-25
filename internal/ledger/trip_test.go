@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestTripCRUD(t *testing.T) {
@@ -255,6 +257,32 @@ func TestQuoteHash(t *testing.T) {
 	})
 }
 
+// assertCheckViolation fails unless err is specifically a Postgres CHECK
+// constraint violation (SQLSTATE 23514).
+//
+// Asserting merely that err != nil is not enough, and this file previously
+// made that mistake: with a bare nil check, every subtest below still
+// passed when the INSERT's column list was corrupted, because the
+// statement then failed with "column does not exist" (42703) and a test
+// looking only for "some error" cannot tell the two apart. That would let
+// a dropped CHECK constraint ship green. Pinning the SQLSTATE means these
+// tests fail loudly if the statement stops reaching the constraint it is
+// meant to exercise.
+func assertCheckViolation(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected a CHECK constraint violation, got nil error")
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("expected a *pgconn.PgError, got %T: %v", err, err)
+	}
+	if pgErr.Code != "23514" {
+		t.Fatalf("expected SQLSTATE 23514 (check_violation), got %s (%s): %v",
+			pgErr.Code, pgErr.ConstraintName, err)
+	}
+}
+
 func TestTripCheckConstraints(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -264,41 +292,31 @@ func TestTripCheckConstraints(t *testing.T) {
 	t.Run("start_date must be before end_date", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			"Bad dates", date(t, "2026-06-10"), date(t, "2026-06-01"), 1, nil, "")
-		if err == nil {
-			t.Fatal("expected CHECK violation for start_date >= end_date")
-		}
+		assertCheckViolation(t, err)
 	})
 
 	t.Run("min_nights must be at least 1", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			"Bad min_nights", date(t, "2026-06-01"), date(t, "2026-06-10"), 0, nil, "")
-		if err == nil {
-			t.Fatal("expected CHECK violation for min_nights < 1")
-		}
+		assertCheckViolation(t, err)
 	})
 
 	t.Run("min_nights must be at most 30", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			"Bad min_nights", date(t, "2026-06-01"), date(t, "2026-06-10"), 31, nil, "")
-		if err == nil {
-			t.Fatal("expected CHECK violation for min_nights > 30")
-		}
+		assertCheckViolation(t, err)
 	})
 
 	t.Run("budget_override must be nil or non-negative", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			"Bad budget", date(t, "2026-06-01"), date(t, "2026-06-10"), 1, -1, "")
-		if err == nil {
-			t.Fatal("expected CHECK violation for negative budget_override")
-		}
+		assertCheckViolation(t, err)
 	})
 
 	t.Run("filter_mode must be '' or 'override'", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			"Bad filter", date(t, "2026-06-01"), date(t, "2026-06-10"), 1, nil, "bogus")
-		if err == nil {
-			t.Fatal("expected CHECK violation for invalid filter_mode")
-		}
+		assertCheckViolation(t, err)
 	})
 }
 
@@ -321,24 +339,18 @@ func TestTripStayCheckConstraints(t *testing.T) {
 	t.Run("check_in must be before check_out", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			tripID, "BLT", "Studio", date(t, "2026-06-10"), date(t, "2026-06-05"), 4, 100)
-		if err == nil {
-			t.Fatal("expected CHECK violation for check_in >= check_out")
-		}
+		assertCheckViolation(t, err)
 	})
 
 	t.Run("nights must equal check_out - check_in", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			tripID, "BLT", "Studio", date(t, "2026-06-01"), date(t, "2026-06-05"), 99, 100)
-		if err == nil {
-			t.Fatal("expected CHECK violation for mismatched nights")
-		}
+		assertCheckViolation(t, err)
 	})
 
 	t.Run("points must be positive", func(t *testing.T) {
 		_, err := s.db.ExecContext(ctx, insert,
 			tripID, "BLT", "Studio", date(t, "2026-06-01"), date(t, "2026-06-05"), 4, 0)
-		if err == nil {
-			t.Fatal("expected CHECK violation for non-positive points")
-		}
+		assertCheckViolation(t, err)
 	})
 }
