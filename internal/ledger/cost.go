@@ -36,10 +36,7 @@ func NewCostBasis(contracts []Contract, dues []DuesRate) CostBasis {
 	b := CostBasis{
 		rates:        make(map[int64]Micros),
 		dues:         make(map[int]Micros),
-		useYearMonth: time.January,
-	}
-	if len(contracts) > 0 {
-		b.useYearMonth = contracts[0].UseYearMonth
+		useYearMonth: UseYearStartMonth(contracts),
 	}
 
 	var num, den int64

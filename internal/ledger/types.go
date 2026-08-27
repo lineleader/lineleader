@@ -79,3 +79,14 @@ func UseYearForDate(date time.Time, startMonth time.Month) int {
 	}
 	return date.Year() - 1
 }
+
+// UseYearStartMonth is the use-year-start-month heuristic: the UseYearMonth of the
+// first contract in ListContracts order (lowest id), or time.January when there
+// are none. The app assumes one portfolio-wide use year. Both NewCostBasis and the
+// trip budget resolve through this single implementation.
+func UseYearStartMonth(contracts []Contract) time.Month {
+	if len(contracts) > 0 {
+		return contracts[0].UseYearMonth
+	}
+	return time.January
+}
