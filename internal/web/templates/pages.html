@@ -1,0 +1,52 @@
+{{/* trips_page is the full-page shell for GET /: the trip list. */}}
+{{define "trips_page"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lineleader — trips</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <main class="trips-page">
+    {{template "site_nav" (dict "Active" "trips")}}
+    {{template "trip_list" .}}
+  </main>
+  <aside id="panel"></aside>
+</body>
+</html>
+{{end}}
+
+{{/* trip_page is the full-page shell for GET /trips/{id}: one trip. */}}
+{{define "trip_page"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lineleader — {{.Name}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <main class="trip-page">
+    {{template "site_nav" (dict "Active" "trips")}}
+    {{template "trip" .}}
+  </main>
+  <aside id="panel"></aside>
+</body>
+</html>
+{{end}}
+
+{{/* site_nav is the app-level nav shared by the trip pages and /ledger,
+     parameterised by which top-level section is active via dict (the same
+     dict-passing convention ledger_header already established). */}}
+{{define "site_nav"}}
+<div class="site-nav">
+  <a class="site-nav-brand" href="/">LineLeader</a>
+  <nav class="site-nav-links">
+    <a href="/" class="{{if eq .Active "trips"}}active{{end}}">Trips</a>
+    <a href="/ledger" class="{{if eq .Active "ledger"}}active{{end}}">Ledger</a>
+  </nav>
+</div>
+{{end}}

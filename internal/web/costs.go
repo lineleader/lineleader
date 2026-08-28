@@ -16,18 +16,19 @@ import (
 // render.
 const costBasisTTL = 60 * time.Second
 
-// costProvider is the one bridge between the planner and the ledger's cost
-// model: it hands the planner a read-only, time-boxed ledger.CostBasis
-// snapshot, never a *ledger.Store — internal/dvc never sees the ledger at
-// all. It is safe for concurrent use across the web layer's HTTP handlers,
-// which may call Basis from multiple goroutines at once.
+// costProvider hands the trip handlers a read-only, time-boxed
+// ledger.CostBasis snapshot, never a *ledger.Store — internal/dvc never
+// imports internal/ledger, and never will; that invariant is what survives
+// from the planner era, not any particular bridge type. It is safe for
+// concurrent use across the web layer's HTTP handlers, which may call Basis
+// from multiple goroutines at once.
 //
-// Basis never returns an error: when there is no store configured
-// (Options.Ledger == nil, the case in ~20 existing planner tests, though
-// never in production — cmd/server/main.go exits without a DSN) or a fetch
-// attempt fails, it degrades to ok=false rather than 500-ing a trip search.
-// A ledger blip is a UI degradation — the planner falls back to its
-// pre-cost rendering — never an outage.
+// Basis never returns an error: when there is no store configured (nil,
+// which no longer happens in production now that Options.Ledger is
+// required, but old tests built one this way) or a fetch attempt fails, it
+// degrades to ok=false rather than 500-ing a trip page. A ledger blip is a
+// UI degradation — the trip page falls back to its pre-cost rendering —
+// never an outage.
 //
 // Ledger handlers keep calling Store.CostBasis directly for their own
 // low-traffic, freshness-sensitive rendering (see ledger_view.go); they

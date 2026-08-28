@@ -2,17 +2,27 @@ package web
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/lineleader/lineleader/internal/dvc"
+	"github.com/lineleader/lineleader/internal/ledger"
 )
 
-// handlers groups the http handlers + shared dependencies.
+// handlers groups the http handlers + shared dependencies. Trips and stays
+// live in Postgres (h.store); global filters are the one piece of shared
+// mutable state left in this package (h.global guards itself). Neither the
+// trip list nor the trip page handlers need a handler-wide lock.
 type handlers struct {
-	tmpl    *template.Template
-	session *Session
+	tmpl   *template.Template
+	charts []*dvc.ResortChart
+	global *globalFilters
+	store  *ledger.Store
+	costs  *costProvider
 }
 
 // render executes one named template against w.
@@ -23,272 +33,243 @@ func (h *handlers) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-// index renders the full page.
-func (h *handlers) index(w http.ResponseWriter, r *http.Request) {
+// costBasis fetches the current cost snapshot and reports whether it's
+// priced enough to show dollar figures — see costProvider and
+// ledger.CostBasis.Known.
+func (h *handlers) costBasis(ctx context.Context) (ledger.CostBasis, bool) {
+	basis, ok := h.costs.Basis(ctx)
+	return basis, ok && basis.Known()
+}
+
+// buildTripListView fetches each trip's stays and projects the trip list
+// into a render-ready tripListView.
+func (h *handlers) buildTripListView(ctx context.Context, trips []ledger.Trip) (tripListView, error) {
+	basis, showCosts := h.costBasis(ctx)
+	month := basis.UseYearMonth()
+
+	view := tripListView{Trips: make([]tripRowView, 0, len(trips))}
+	for _, t := range trips {
+		stays, err := h.store.ListStays(ctx, t.ID)
+		if err != nil {
+			return tripListView{}, fmt.Errorf("listing stays for trip %d: %w", t.ID, err)
+		}
+		view.Trips = append(view.Trips, buildTripRowView(t, stays, month, basis, showCosts))
+	}
+	return view, nil
+}
+
+// renderTripList re-fetches every trip and renders the full trips_page, with
+// an optional error message (e.g. from a failed create-trip submission).
+func (h *handlers) renderTripList(w http.ResponseWriter, r *http.Request, errMsg string) {
+	ctx := r.Context()
+	trips, err := h.store.ListTrips(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	view, err := h.buildTripListView(ctx, trips)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	view.Err = errMsg
+	h.render(w, "trips_page", view)
+}
+
+// tripList handles GET /.
+func (h *handlers) tripList(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	snap := h.session.p.Snapshot()
-	h.render(w, "layout.html", struct{ App appView }{App: h.session.buildAppView(r.Context(), snap)})
+	h.renderTripList(w, r, "")
 }
 
-// updateBudget handles POST /budget.
-func (h *handlers) updateBudget(w http.ResponseWriter, r *http.Request) {
+// newTripForm handles GET /trips/new.
+func (h *handlers) newTripForm(w http.ResponseWriter, r *http.Request) {
+	h.render(w, "trip_new_form", nil)
+}
+
+// parseTripForm parses and validates a trip creation form, following the
+// ledger handlers' convention: a validation failure is returned as an error
+// for the caller to render inline (200, not a hard 400).
+func parseTripForm(r *http.Request) (ledger.Trip, error) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return ledger.Trip{}, err
 	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.SetBudget(r.FormValue("budget"))
-	snap := h.session.p.Snapshot()
-	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
-}
-
-// addTrip handles POST /trips.
-func (h *handlers) addTrip(w http.ResponseWriter, r *http.Request) {
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.AddTrip()
-	snap := h.session.p.Snapshot()
-	h.session.reconcileCollapsed(snap)
-	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
-}
-
-// removeTrip handles DELETE /trips/{i}.
-func (h *handlers) removeTrip(w http.ResponseWriter, r *http.Request) {
-	i, err := strconv.Atoi(r.PathValue("i"))
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		return ledger.Trip{}, errors.New("name is required")
+	}
+	from, err := dvc.ParseDate(r.FormValue("from"))
 	if err != nil {
-		http.Error(w, "bad trip index", http.StatusBadRequest)
-		return
+		return ledger.Trip{}, err
 	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.RemoveTrip(i)
-	snap := h.session.p.Snapshot()
-	h.session.reconcileCollapsed(snap)
-	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
+	to, err := dvc.ParseDate(r.FormValue("to"))
+	if err != nil {
+		return ledger.Trip{}, err
+	}
+	if !from.Before(to) {
+		return ledger.Trip{}, errors.New("start date must be before end date")
+	}
+	minNights, err := strconv.Atoi(r.FormValue("min_nights"))
+	if err != nil {
+		return ledger.Trip{}, errors.New("invalid min nights")
+	}
+	if minNights < 1 {
+		return ledger.Trip{}, errors.New("min nights must be at least 1")
+	}
+	if minNights > dvc.MaxNights {
+		return ledger.Trip{}, fmt.Errorf("min nights exceeds Disney's %d-night limit", dvc.MaxNights)
+	}
+	return ledger.Trip{
+		Name:      name,
+		StartDate: from,
+		EndDate:   to,
+		MinNights: minNights,
+	}, nil
 }
 
-// updateField handles POST /trips/{i}/field.
-func (h *handlers) updateField(w http.ResponseWriter, r *http.Request) {
-	i, err := strconv.Atoi(r.PathValue("i"))
+// createTrip handles POST /trips.
+func (h *handlers) createTrip(w http.ResponseWriter, r *http.Request) {
+	t, err := parseTripForm(r)
 	if err != nil {
-		http.Error(w, "bad trip index", http.StatusBadRequest)
+		h.renderTripList(w, r, err.Error())
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	id, err := h.store.AddTrip(r.Context(), t)
+	if err != nil {
+		h.renderTripList(w, r, err.Error())
 		return
 	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	snap := h.session.p.Snapshot()
-	if i < 0 || i >= len(snap.Trips) {
-		http.Error(w, "trip out of range", http.StatusBadRequest)
-		return
-	}
-	h.session.p.SetTripField(i, 0, r.FormValue("from"))
-	h.session.p.SetTripField(i, 1, r.FormValue("to"))
-	h.session.p.SetTripField(i, 2, r.FormValue("min_nights"))
-	view := h.session.buildAppView(r.Context(), h.session.p.Snapshot())
-	h.render(w, "results", view.Trips[i])
+	http.Redirect(w, r, fmt.Sprintf("/trips/%d", id), http.StatusSeeOther)
 }
 
-// toggleSelection handles POST /trips/{i}/select/{row}.
-func (h *handlers) toggleSelection(w http.ResponseWriter, r *http.Request) {
-	i, err := strconv.Atoi(r.PathValue("i"))
+// tripID parses the {id} path value, writing a 400 and returning ok=false on
+// a malformed value.
+func tripID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, "bad trip index", http.StatusBadRequest)
-		return
+		http.Error(w, "bad trip id", http.StatusBadRequest)
+		return 0, false
 	}
-	row, err := strconv.Atoi(r.PathValue("row"))
-	if err != nil {
-		http.Error(w, "bad row index", http.StatusBadRequest)
-		return
-	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.ToggleSelection(i, row)
-	snap := h.session.p.Snapshot()
-	// Preserve the collapse-on-select UX: selecting a row collapses the trip so
-	// the user can move on; deselecting expands it again. The Planner no longer
-	// tracks Collapsed, so derive select vs deselect from the resulting snapshot.
-	if i >= 0 && i < len(snap.Trips) && i < len(h.session.collapsed) {
-		h.session.collapsed[i] = snap.Trips[i].Selected != nil
-	}
-	h.render(w, "app", h.session.buildAppView(r.Context(), snap))
+	return id, true
 }
 
-// toggleCollapsed handles POST /trips/{i}/collapse.
-func (h *handlers) toggleCollapsed(w http.ResponseWriter, r *http.Request) {
-	i, err := strconv.Atoi(r.PathValue("i"))
+// tripPage handles GET /trips/{id}.
+func (h *handlers) tripPage(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	t, err := h.store.GetTrip(ctx, id)
 	if err != nil {
-		http.Error(w, "bad trip index", http.StatusBadRequest)
+		if errors.Is(err, ledger.ErrTripNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	snap := h.session.p.Snapshot()
-	if i < 0 || i >= len(snap.Trips) {
-		http.Error(w, "trip out of range", http.StatusBadRequest)
+	stays, err := h.store.ListStays(ctx, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.session.toggleCollapsed(i)
-	view := h.session.buildAppView(r.Context(), snap)
-	h.render(w, "trip", view.Trips[i])
+	budget, err := h.store.TripBudget(ctx, t.StartDate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	basis, showCosts := h.costBasis(ctx)
+	month := basis.UseYearMonth()
+	view := buildTripView(t, stays, budget, nil, month, basis, showCosts)
+	h.render(w, "trip_page", view)
 }
 
-// openFilters handles GET /filters.
+// deleteTrip handles DELETE /trips/{id}.
+func (h *handlers) deleteTrip(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.store.DeleteTrip(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	redirectHome(w, r)
+}
+
+// redirectHome sends the client back to the trip list. The trip list's delete
+// button is an hx-delete with no hx-target, and htmx transparently FOLLOWS a
+// 3xx and swaps the redirected page into that default target — nesting the
+// whole trips page inside a table cell. So answer an htmx request with
+// HX-Redirect (a real browser navigation), matching the pattern
+// authMiddleware already uses for /login, and keep the plain 303 for
+// non-htmx clients.
+func redirectHome(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("HX-Request") != "" {
+		w.Header().Set("HX-Redirect", "/")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// openFilters handles GET /filters — the global filter panel.
 func (h *handlers) openFilters(w http.ResponseWriter, r *http.Request) {
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.render(w, "filters", toFiltersView(h.session.p.FilterOptions(-1)))
+	cfg := h.global.Get()
+	opts := dvc.FilterOptionsFor(h.charts, cfg.AsFilterSet())
+	h.render(w, "filters", toFiltersView(opts, filterScope{}))
 }
 
 // toggleResortFilter handles POST /filters/resorts/{code}.
 func (h *handlers) toggleResortFilter(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	if err := h.session.p.ToggleGlobalResort(code); err != nil {
+	if err := h.global.ToggleResort(code); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.renderFilterToggle(r.Context(), w)
+	h.renderFilterToggle(w, r)
 }
 
 // toggleRoomTypeFilter handles POST /filters/roomtypes/{name}.
 func (h *handlers) toggleRoomTypeFilter(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	if err := h.session.p.ToggleGlobalRoomType(name); err != nil {
+	if err := h.global.ToggleRoomType(name); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.renderFilterToggle(r.Context(), w)
+	h.renderFilterToggle(w, r)
 }
 
-// renderFilterToggle renders the filters_toggle template (panel + OOB trip-list).
-// Caller must hold session lock.
-func (h *handlers) renderFilterToggle(ctx context.Context, w http.ResponseWriter) {
+// renderFilterToggle renders the filters_toggle template (panel + OOB
+// trip-list), reflecting a just-applied global filter change.
+func (h *handlers) renderFilterToggle(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	cfg := h.global.Get()
+	opts := dvc.FilterOptionsFor(h.charts, cfg.AsFilterSet())
+
+	trips, err := h.store.ListTrips(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	listView, err := h.buildTripListView(ctx, trips)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	data := struct {
-		Filters filtersView
-		App     appView
+		Filters  filtersView
+		TripList tripListView
 	}{
-		Filters: toFiltersView(h.session.p.FilterOptions(-1)),
-		App:     h.session.buildAppView(ctx, h.session.p.Snapshot()),
+		Filters:  toFiltersView(opts, filterScope{}),
+		TripList: listView,
 	}
 	h.render(w, "filters_toggle", data)
-}
-
-// openTripFilters handles GET /trips/{i}/filters — opens the per-trip panel.
-// It renders only the "filters" panel (no OOB results swap), mirroring openFilters.
-func (h *handlers) openTripFilters(w http.ResponseWriter, r *http.Request) {
-	i, ok := h.tripIndex(w, r)
-	if !ok {
-		return
-	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.render(w, "filters", toFiltersView(h.session.p.FilterOptions(i)))
-}
-
-// setTripFilterMode handles POST /trips/{i}/filters/mode.
-// The form value "mode" maps "override" -> dvc.FilterModeOverride and "inherit"
-// -> dvc.FilterModeInherit. Any UNKNOWN value is treated as inherit: this is the
-// safe default (the global filters), and it keeps a malformed request from
-// silently seeding a per-trip override.
-func (h *handlers) setTripFilterMode(w http.ResponseWriter, r *http.Request) {
-	i, ok := h.tripIndex(w, r)
-	if !ok {
-		return
-	}
-	mode := dvc.FilterModeInherit
-	if r.FormValue("mode") == string(dvc.FilterModeOverride) {
-		mode = dvc.FilterModeOverride
-	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.SetTripFilterMode(i, mode)
-	h.renderTripFilterToggle(r.Context(), w, i)
-}
-
-// toggleTripResort handles POST /trips/{i}/filters/resorts/{code}.
-func (h *handlers) toggleTripResort(w http.ResponseWriter, r *http.Request) {
-	i, ok := h.tripIndex(w, r)
-	if !ok {
-		return
-	}
-	code := r.PathValue("code")
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.ToggleTripResort(i, code)
-	h.renderTripFilterToggle(r.Context(), w, i)
-}
-
-// toggleTripRoomType handles POST /trips/{i}/filters/roomtypes/{name}. The mux
-// URL-decodes {name}, so room types with spaces (e.g. "ONE-BEDROOM VILLA")
-// arrive intact — matching the global room-type route's decoding.
-func (h *handlers) toggleTripRoomType(w http.ResponseWriter, r *http.Request) {
-	i, ok := h.tripIndex(w, r)
-	if !ok {
-		return
-	}
-	name := r.PathValue("name")
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.ToggleTripRoomType(i, name)
-	h.renderTripFilterToggle(r.Context(), w, i)
-}
-
-// resetTripFilters handles DELETE /trips/{i}/filters — back to inherit.
-func (h *handlers) resetTripFilters(w http.ResponseWriter, r *http.Request) {
-	i, ok := h.tripIndex(w, r)
-	if !ok {
-		return
-	}
-	h.session.mu.Lock()
-	defer h.session.mu.Unlock()
-	h.session.p.ResetTripFilters(i)
-	h.renderTripFilterToggle(r.Context(), w, i)
-}
-
-// tripIndex parses and range-checks the {i} path value, writing a 400 and
-// returning ok=false on a bad or out-of-range index.
-func (h *handlers) tripIndex(w http.ResponseWriter, r *http.Request) (int, bool) {
-	i, err := strconv.Atoi(r.PathValue("i"))
-	if err != nil {
-		http.Error(w, "bad trip index", http.StatusBadRequest)
-		return 0, false
-	}
-	h.session.mu.Lock()
-	n := len(h.session.p.Snapshot().Trips)
-	h.session.mu.Unlock()
-	if i < 0 || i >= n {
-		http.Error(w, "trip out of range", http.StatusBadRequest)
-		return 0, false
-	}
-	return i, true
-}
-
-// renderTripFilterToggle renders the per-trip filters_trip_toggle template: the
-// filter PANEL plus ONLY the affected trip's results, OOB-swapped into
-// #trip-{i}-results. Other trips are untouched. Caller must hold session lock.
-func (h *handlers) renderTripFilterToggle(ctx context.Context, w http.ResponseWriter, i int) {
-	view := h.session.buildAppView(ctx, h.session.p.Snapshot())
-	data := struct {
-		Filters filtersView
-		Trip    tripView
-	}{
-		Filters: toFiltersView(h.session.p.FilterOptions(i)),
-		Trip:    view.Trips[i],
-	}
-	h.render(w, "filters_trip_toggle", data)
 }
 
 // closePanel handles GET /panel/close.

@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+// ParseDate parses a date string in YYYY-MM-DD or M/D/YYYY format.
+func ParseDate(s string) (time.Time, error) {
+	for _, layout := range []string{"2006-01-02", "1/2/2006", "01/02/2006"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid date %q — use YYYY-MM-DD or M/D/YYYY", s)
+}
+
 // MaxNights is the longest stay Disney permits for a single reservation. Stays
 // longer than this are invalid, so Search never extends a stay past it — which
 // also bounds the search to MaxNights extensions per check-in date instead of

@@ -1,0 +1,65 @@
+{{define "trip_list"}}
+<div id="trip-list" class="trip-list">
+  {{template "trip_list_body" .}}
+</div>
+{{end}}
+
+{{define "trip_list_body"}}
+  <div class="trip-list-header">
+    <h1>Trips</h1>
+    <button type="button" hx-get="/filters" hx-target="#panel" hx-swap="outerHTML">Filters</button>
+  </div>
+  {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+  {{if eq (len .Trips) 0}}
+    <p class="empty">No trips yet.</p>
+  {{else}}
+  <table class="trip-list-table">
+    <thead>
+      <tr>
+        <th>Trip</th>
+        <th>Dates</th>
+        <th>Min nights</th>
+        <th>Stays</th>
+        <th>Points</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Trips}}{{template "trip_row" .}}{{end}}
+    </tbody>
+  </table>
+  {{end}}
+  {{template "trip_new_form" .}}
+{{end}}
+
+{{define "trip_list_oob"}}
+<div id="trip-list" class="trip-list" hx-swap-oob="true">
+  {{template "trip_list_body" .}}
+</div>
+{{end}}
+
+{{define "trip_row"}}
+<tr class="trip-row status-{{if eq .Status "booked"}}booked{{else if eq .Status "partly booked"}}partly-booked{{else}}planning{{end}}">
+  <td><a href="/trips/{{.ID}}">{{.Name}}</a></td>
+  <td>{{.StartLabel}} → {{.EndLabel}}</td>
+  <td>{{.MinNights}}+</td>
+  <td>{{.Stays}}</td>
+  <td>{{.Points}} pts{{if .CostLabel}} <span class="cost">({{.CostLabel}})</span>{{end}}</td>
+  <td><span class="trip-status">{{.Status}}</span></td>
+  <td><button type="button" class="trip-remove" hx-delete="/trips/{{.ID}}" hx-confirm="Delete this trip?">×</button></td>
+</tr>
+{{end}}
+
+{{define "trip_new_form"}}
+<details class="add-trip">
+  <summary>+ New trip</summary>
+  <form class="trip-new-form" method="post" action="/trips">
+    <label>Name <input name="name" type="text" autocomplete="off" required></label>
+    <label>From <input name="from" type="text" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
+    <label>To <input name="to" type="text" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
+    <label>Min nights <input name="min_nights" type="text" value="1" autocomplete="off" required></label>
+    <button type="submit">Create trip</button>
+  </form>
+</details>
+{{end}}

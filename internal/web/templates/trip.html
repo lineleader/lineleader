@@ -1,50 +1,75 @@
 {{define "trip"}}
-<section class="trip{{if .Collapsed}} collapsed{{end}}" id="trip-{{.Index}}">
+<div id="trip">
+  {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
   <header class="trip-header">
-    <button type="button"
-            class="trip-toggle"
-            title="{{if .Collapsed}}Expand{{else}}Collapse{{end}}"
-            hx-post="/trips/{{.Index}}/collapse"
-            hx-target="#trip-{{.Index}}"
-            hx-swap="outerHTML">{{if .Collapsed}}▸{{else}}▾{{end}}</button>
-    <span class="trip-label">TRIP {{add1 .Index}}</span>
-    {{if .Collapsed}}
-      {{template "trip_summary" .}}
-    {{else}}
-      <form class="trip-form"
-            hx-post="/trips/{{.Index}}/field"
-            hx-target="#trip-{{.Index}}-results"
-            hx-swap="outerHTML"
-            hx-trigger="change delay:300ms">
-        <label>From <input name="from" type="text" value="{{.Spec.From}}" autocomplete="off"></label>
-        <label>To <input name="to" type="text" value="{{.Spec.To}}" autocomplete="off"></label>
-        <label>Min nights <input name="min_nights" type="text" value="{{.Spec.MinNights}}" autocomplete="off"></label>
-      </form>
-      <span class="trip-budget">[budget: {{.EffectiveBudget}} pts]</span>
-      <span class="filters-chip {{if .UsesOverride}}override{{else}}inherit{{end}}">[filters: {{if .UsesOverride}}override{{else}}inherit{{end}}]</span>
-      <button type="button" class="trip-filters"
-              hx-get="/trips/{{.Index}}/filters"
-              hx-target="#panel"
-              hx-swap="outerHTML">Filters</button>
-    {{end}}
-    <button type="button" class="trip-remove" hx-delete="/trips/{{.Index}}" hx-target="#app" hx-swap="outerHTML">×</button>
+    <a class="trip-back" href="/">← Trips</a>
+    <h1>{{.Name}}</h1>
+    <span class="trip-dates">{{.StartLabel}} → {{.EndLabel}} ({{.MinNights}}+ nights)</span>
+    <span class="trip-status {{if .Booked}}booked{{else if .PartlyBooked}}partly-booked{{else}}planning{{end}}">
+      {{if .Booked}}Booked{{else if .PartlyBooked}}Partly booked{{else}}Planning{{end}}
+    </span>
+    <button type="button" class="trip-remove" hx-delete="/trips/{{.ID}}" hx-confirm="Delete this trip?">Delete trip</button>
   </header>
-  {{if not .Collapsed}}{{template "results" .}}{{end}}
+
+  {{template "trip_budget" .Budget}}
+  {{template "trip_stays" .}}
+
+  {{if .Results}}
+    {{template "results" .}}
+  {{else}}
+    <div class="results" id="trip-results"></div>
+  {{end}}
+</div>
+{{end}}
+
+{{define "trip_budget"}}
+<section class="budget-breakdown">
+  <h2>Budget — use year {{.UseYear}}</h2>
+  <dl>
+    <div class="budget-row"><dt>Current</dt><dd>{{.CurrentLabel}}</dd></div>
+    <div class="budget-row"><dt>Banked</dt><dd>{{.BankedLabel}}</dd></div>
+    <div class="budget-row"><dt>Borrowable</dt><dd>{{.BorrowableLabel}}</dd></div>
+    <div class="budget-row budget-total"><dt>Total</dt><dd>{{.Total}}</dd></div>
+  </dl>
 </section>
 {{end}}
 
-{{define "trip_summary"}}
-<span class="trip-summary">
-  <span class="filters-chip {{if .UsesOverride}}override{{else}}inherit{{end}}">[filters: {{if .UsesOverride}}override{{else}}inherit{{end}}]</span>
-  {{if .Selected}}
-    <span class="summary-dates">{{formatDate .Selected.CheckIn}} → {{formatDate .Selected.CheckOut}} ({{.Selected.Nights}}n)</span>
-    <span class="summary-room">{{.Selected.Resort}} · {{.Selected.RoomType}}{{if .Selected.View}} · {{.Selected.View}}{{end}}</span>
-    <span class="summary-points">{{.Selected.Points}} pts</span>
-    {{if .ShowCosts}}<span class="summary-cost">{{.SelectedCostLabel}}{{if .SelectedCostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</span>{{end}}
+{{define "trip_stays"}}
+<section class="trip-stays">
+  <h2>Stays ({{.StaysPoints}} pts{{if .StaysCostLabel}} · {{.StaysCostLabel}}{{end}})</h2>
+  {{if eq (len .Stays) 0}}
+    <p class="empty">No stays yet.</p>
   {{else}}
-    <span class="summary-dates">{{.Spec.From}} → {{.Spec.To}} ({{.Spec.MinNights}}+ nights)</span>
-    <span class="summary-room muted">no room selected</span>
-    <span class="summary-points">budget {{.EffectiveBudget}} pts</span>
+  <table class="stays-table">
+    <thead>
+      <tr>
+        <th>Resort</th>
+        <th>Room type</th>
+        <th>View</th>
+        <th>Check-in</th>
+        <th>Check-out</th>
+        <th>Nights</th>
+        <th>Points</th>
+        {{if .ShowCosts}}<th>Cost</th>{{end}}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Stays}}
+      <tr class="stay-row{{if .Booked}} booked{{end}}">
+        <td>{{.Resort}}</td>
+        <td>{{.RoomType}}</td>
+        <td>{{viewOrDash .View}}</td>
+        <td>{{formatDate .CheckIn}}</td>
+        <td>{{formatDate .CheckOut}}</td>
+        <td>{{.Nights}}</td>
+        <td>{{.Points}}</td>
+        {{if $.ShowCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</td>{{end}}
+        <td>{{if .Booked}}✓ booked{{else}}—{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
   {{end}}
-</span>
+</section>
 {{end}}

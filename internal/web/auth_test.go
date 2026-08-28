@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/lineleader/lineleader/internal/dvc"
+	"github.com/lineleader/lineleader/internal/ledger"
 )
 
 func newAuthTestServer(t *testing.T, secret string, secureCookies bool) *httptest.Server {
@@ -19,7 +20,7 @@ func newAuthTestServer(t *testing.T, secret string, secureCookies bool) *httptes
 		Charts:        []*dvc.ResortChart{minimalChart()},
 		Config:        dvc.Config{},
 		ConfigPath:    filepath.Join(dir, "config.json"),
-		Defaults:      Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
+		Ledger:        ledger.OpenTest(t),
 		AuthSecret:    secret,
 		SecureCookies: secureCookies,
 	})
@@ -209,7 +210,7 @@ func TestAuth_CookieAuthPost_EvilOrigin_Forbidden(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/budget", strings.NewReader("budget=200"))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/trips", strings.NewReader("budget=200"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,7 @@ func TestAuth_BearerPost_EvilOrigin_Allowed(t *testing.T) {
 	ts := newAuthTestServer(t, "s3cret", false)
 	defer ts.Close()
 
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/budget", strings.NewReader("budget=200"))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/trips", strings.NewReader("budget=200"))
 	if err != nil {
 		t.Fatal(err)
 	}

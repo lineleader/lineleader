@@ -2,13 +2,13 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,12 +42,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		Config:     dvc.Config{},
 		ConfigPath: filepath.Join(dir, "config.json"),
-		Defaults: Defaults{
-			From:      "2026-01-04",
-			To:        "2026-01-08",
-			Budget:    "100",
-			MinNights: "1",
-		},
+		Ledger:     ledger.OpenTest(t),
 	})
 	return httptest.NewServer(srv)
 }
@@ -62,7 +57,16 @@ func body(t *testing.T, resp *http.Response) string {
 	return string(b)
 }
 
-func TestIndex_RendersDefaults(t *testing.T) {
+func TestNewServer_PanicsWithoutLedger(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected NewServer to panic without Options.Ledger")
+		}
+	}()
+	NewServer(Options{})
+}
+
+func TestTripList_EmptyState(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
 
@@ -70,265 +74,244 @@ func TestIndex_RendersDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
 	got := body(t, resp)
-	if !strings.Contains(got, `value="100"`) {
-		t.Errorf("expected default budget 100 in response, got:\n%s", got)
-	}
-	if !strings.Contains(got, "Test Resort") {
-		t.Errorf("expected fixture resort 'Test Resort' in initial render, got:\n%s", got)
-	}
-	// No ledger is configured (Options.Ledger == nil) — the planner must
-	// render byte-identically to its pre-cost self: no COST column, no
-	// dollar sign anywhere.
-	if strings.Contains(got, "COST") {
-		t.Errorf("expected no COST column with no ledger configured, got:\n%s", got)
-	}
-	if strings.Contains(got, "$") {
-		t.Errorf("expected no dollar sign anywhere with no ledger configured, got:\n%s", got)
+	if !strings.Contains(got, "No trips yet") {
+		t.Errorf("expected empty state message, got:\n%s", got)
 	}
 }
 
-// TestResultsTable_ShowsCostColumnWithLedger confirms that, once the ledger
-// has enough cost data to price a stay (a priced contract; seed.sql's dues
-// rates are already present on any freshly opened store), the results table
-// gains a COST column showing a priced $ figure, and selecting a stay
-// surfaces the same cost in the collapsed trip's summary-cost chip.
-func TestResultsTable_ShowsCostColumnWithLedger(t *testing.T) {
-	dir := t.TempDir()
-	store := ledger.OpenTest(t)
-	addPricedContract(t, store)
-	srv := NewServer(Options{
-		Charts:     []*dvc.ResortChart{minimalChart()},
-		ConfigPath: filepath.Join(dir, "config.json"),
-		Ledger:     store,
-		Defaults:   Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
-	})
-	ts := httptest.NewServer(srv)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-	if !strings.Contains(got, "COST") {
-		t.Errorf("expected a COST column header with ledger configured, got:\n%s", got)
-	}
-	if !strings.Contains(got, "$") {
-		t.Errorf("expected a priced $ figure in the results table, got:\n%s", got)
-	}
-
-	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	resp2, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got2 := body(t, resp2)
-	if !strings.Contains(got2, `class="summary-cost"`) {
-		t.Errorf("expected a summary-cost chip in the collapsed trip summary, got:\n%s", got2)
-	}
-	if !strings.Contains(got2, `class="selected-cost"`) || !strings.Contains(got2, "Selected: $") {
-		t.Errorf("expected the planner bar to show a labelled selected-cost span, got:\n%s", got2)
-	}
-}
-
-// TestPlannerBar_SelectedCostOmittedUntilSelection confirms defect 2's fix:
-// with a priced ledger configured but nothing selected, the planner bar must
-// not render a cost span at all (not even "$0.00") — SelectedCostLabel being
-// unset must be distinguishable from "selected stays that cost $0". Once a
-// stay is selected, the labelled span appears with the correct amount, as its
-// own sibling of "Remaining:" rather than folded inside it.
-func TestPlannerBar_SelectedCostOmittedUntilSelection(t *testing.T) {
-	dir := t.TempDir()
-	store := ledger.OpenTest(t)
-	addPricedContract(t, store)
-	srv := NewServer(Options{
-		Charts:     []*dvc.ResortChart{minimalChart()},
-		ConfigPath: filepath.Join(dir, "config.json"),
-		Ledger:     store,
-		Defaults:   Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
-	})
-	ts := httptest.NewServer(srv)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-	if strings.Contains(got, "selected-cost") {
-		t.Errorf("expected no selected-cost markup with nothing selected, got:\n%s", got)
-	}
-	if strings.Contains(got, "$0.00") {
-		t.Errorf("expected no $0.00 noise with nothing selected, got:\n%s", got)
-	}
-	if !strings.Contains(got, "Remaining: 100 pts") {
-		t.Errorf("expected the plain Remaining line with nothing selected, got:\n%s", got)
-	}
-
-	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	resp2, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got2 := body(t, resp2)
-	if !strings.Contains(got2, `class="selected-cost"`) {
-		t.Errorf("expected a selected-cost span after selecting a stay, got:\n%s", got2)
-	}
-	if !strings.Contains(got2, "Selected: $") {
-		t.Errorf("expected a 'Selected: $' label after selecting a stay, got:\n%s", got2)
-	}
-}
-
-// TestIndex_NoLedgerRendersNoCostMarkup pins the nil-ledger path: with no
-// ledger configured at all (Options.Ledger == nil, the newTestServer
-// fixture), the planner bar must render no cost markup whatsoever, even
-// after a selection — ShowCosts stays false, so HasSelectedCost can never
-// become true.
-func TestIndex_NoLedgerRendersNoCostMarkup(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-	if strings.Contains(got, "selected-cost") {
-		t.Errorf("expected no selected-cost markup with no ledger configured, got:\n%s", got)
-	}
-	if strings.Contains(got, "$") {
-		t.Errorf("expected no dollar sign anywhere with no ledger configured, got:\n%s", got)
-	}
-}
-
-func TestUpdateField_ReturnsResults(t *testing.T) {
+func TestCreateTrip_PersistsAndRedirects(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
 
 	form := url.Values{
-		"from":       {"2026-01-04"},
-		"to":         {"2026-01-08"},
-		"min_nights": {"1"},
+		"name":       {"Test Trip"},
+		"from":       {"2026-06-04"},
+		"to":         {"2026-06-10"},
+		"min_nights": {"3"},
 	}
-	resp, err := http.PostForm(ts.URL+"/trips/0/field", form)
+	client := noRedirectClient()
+	resp, err := client.PostForm(ts.URL+"/trips", form)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", resp.StatusCode)
 	}
-	got := body(t, resp)
-	if !strings.Contains(got, `id="trip-0-results"`) {
-		t.Errorf("expected results fragment with id, got:\n%s", got)
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/trips/") {
+		t.Fatalf("Location = %q, want prefix /trips/", loc)
 	}
-	if !strings.Contains(got, "Test Resort") {
-		t.Errorf("expected 'Test Resort' in results fragment, got:\n%s", got)
+
+	resp2, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp2)
+	if !strings.Contains(got, "Test Trip") {
+		t.Errorf("expected trip name in list, got:\n%s", got)
 	}
 }
 
-func TestSelectAndField_ShowsCheckmark(t *testing.T) {
-	ts := newTestServer(t)
+// TestCreateTrip_ValidationErrors is table-driven over every rejected
+// submission: each must render 200 with the error text in the body and
+// create NO trip — the assertion that actually bites is the "no trip
+// created" one (a handler that redirects before validating would still
+// pass a body-text-only check).
+func TestCreateTrip_ValidationErrors(t *testing.T) {
+	ts, store := newLedgerTestServer(t)
 	defer ts.Close()
 
-	// Select row 0 of trip 0. This collapses the trip, so expand it again to
-	// inspect the results table.
-	if _, err := http.Post(ts.URL+"/trips/0/select/0", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.Post(ts.URL+"/trips/0/collapse", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-	if !strings.Contains(got, `class="selected"`) {
-		t.Errorf("expected selected row class after select, got:\n%s", got)
-	}
-	if !strings.Contains(got, "✓") {
-		t.Errorf("expected ✓ check mark on selected row, got:\n%s", got)
+	base := func() url.Values {
+		return url.Values{
+			"name":       {"Test Trip"},
+			"from":       {"2026-06-04"},
+			"to":         {"2026-06-10"},
+			"min_nights": {"3"},
+		}
 	}
 
-	// Now post a field change and confirm the selection still shows in the fragment.
+	cases := []struct {
+		name    string
+		mutate  func(url.Values)
+		wantErr string
+	}{
+		{"empty name", func(v url.Values) { v.Set("name", "") }, "name is required"},
+		{"unparseable date", func(v url.Values) { v.Set("from", "not-a-date") }, "invalid date"},
+		{"start after end", func(v url.Values) { v.Set("from", "2026-06-10"); v.Set("to", "2026-06-04") }, "start date must be before end date"},
+		{"min nights zero", func(v url.Values) { v.Set("min_nights", "0") }, "min nights must be at least 1"},
+		// "Disney's" is HTML-escaped to "Disney&#39;s" in the rendered page,
+		// so match around the apostrophe rather than the literal text.
+		{"min nights over limit", func(v url.Values) { v.Set("min_nights", "31") }, "30-night limit"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			form := base()
+			c.mutate(form)
+
+			resp, err := http.PostForm(ts.URL+"/trips", form)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := body(t, resp)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200, body:\n%s", resp.StatusCode, got)
+			}
+			if !strings.Contains(got, c.wantErr) {
+				t.Errorf("expected error text %q in body, got:\n%s", c.wantErr, got)
+			}
+
+			trips, err := store.ListTrips(context.Background())
+			if err != nil {
+				t.Fatalf("ListTrips: %v", err)
+			}
+			if len(trips) != 0 {
+				t.Fatalf("expected no trip created for case %q, got %d trips", c.name, len(trips))
+			}
+		})
+	}
+}
+
+// TestTripPage_RendersBudgetBreakdown seeds two contracts (120 + 150 annual
+// points, April use year) and an allotment/usage history matching golden
+// example A from the budget design doc (see budget_test.go's "healthy"
+// case): UseYear 2025 net +70 (banked forward), UseYear 2026 net +270
+// (current), no UseYear 2027 activity (fully borrowable) — Total 610. A
+// trip starting 2026-06-04 falls in use year 2026, so the trip page must
+// show use year 2026 and total 610: end-to-end proof the ledger budget
+// reaches the page.
+func TestTripPage_RendersBudgetBreakdown(t *testing.T) {
+	ts, store := newLedgerTestServer(t)
+	defer ts.Close()
+	ctx := context.Background()
+
+	if _, err := store.AddContract(ctx, ledger.Contract{
+		Name: "C1", AnnualPoints: 120, UseYearMonth: time.April, TermYears: 10, PurchasePrice: 50_000_00,
+	}); err != nil {
+		t.Fatalf("AddContract 1: %v", err)
+	}
+	if _, err := store.AddContract(ctx, ledger.Contract{
+		Name: "C2", AnnualPoints: 150, UseYearMonth: time.April, TermYears: 10, PurchasePrice: 60_000_00,
+	}); err != nil {
+		t.Fatalf("AddContract 2: %v", err)
+	}
+
+	addEntry := func(useYear int, kind string, allotted, used int, date string) {
+		t.Helper()
+		if _, err := store.AddEntry(ctx, ledger.Entry{
+			UseYear: useYear, Date: dateParse(t, date), Desc: "seed", Kind: kind, Allotted: allotted, Used: used,
+		}); err != nil {
+			t.Fatalf("AddEntry: %v", err)
+		}
+	}
+	// UseYear 2025: allotted 270, used 200 -> Net 70 (banked forward).
+	addEntry(2025, ledger.KindAllocation, 270, 0, "2025-04-01")
+	addEntry(2025, ledger.KindUsage, 0, 200, "2025-05-01")
+	// UseYear 2026: allotted 270, used 0 -> Net 270 (current).
+	addEntry(2026, ledger.KindAllocation, 270, 0, "2026-04-01")
+
 	form := url.Values{
-		"from":       {"2026-01-04"},
-		"to":         {"2026-01-08"},
-		"min_nights": {"1"},
+		"name":       {"Summer trip"},
+		"from":       {"2026-06-04"},
+		"to":         {"2026-06-10"},
+		"min_nights": {"3"},
 	}
-	resp2, err := http.PostForm(ts.URL+"/trips/0/field", form)
+	resp, err := http.PostForm(ts.URL+"/trips", form)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got2 := body(t, resp2)
-	if !strings.Contains(got2, `class="selected"`) {
-		t.Errorf("expected selected row class to persist after field change, got:\n%s", got2)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("trip page status = %d, want 200 (client follows the 303)", resp.StatusCode)
+	}
+	got := body(t, resp)
+	// Match the rendered heading, not a bare "2026" — the trip's own dates
+	// (2026-06-04) put that substring on the page regardless of the budget,
+	// so a bare Contains would pass even with the use year zeroed out.
+	if !strings.Contains(got, "use year 2026") {
+		t.Errorf("expected use year 2026 in body, got:\n%s", got)
+	}
+	// Golden example A: current +270, banked +70, borrowable +270, total 610.
+	// Pin each ROW, not bare numbers: the components must be individually
+	// right, so a wrong decomposition that still sums to 610 fails too.
+	// html/template escapes the leading "+" of a signed label to "&#43;".
+	for _, want := range []string{
+		"<dt>Current</dt><dd>&#43;270</dd>",
+		"<dt>Banked</dt><dd>&#43;70</dd>",
+		"<dt>Borrowable</dt><dd>&#43;270</dd>",
+		"<dt>Total</dt><dd>610</dd>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in budget breakdown, got:\n%s", want, got)
+		}
 	}
 }
 
-func TestSelect_CollapsesTrip(t *testing.T) {
+func TestTripPage_NotFound(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
 
-	// Selecting a room collapses the trip so the user can move to the next one.
-	resp, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	resp, err := http.Get(ts.URL + "/trips/999")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := body(t, resp)
-	if !strings.Contains(got, `class="trip collapsed"`) {
-		t.Errorf("expected trip to collapse after selecting a room, got:\n%s", got)
-	}
-
-	// Deselecting the same room expands the trip again so it can be re-picked.
-	resp2, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got2 := body(t, resp2)
-	if strings.Contains(got2, `class="trip collapsed"`) {
-		t.Errorf("expected trip to expand after deselecting a room, got:\n%s", got2)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
 }
 
-func TestSelect_SetsCollapsedAndRendersApp(t *testing.T) {
-	ts := newTestServer(t)
+func TestDeleteTrip_RemovesAndRedirects(t *testing.T) {
+	ts, store := newLedgerTestServer(t)
 	defer ts.Close()
+	ctx := context.Background()
 
-	// Selecting a row goes through the Planner, then the web sets its view-only
-	// collapsed flag and re-renders the whole #app partial.
-	resp, err := http.Post(ts.URL+"/trips/0/select/0", "", nil)
+	id, err := store.AddTrip(ctx, ledger.Trip{
+		Name:      "To delete",
+		StartDate: dateParse(t, "2026-06-04"),
+		EndDate:   dateParse(t, "2026-06-10"),
+		MinNights: 3,
+	})
+	if err != nil {
+		t.Fatalf("AddTrip: %v", err)
+	}
+
+	client := noRedirectClient()
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/trips/%d", id), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := body(t, resp)
-	// The app partial is rendered (#app root + budget bar present).
-	if !strings.Contains(got, `id="app"`) {
-		t.Errorf("expected #app root in select response, got:\n%s", got)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The selected trip is collapsed (view-only state applied from the snapshot).
-	if !strings.Contains(got, `class="trip collapsed"`) {
-		t.Errorf("expected selected trip collapsed in app render, got:\n%s", got)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", resp.StatusCode)
 	}
-	// The collapsed summary shows the selected room (selection survives render).
-	if !strings.Contains(got, "✓") && !strings.Contains(got, "Test Resort") {
-		t.Errorf("expected selection reflected in collapsed summary, got:\n%s", got)
+	if loc := resp.Header.Get("Location"); loc != "/" {
+		t.Fatalf("Location = %q, want /", loc)
+	}
+
+	trips, err := store.ListTrips(ctx)
+	if err != nil {
+		t.Fatalf("ListTrips: %v", err)
+	}
+	for _, tr := range trips {
+		if tr.ID == id {
+			t.Fatalf("trip %d still present after delete", id)
+		}
 	}
 }
 
+// TestToggleResortFilter_PersistsAndAffectsResults keeps the persistence
+// half of its planner-era namesake: there are no results on the home page
+// anymore (search is ixe.10), so only the OOB swap + config.json persistence
+// are asserted now.
 func TestToggleResortFilter_PersistsAndAffectsResults(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
 
-	// Toggle resort TST off — fixture has only one resort, so results should empty.
 	resp, err := http.Post(ts.URL+"/filters/resorts/TST", "", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -337,548 +320,16 @@ func TestToggleResortFilter_PersistsAndAffectsResults(t *testing.T) {
 	if !strings.Contains(got, `hx-swap-oob="true"`) {
 		t.Errorf("expected OOB swap of trip-list, got:\n%s", got)
 	}
-	// Trip results table should now be empty (no resort cell).
-	if strings.Contains(got, "<td>Test Resort</td>") {
-		t.Errorf("after excluding TST, no result rows expected, got:\n%s", got)
-	}
 
-	// Hit / again and confirm exclusion sticks.
-	resp2, _ := http.Get(ts.URL + "/")
-	got2 := body(t, resp2)
-	if strings.Contains(got2, "<td>Test Resort</td>") {
-		t.Errorf("expected no Test Resort row in results after exclusion, got:\n%s", got2)
-	}
-}
-
-// roomTypeChart is a fixture whose room type contains a space, used to verify
-// per-trip route URL-decoding of {name}.
-func roomTypeChart() *dvc.ResortChart {
-	return &dvc.ResortChart{
-		ResortName: "Villa Resort",
-		ResortCode: "VLA",
-		Year:       2026,
-		Columns: []dvc.Column{
-			{RoomType: "ONE-BEDROOM VILLA", View: "R", Sleeps: 4},
-		},
-		Seasons: []dvc.Season{
-			{
-				Periods: []dvc.DateRange{{Start: "2026-01-01", End: "2026-01-31"}},
-				SunThu:  []int{10},
-				FriSat:  []int{14},
-			},
-		},
-	}
-}
-
-// twoResortCharts returns two distinct resorts so seeding/isolation tests can
-// exclude one resort globally and a DIFFERENT one per trip, then assert both
-// exclusions hold.
-func twoResortCharts() []*dvc.ResortChart {
-	mk := func(name, code string) *dvc.ResortChart {
-		return &dvc.ResortChart{
-			ResortName: name,
-			ResortCode: code,
-			Year:       2026,
-			Columns: []dvc.Column{
-				{RoomType: "STUDIO", View: "R", Sleeps: 4},
-			},
-			Seasons: []dvc.Season{
-				{
-					Periods: []dvc.DateRange{{Start: "2026-01-01", End: "2026-01-31"}},
-					SunThu:  []int{10},
-					FriSat:  []int{14},
-				},
-			},
-		}
-	}
-	return []*dvc.ResortChart{mk("Alpha Resort", "ALP"), mk("Beta Resort", "BTA")}
-}
-
-func newTestServerWithCharts(t *testing.T, charts []*dvc.ResortChart) *httptest.Server {
-	t.Helper()
-	dir := t.TempDir()
-	srv := NewServer(Options{
-		Charts:     charts,
-		Config:     dvc.Config{},
-		ConfigPath: filepath.Join(dir, "config.json"),
-		Defaults: Defaults{
-			From:      "2026-01-04",
-			To:        "2026-01-08",
-			Budget:    "100",
-			MinNights: "1",
-		},
-	})
-	return httptest.NewServer(srv)
-}
-
-func TestPerTripRoutes_BadIndex_400(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	client := ts.Client()
-	cases := []struct {
-		method string
-		path   string
-		body   io.Reader
-		ctype  string
-	}{
-		{"GET", "/trips/x/filters", nil, ""},
-		{"GET", "/trips/9/filters", nil, ""},
-		{"POST", "/trips/x/filters/mode", strings.NewReader("mode=override"), "application/x-www-form-urlencoded"},
-		{"POST", "/trips/9/filters/mode", strings.NewReader("mode=override"), "application/x-www-form-urlencoded"},
-		{"POST", "/trips/x/filters/resorts/TST", nil, ""},
-		{"POST", "/trips/9/filters/resorts/TST", nil, ""},
-		{"POST", "/trips/x/filters/roomtypes/STUDIO", nil, ""},
-		{"POST", "/trips/9/filters/roomtypes/STUDIO", nil, ""},
-		{"DELETE", "/trips/x/filters", nil, ""},
-		{"DELETE", "/trips/9/filters", nil, ""},
-	}
-	for _, c := range cases {
-		req, err := http.NewRequest(c.method, ts.URL+c.path, c.body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if c.ctype != "" {
-			req.Header.Set("Content-Type", c.ctype)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("%s %s: status = %d, want 400", c.method, c.path, resp.StatusCode)
-		}
-	}
-}
-
-func TestOpenTripFilters_RendersPanel(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/trips/0/filters")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	got := body(t, resp)
-	if !strings.Contains(got, `id="panel"`) {
-		t.Errorf("expected filters panel, got:\n%s", got)
-	}
-	// Plain open must NOT include an OOB results swap.
-	if strings.Contains(got, `hx-swap-oob`) {
-		t.Errorf("plain open should not include OOB swap, got:\n%s", got)
-	}
-}
-
-func TestSetTripFilterMode_UnknownTreatedAsInherit(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"bogus"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	got := body(t, resp)
-	// Unknown mode -> inherit: the trip stays an inherit trip, so no override
-	// marker. We verify by querying the panel and checking the mode scope.
-	if strings.Contains(got, `data-mode="override"`) {
-		t.Errorf("unknown mode should resolve to inherit, got:\n%s", got)
-	}
-	if !strings.Contains(got, `data-mode="inherit"`) {
-		t.Errorf("expected inherit mode marker, got:\n%s", got)
-	}
-}
-
-// TestSetTripFilterMode_OverrideSeedsThenInheritReverts verifies the mode switch
-// round-trip: mode=override seeds the trip's rows from the global checks (a
-// globally-excluded resort shows excluded), and mode=inherit clears the override
-// so the rows revert to the global view.
-func TestSetTripFilterMode_OverrideSeedsThenInheritReverts(t *testing.T) {
-	ts := newTestServerWithCharts(t, twoResortCharts())
-	defer ts.Close()
-
-	// Globally exclude ALP (BTA stays enabled).
-	if _, err := http.Post(ts.URL+"/filters/resorts/ALP", "", nil); err != nil {
-		t.Fatal(err)
-	}
-
-	// Switch trip 0 to override: rows must reflect global checks (ALP excluded).
-	resp, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	over := body(t, resp)
-	if !strings.Contains(over, `data-mode="override"`) {
-		t.Fatalf("expected override mode, got:\n%s", over)
-	}
-	assertResortExcluded(t, over, "Alpha Resort")
-	if !strings.Contains(over, "[✓] Beta Resort") {
-		t.Errorf("expected Beta Resort still checked after override seed, got:\n%s", over)
-	}
-
-	// Now exclude BTA per-trip so override diverges from global.
-	if _, err := http.Post(ts.URL+"/trips/0/filters/resorts/BTA", "", nil); err != nil {
-		t.Fatal(err)
-	}
-
-	// Switch back to inherit: the override clears and rows revert to the global
-	// view (ALP excluded, BTA back to enabled).
-	resp2, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"inherit"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	inh := body(t, resp2)
-	if !strings.Contains(inh, `data-mode="inherit"`) {
-		t.Fatalf("expected inherit mode after revert, got:\n%s", inh)
-	}
-
-	// Re-open the panel to confirm reverted rows mirror global (BTA enabled again).
-	resp3, err := http.Get(ts.URL + "/trips/0/filters")
-	if err != nil {
-		t.Fatal(err)
-	}
-	panel := body(t, resp3)
-	assertResortExcluded(t, panel, "Alpha Resort")
-	if !strings.Contains(panel, "[✓] Beta Resort") {
-		t.Errorf("expected Beta Resort re-enabled after revert to inherit, got:\n%s", panel)
-	}
-}
-
-func TestToggleTripResort_SeedsOverrideAndScopesOOB(t *testing.T) {
-	// Two trips so we can assert isolation.
-	ts := newTestServerWithCharts(t, []*dvc.ResortChart{minimalChart()})
-	defer ts.Close()
-	http.Post(ts.URL+"/trips", "", nil) // add a second trip
-
-	// Toggle resort TST off on trip 0 (currently inherit). This seeds override.
-	resp, err := http.Post(ts.URL+"/trips/0/filters/resorts/TST", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	got := body(t, resp)
-
-	// Panel header reflects override now (seeding flipped the mode).
-	if !strings.Contains(got, `data-mode="override"`) {
-		t.Errorf("expected override mode after toggling on inherit trip, got:\n%s", got)
-	}
-	// The affected trip's results are OOB-swapped, targeting trip-0-results.
-	if !strings.Contains(got, `id="trip-0-results"`) {
-		t.Errorf("expected OOB swap of trip-0-results, got:\n%s", got)
-	}
-	if !strings.Contains(got, `hx-swap-oob`) {
-		t.Errorf("expected hx-swap-oob attribute, got:\n%s", got)
-	}
-	// Affected trip's results changed: TST excluded -> no result row.
-	if strings.Contains(got, "<td>Test Resort</td>") {
-		t.Errorf("expected trip-0 results empty after excluding TST, got:\n%s", got)
-	}
-	// Isolation: the OTHER trip's results must NOT be in the response.
-	if strings.Contains(got, `id="trip-1-results"`) {
-		t.Errorf("expected only trip-0-results OOB-swapped, not trip-1, got:\n%s", got)
-	}
-}
-
-// TestToggleTripResort_SeedsOverrideFromGlobal is the key seeding test: a resort
-// excluded GLOBALLY must remain excluded in a trip's override set after the first
-// per-trip toggle of a DIFFERENT resort. This proves the override was seeded from
-// the global filters, not started empty.
-func TestToggleTripResort_SeedsOverrideFromGlobal(t *testing.T) {
-	ts := newTestServerWithCharts(t, twoResortCharts())
-	defer ts.Close()
-
-	// Globally exclude ALP. Trip 0 inherits this, so ALP is excluded there too.
-	if _, err := http.Post(ts.URL+"/filters/resorts/ALP", "", nil); err != nil {
-		t.Fatal(err)
-	}
-
-	// First per-trip toggle on inherit trip 0: exclude BTA. This seeds the
-	// override from the global set (which already excludes ALP), then adds BTA.
-	resp, err := http.Post(ts.URL+"/trips/0/filters/resorts/BTA", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	if got := body(t, resp); !strings.Contains(got, `data-mode="override"`) {
-		t.Fatalf("expected trip to become override after toggle, got:\n%s", got)
-	}
-
-	// Open the trip's override panel and assert BOTH resorts are excluded. If the
-	// override had started empty (no seeding), ALP would show enabled ([✓]) again.
-	resp2, err := http.Get(ts.URL + "/trips/0/filters")
+	// Confirm the exclusion persisted: reopening the filter panel shows TST
+	// (Test Resort) excluded.
+	resp2, err := http.Get(ts.URL + "/filters")
 	if err != nil {
 		t.Fatal(err)
 	}
 	panel := body(t, resp2)
-	if !strings.Contains(panel, `data-mode="override"`) {
-		t.Fatalf("expected override panel, got:\n%s", panel)
-	}
-	assertResortExcluded(t, panel, "Alpha Resort")
-	assertResortExcluded(t, panel, "Beta Resort")
-}
-
-// assertResortExcluded checks the rendered panel shows the named resort as
-// excluded: an unchecked "[ ]" marker on that resort's button.
-func assertResortExcluded(t *testing.T, panel, resortName string) {
-	t.Helper()
-	if !strings.Contains(panel, "[ ] "+resortName) {
-		t.Errorf("expected %q to be excluded ([ ]) in panel, got:\n%s", resortName, panel)
-	}
-	if strings.Contains(panel, "[✓] "+resortName) {
-		t.Errorf("expected %q NOT to be checked ([✓]) in panel, got:\n%s", resortName, panel)
-	}
-}
-
-// tripResultsBlock extracts the HTML of the #trip-{i}-results div from a full
-// app render so per-trip assertions don't bleed across trips.
-func tripResultsBlock(t *testing.T, html string, i int) string {
-	t.Helper()
-	marker := `id="trip-` + strconv.Itoa(i) + `-results"`
-	start := strings.Index(html, marker)
-	if start == -1 {
-		t.Fatalf("trip-%d-results block not found in:\n%s", i, html)
-	}
-	rest := html[start:]
-	// Stop at the next trip's results block if present, else end of doc.
-	if next := strings.Index(rest[len(marker):], `id="trip-`); next != -1 {
-		return rest[:len(marker)+next]
-	}
-	return rest
-}
-
-// TestToggleTripResort_IsolatesOtherTrips verifies that excluding a resort on
-// trip 0 (override) leaves trip 1's results unchanged, observed through the full
-// app render at GET /.
-func TestToggleTripResort_IsolatesOtherTrips(t *testing.T) {
-	ts := newTestServerWithCharts(t, twoResortCharts())
-	defer ts.Close()
-	http.Post(ts.URL+"/trips", "", nil) // add a second trip (index 1)
-
-	// Exclude ALP on trip 0 only (seeds override on trip 0).
-	if _, err := http.Post(ts.URL+"/trips/0/filters/resorts/ALP", "", nil); err != nil {
-		t.Fatal(err)
-	}
-
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	html := body(t, resp)
-
-	trip0 := tripResultsBlock(t, html, 0)
-	trip1 := tripResultsBlock(t, html, 1)
-
-	// Trip 0: Alpha excluded -> no Alpha row, Beta still present.
-	if strings.Contains(trip0, "<td>Alpha Resort</td>") {
-		t.Errorf("expected Alpha Resort excluded from trip 0, got:\n%s", trip0)
-	}
-	if !strings.Contains(trip0, "<td>Beta Resort</td>") {
-		t.Errorf("expected Beta Resort still in trip 0, got:\n%s", trip0)
-	}
-	// Trip 1: inherits global (no exclusions) -> BOTH resorts present, unchanged.
-	if !strings.Contains(trip1, "<td>Alpha Resort</td>") {
-		t.Errorf("expected Alpha Resort still in trip 1 (isolation), got:\n%s", trip1)
-	}
-	if !strings.Contains(trip1, "<td>Beta Resort</td>") {
-		t.Errorf("expected Beta Resort still in trip 1, got:\n%s", trip1)
-	}
-}
-
-func TestToggleTripRoomType_URLDecodesSpace(t *testing.T) {
-	ts := newTestServerWithCharts(t, []*dvc.ResortChart{roomTypeChart()})
-	defer ts.Close()
-
-	// Match how the global room-type route is exercised: build the path with
-	// url.PathEscape so the space is encoded, the mux decodes it back.
-	name := url.PathEscape("ONE-BEDROOM VILLA")
-	resp, err := http.Post(ts.URL+"/trips/0/filters/roomtypes/"+name, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	got := body(t, resp)
-	if !strings.Contains(got, `data-mode="override"`) {
-		t.Errorf("expected override after toggling room type, got:\n%s", got)
-	}
-	// The room type was excluded -> no result row for the villa.
-	if strings.Contains(got, "<td>Villa Resort</td>") {
-		t.Errorf("expected villa results empty after excluding room type, got:\n%s", got)
-	}
-}
-
-func TestResetTripFilters_BackToInherit(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	// Seed override by toggling a resort off, then reset.
-	http.Post(ts.URL+"/trips/0/filters/resorts/TST", "", nil)
-
-	req, _ := http.NewRequest("DELETE", ts.URL+"/trips/0/filters", nil)
-	resp, err := ts.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	got := body(t, resp)
-	if !strings.Contains(got, `data-mode="inherit"`) {
-		t.Errorf("expected inherit mode after reset, got:\n%s", got)
-	}
-	// Back to inherit -> global has no exclusions -> Test Resort row is back.
-	if !strings.Contains(got, "<td>Test Resort</td>") {
-		t.Errorf("expected Test Resort row restored after reset, got:\n%s", got)
-	}
-}
-
-// TestTripFilterPanel_ScopedURLsAndSwitch verifies the per-trip filter panel
-// renders scoped POST URLs, the scope-aware title, and the inherit/override
-// switch — not the global URLs.
-func TestTripFilterPanel_ScopedURLsAndSwitch(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	// Switch to override so editable rows (and their scoped URLs) render.
-	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.Get(ts.URL + "/trips/0/filters")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-
-	if !strings.Contains(got, `/trips/0/filters/resorts/TST`) {
-		t.Errorf("expected scoped resort URL, got:\n%s", got)
-	}
-	if !strings.Contains(got, "Filters — Trip 1") {
-		t.Errorf("expected scope-aware title 'Filters — Trip 1', got:\n%s", got)
-	}
-	if !strings.Contains(got, `/trips/0/filters/mode`) {
-		t.Errorf("expected inherit/override switch posting to mode URL, got:\n%s", got)
-	}
-}
-
-// TestTripFilterPanel_InheritDisablesRows verifies an inherit trip's panel shows
-// disabled rows plus a switch-to-override control, and no editable toggle URLs.
-func TestTripFilterPanel_InheritDisablesRows(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/trips/0/filters")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-
-	if !strings.Contains(got, `data-mode="inherit"`) {
-		t.Fatalf("expected inherit mode by default, got:\n%s", got)
-	}
-	if !strings.Contains(got, "disabled") {
-		t.Errorf("expected disabled rows on inherit, got:\n%s", got)
-	}
-	if !strings.Contains(got, "Switch to override to edit") {
-		t.Errorf("expected switch-to-override hint, got:\n%s", got)
-	}
-	// Inherit rows must not be editable toggles.
-	if strings.Contains(got, `/trips/0/filters/resorts/TST`) {
-		t.Errorf("inherit rows should not POST toggle URLs, got:\n%s", got)
-	}
-}
-
-// TestTripFilterPanel_OverrideEditableWithChip verifies an override trip's panel
-// shows editable rows (toggle URLs) and the override chip/marker.
-func TestTripFilterPanel_OverrideEditableWithChip(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	// Switch trip 0 to override.
-	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
-		t.Fatal(err)
-	}
-
-	resp, err := http.Get(ts.URL + "/trips/0/filters")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-
-	if !strings.Contains(got, `data-mode="override"`) {
-		t.Fatalf("expected override mode, got:\n%s", got)
-	}
-	if !strings.Contains(got, `/trips/0/filters/resorts/TST`) {
-		t.Errorf("expected editable toggle URL on override, got:\n%s", got)
-	}
-	if !strings.Contains(got, "override") {
-		t.Errorf("expected override marker in panel, got:\n%s", got)
-	}
-}
-
-// TestTripCard_FiltersButtonAndChip verifies the expanded trip card renders the
-// per-trip Filters button and an inherit chip by default, override after switch.
-func TestTripCard_FiltersButtonAndChip(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-
-	if !strings.Contains(got, `hx-get="/trips/0/filters"`) {
-		t.Errorf("expected per-trip Filters button, got:\n%s", got)
-	}
-	if !strings.Contains(got, "[filters: inherit]") {
-		t.Errorf("expected inherit chip by default, got:\n%s", got)
-	}
-
-	// Switch to override and re-render the trip card via collapse toggle path.
-	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
-		t.Fatal(err)
-	}
-	resp2, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got2 := body(t, resp2)
-	if !strings.Contains(got2, "[filters: override]") {
-		t.Errorf("expected override chip after switching mode, got:\n%s", got2)
-	}
-}
-
-// TestTripCard_CollapsedShowsChip verifies the collapsed trip_summary surfaces
-// the override chip too.
-func TestTripCard_CollapsedShowsChip(t *testing.T) {
-	ts := newTestServer(t)
-	defer ts.Close()
-
-	// Switch to override, then collapse the trip.
-	if _, err := http.PostForm(ts.URL+"/trips/0/filters/mode", url.Values{"mode": {"override"}}); err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.Post(ts.URL+"/trips/0/collapse", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := body(t, resp)
-	if !strings.Contains(got, "trip collapsed") {
-		t.Fatalf("expected collapsed trip, got:\n%s", got)
-	}
-	if !strings.Contains(got, "[filters: override]") {
-		t.Errorf("expected override chip in collapsed summary, got:\n%s", got)
+	if !strings.Contains(panel, "[ ] Test Resort") {
+		t.Errorf("expected Test Resort excluded after toggle, got:\n%s", panel)
 	}
 }
 
@@ -911,10 +362,8 @@ func TestGlobalFilterPanel_NoRegression(t *testing.T) {
 // the ledger handler must be reflected the next time the planner's
 // costProvider is asked for a CostBasis, rather than serving the value it
 // cached up to costBasisTTL ago. It exercises costProvider and
-// ledgerHandlers directly (not through NewServer/Session) so it can inspect
-// costs.Basis() itself — nothing about the planner's own rendering is
-// under test here (that's TestBuildAppView_* in render_test.go, added in
-// later commits).
+// ledgerHandlers directly (not through NewServer) so it can inspect
+// costs.Basis() itself.
 func TestLedgerDuesMutationInvalidatesCostProvider(t *testing.T) {
 	store := ledger.OpenTest(t)
 
@@ -963,5 +412,57 @@ func TestLedgerDuesMutationInvalidatesCostProvider(t *testing.T) {
 	rate2, _ := basis2.DuesFor(2026)
 	if rate2 != 20_000_000 {
 		t.Errorf("2026 dues rate after mutation = %v, want 20_000_000 ($20.00) — Invalidate() was not called, or Basis() served a stale cache", rate2)
+	}
+}
+
+// TestDeleteTrip_HxRedirect pins the htmx path. The delete button on the trip
+// list is an hx-delete with no hx-target, so a bare 303 would be followed by
+// htmx's own fetch and the whole trips page swapped into the button's <td>.
+// Answer an htmx request with HX-Redirect instead, matching the pattern
+// authMiddleware already uses for /login.
+func TestDeleteTrip_HxRedirect(t *testing.T) {
+	ts, store := newLedgerTestServer(t)
+	defer ts.Close()
+	ctx := context.Background()
+
+	id, err := store.AddTrip(ctx, ledger.Trip{
+		Name:      "To delete",
+		StartDate: dateParse(t, "2026-06-04"),
+		EndDate:   dateParse(t, "2026-06-10"),
+		MinNights: 3,
+	})
+	if err != nil {
+		t.Fatalf("AddTrip: %v", err)
+	}
+
+	client := noRedirectClient()
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/trips/%d", id), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("HX-Request", "true")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("HX-Redirect"); got != "/" {
+		t.Errorf("HX-Redirect = %q, want /", got)
+	}
+	// Must NOT be a 3xx: htmx would follow it and swap the redirected page
+	// into the target, which is the bug this test exists to prevent.
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		t.Errorf("status = %d, want a non-redirect status for an htmx request", resp.StatusCode)
+	}
+
+	trips, err := store.ListTrips(ctx)
+	if err != nil {
+		t.Fatalf("ListTrips: %v", err)
+	}
+	for _, tr := range trips {
+		if tr.ID == id {
+			t.Fatalf("trip %d still present after delete", id)
+		}
 	}
 }

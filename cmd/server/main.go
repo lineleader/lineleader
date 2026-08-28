@@ -70,7 +70,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	today := time.Now().UTC().Truncate(24 * time.Hour)
 	srv := web.NewServer(web.Options{
 		Charts:        charts,
 		Config:        cfg,
@@ -78,12 +77,6 @@ func main() {
 		Ledger:        ledgerStore,
 		AuthSecret:    authSecret,
 		SecureCookies: !*insecureCookies,
-		Defaults: web.Defaults{
-			From:      today.Format("2006-01-02"),
-			To:        today.AddDate(0, 0, 14).Format("2006-01-02"),
-			Budget:    "100",
-			MinNights: "1",
-		},
 	})
 
 	httpServer := &http.Server{

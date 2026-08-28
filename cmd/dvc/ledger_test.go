@@ -47,7 +47,6 @@ func testServer(t *testing.T) string {
 		Charts:     []*dvc.ResortChart{minimalChart()},
 		ConfigPath: filepath.Join(dir, "config.json"),
 		Ledger:     store,
-		Defaults:   web.Defaults{From: "2026-01-04", To: "2026-01-08", Budget: "100", MinNights: "1"},
 	})
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)

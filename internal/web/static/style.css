@@ -358,6 +358,56 @@ button:focus-visible {
    .trip-budget, not a filled badge. */
 .trip-summary .summary-cost { color: var(--text-dim); font-weight: var(--fw-semibold); }
 
+/* ==================== Trip list + trip page (ixe.9) ====================
+   Deliberately modest — this is the persisted-trips replacement for the
+   planner session, not a restyle. Full styling is a later task (ixe.16). */
+.trips-page,
+.trip-page {
+  flex: 1;
+  min-width: 0;
+  padding: var(--sp-6);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.site-nav-brand {
+  font-weight: var(--fw-black);
+  color: var(--brand);
+  text-decoration: none;
+}
+.site-nav-links { display: flex; gap: var(--sp-3); }
+.site-nav-links a {
+  color: var(--text-mute);
+  text-decoration: none;
+  font-weight: var(--fw-regular);
+}
+.site-nav-links a.active { color: var(--text); font-weight: var(--fw-bold); text-decoration: underline; }
+
+.trip-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-4); }
+.trip-list-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.trip-list-table th,
+.trip-list-table td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; text-align: left; }
+.trip-row .trip-status { font-size: var(--fs-sm); color: var(--text-mute); }
+.trip-row.status-booked .trip-status { color: var(--brand); font-weight: var(--fw-black); }
+.trip-row.status-partly-booked .trip-status { color: var(--accent-ink); font-weight: var(--fw-semibold); }
+
+.budget-breakdown dl { font-variant-numeric: tabular-nums; }
+.budget-breakdown .budget-row { display: flex; justify-content: space-between; gap: var(--sp-3); max-width: 20rem; }
+.budget-breakdown .budget-row dt { color: var(--text-dim); font-weight: var(--fw-semibold); }
+.budget-breakdown .budget-row dd { margin: 0; }
+.budget-breakdown .budget-total dt,
+.budget-breakdown .budget-total dd { font-weight: var(--fw-black); }
+
+.stays-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.stays-table th,
+.stays-table td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; text-align: left; }
+.stay-row.booked td:last-child { color: var(--brand); font-weight: var(--fw-semibold); }
+
 /* ============================ Results table ============================ */
 .results { margin-top: 0.9rem; }
 .results-table {

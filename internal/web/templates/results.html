@@ -1,5 +1,5 @@
 {{define "results"}}
-<div class="results" id="trip-{{.Index}}-results">
+<div class="results" id="trip-results">
   {{template "results_body" .}}
 </div>
 {{end}}
@@ -30,8 +30,8 @@
           <td>
             <button type="button"
                     class="select-btn"
-                    hx-post="/trips/{{$.Index}}/select/{{.RowIndex}}"
-                    hx-target="#app"
+                    hx-post="/trips/{{$.ID}}/stays/{{.RowIndex}}"
+                    hx-target="#trip"
                     hx-swap="outerHTML">{{if .Selected}}✓{{else}}·{{end}}</button>
           </td>
           <td>{{.Resort}}</td>
@@ -50,7 +50,7 @@
 {{end}}
 
 {{define "results_oob"}}
-<div class="results" id="trip-{{.Index}}-results" hx-swap-oob="true">
+<div class="results" id="trip-results" hx-swap-oob="true">
   {{template "results_body" .}}
 </div>
 {{end}}

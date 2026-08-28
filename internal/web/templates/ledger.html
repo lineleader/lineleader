@@ -29,9 +29,9 @@
      established pattern for passing multiple values into a sub-template). */}}
 {{define "ledger_header"}}
 <div class="ledger-header">
+  {{template "site_nav" (dict "Active" "ledger")}}
   <div class="ledger-header-left">
     <h1 class="ledger-title">Points ledger</h1>
-    <a class="ledger-back" href="/">← trip planner</a>
   </div>
   <nav class="ledger-nav">
     <a href="/ledger" class="{{if eq .Active "recent"}}active{{end}}">Recent</a>

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"fmt"
 	"html/template"
 	"time"
@@ -10,65 +9,88 @@ import (
 	"github.com/lineleader/lineleader/internal/ledger"
 )
 
-// View structs passed to templates.
-type appView struct {
-	Budget    string
-	BudgetErr string
-	Remaining int
-	Trips     []tripView
-
-	// ShowCosts gates every dollar affordance on the results tables and trip
-	// summary chips (see tripView.ShowCosts's doc comment) — false whenever
-	// no ledger is configured or CostBasis isn't Known() yet, so a
-	// nil-ledger server (as in ~20 existing planner tests) renders
-	// byte-identical HTML. The planner bar's own cost span is gated by
-	// HasSelectedCost below, not directly by this field.
-	ShowCosts bool
-
-	// SelectedCostLabel is the formatted sum of every trip's
-	// tripView.Selected.cost (real cents, summed once and formatted once —
-	// never by concatenating or re-parsing each trip's own CostLabel).
-	// "" unless HasSelectedCost.
-	SelectedCostLabel string
-
-	// HasSelectedCost is true when at least one trip contributed a priced
-	// selection (i.e. some trip's tripView.SelectedCostLabel is non-empty).
-	// It's what the template gates its "Selected: $X" span on, rather than
-	// testing SelectedCostLabel for emptiness or against "$0.00" — those
-	// would conflate "nothing selected" with "selected stays that happen to
-	// cost nothing", which HasSelectedCost keeps distinct. Always false when
-	// !ShowCosts, since a trip can only get a non-empty SelectedCostLabel
-	// under ShowCosts.
-	HasSelectedCost bool
+// tripListView is the data for the trip list page (/) and its #trip-list
+// swap target.
+type tripListView struct {
+	Trips []tripRowView
+	Err   string
 }
 
+// tripRowView is one row of the trip list. Status is DERIVED here from each
+// stay's EntryID — never read from the database. A stored status becomes a lie
+// the moment someone deletes a booked entry from /ledger.
+type tripRowView struct {
+	ID         int64
+	Name       string
+	StartLabel string
+	EndLabel   string
+	MinNights  int
+	Stays      int
+	Points     int
+	Status     string // "planning" | "booked" | "partly booked"
+	CostLabel  string // "" unless ShowCosts and the points priced
+}
+
+// budgetView is a render-ready projection of a ledger.TripBudget, with signed
+// labels ("+270" / "-60") formatted Go-side to match recentEntryRow.DeltaLabel
+// in ledger_view.go.
+type budgetView struct {
+	UseYear         int
+	Current         int
+	Banked          int
+	Borrowable      int
+	Total           int
+	CurrentLabel    string // signed, e.g. "+270"
+	BankedLabel     string // signed, e.g. "-60"
+	BorrowableLabel string
+}
+
+// stayView is one stay collected on a trip.
+type stayView struct {
+	ID       int64
+	Resort   string
+	RoomType string
+	View     string
+	CheckIn  time.Time
+	CheckOut time.Time
+	Nights   int
+	Points   int
+	Booked   bool
+
+	CostLabel     string
+	CostProjected bool
+
+	// cost is the same value as CostLabel, unformatted, so buildTripView can
+	// sum real cents across a trip's stays rather than parsing formatted
+	// dollar strings back apart. See resultRow.cost.
+	cost ledger.Cents
+}
+
+// tripView is a render-ready projection of one trip's page.
 type tripView struct {
-	Index           int
-	Spec            dvc.TripSpec
-	EffectiveBudget int
-	Results         []resultRow
-	Err             string
-	HasSelection    bool
-	Collapsed       bool
-	Selected        *resultRow
-	FilterMode      dvc.FilterMode
-	UsesOverride    bool          // == (FilterMode == dvc.FilterModeOverride)
-	Filters         dvc.FilterSet // value type; the trip's own exclusions when overriding
+	ID         int64
+	Name       string
+	StartDate  time.Time
+	EndDate    time.Time
+	StartLabel string
+	EndLabel   string
+	MinNights  int
 
-	// ShowCosts mirrors appView.ShowCosts (see its doc comment) — every
-	// dollar affordance on this trip's results table and collapsed summary
-	// chip is gated on it, so a nil-ledger server (as in ~20 existing
-	// planner tests) renders byte-identical HTML.
+	Budget budgetView
+
+	Stays          []stayView
+	StaysPoints    int
+	StaysCostLabel string
+
+	Booked       bool
+	PartlyBooked bool
+
+	// Results is populated once search lands (ixe.10). Callers in this
+	// commit always pass nil, and the template renders nothing for it.
+	Results []resultRow
+
+	Err       string
 	ShowCosts bool
-
-	// SelectedCostLabel is Selected.CostLabel, hoisted here so the
-	// collapsed trip_summary chip doesn't need to reach through a possibly
-	// nil Selected. Empty ("") when there's no selection, or ShowCosts is
-	// false, or the selection's cost couldn't be priced (see resultRow.cost).
-	SelectedCostLabel string
-	// SelectedCostProjected mirrors Selected.CostProjected; meaningless
-	// unless SelectedCostLabel is non-empty.
-	SelectedCostProjected bool
 }
 
 type resultRow struct {
@@ -91,9 +113,9 @@ type resultRow struct {
 	CostLabel     string
 	CostProjected bool
 
-	// cost is the same value as CostLabel, unformatted, so appView's
-	// SelectedCostLabel (added in a later commit) can sum real cents
-	// across trips rather than parsing formatted dollar strings back apart.
+	// cost is the same value as CostLabel, unformatted, so a caller can sum
+	// real cents across rows rather than parsing formatted dollar strings
+	// back apart.
 	cost ledger.Cents
 }
 
@@ -135,14 +157,7 @@ type roomTypeOption struct {
 // includes Points because a real search can return two rows that are
 // otherwise identical (same resort/room type/view/check-in/check-out) but
 // priced at different point costs — without Points here, both rows collide
-// on the same key, both render the checkmark, and the "last match wins" loop
-// in buildAppView leaves tv.Selected pointing at the wrong row (see
-// TestBuildAppView_SelectionMatchesOnPointsToo). A stored Selected stay
-// (dvc.TripSpec.Selected / dvc.TripSnapshot.Selected) is always a full
-// dvc.StayResult with its own Points value copied from the row that was
-// selected — StayResult.Points has no omitempty and isn't a pointer, so it
-// round-trips through JSON unconditionally. There's no way for a stored
-// selection to legitimately lack Points.
+// on the same key.
 func stayKey(r dvc.StayResult) string {
 	return fmt.Sprintf("%s|%s|%s|%s|%s|%d",
 		r.Resort, r.RoomType, r.View,
@@ -152,114 +167,6 @@ func stayKey(r dvc.StayResult) string {
 	)
 }
 
-// buildAppView projects a Planner Snapshot into a render-ready appView, layering
-// in the web's view-only collapsed flags. Caller must hold s.mu (so collapsed
-// and the snapshot stay consistent).
-func (s *Session) buildAppView(ctx context.Context, snap dvc.Snapshot) appView {
-	// basis/showCosts gate every dollar affordance below. s.costs is always
-	// non-nil in practice (see NewSession), and Basis() is itself
-	// nil-store-safe, so this never needs its own nil check — a missing or
-	// not-yet-known ledger just means ok/basis.Known() come back false and
-	// showCosts stays false, matching the pre-cost rendering every existing
-	// planner test (Options.Ledger == nil) expects byte-for-byte.
-	basis, ok := s.costs.Basis(ctx)
-	showCosts := ok && basis.Known()
-
-	v := appView{
-		Budget:    snap.Budget,
-		BudgetErr: snap.BudgetErr,
-		Remaining: snap.Remaining,
-		Trips:     make([]tripView, len(snap.Trips)),
-		ShowCosts: showCosts,
-	}
-
-	// totalSelectedCost sums every trip's selected stay's real cents (never
-	// its formatted CostLabel) into v.SelectedCostLabel, formatted once at
-	// the end — see TestBuildAppView_SumsSelectedCostAcrossTrips.
-	var totalSelectedCost ledger.Cents
-
-	for i := range snap.Trips {
-		t := snap.Trips[i]
-		collapsed := false
-		if i < len(s.collapsed) {
-			collapsed = s.collapsed[i]
-		}
-		var f dvc.FilterSet
-		if t.Spec.Filters != nil {
-			f = *t.Spec.Filters
-		}
-		tv := tripView{
-			Index:           i,
-			Spec:            t.Spec,
-			EffectiveBudget: t.EffectiveBudget,
-			Err:             t.Err,
-			HasSelection:    t.Selected != nil,
-			Collapsed:       collapsed,
-			FilterMode:      t.Spec.FilterMode,
-			UsesOverride:    t.Spec.FilterMode == dvc.FilterModeOverride,
-			Filters:         f,
-			ShowCosts:       showCosts,
-		}
-		var selKey string
-		if t.Selected != nil {
-			selKey = stayKey(*t.Selected)
-		}
-		tv.Results = make([]resultRow, len(t.Results))
-		for j, r := range t.Results {
-			row := resultRow{
-				RowIndex: j,
-				Resort:   r.Resort,
-				RoomType: r.RoomType,
-				View:     r.View,
-				CheckIn:  r.CheckIn,
-				CheckOut: r.CheckOut,
-				Nights:   r.Nights,
-				Points:   r.Points,
-				Selected: selKey != "" && stayKey(r) == selKey,
-			}
-			if showCosts {
-				priceRow(&row, basis)
-			}
-			tv.Results[j] = row
-			if row.Selected {
-				sel := row
-				tv.Selected = &sel
-			}
-		}
-		// If the trip has a selection that's not in the current results
-		// (e.g. filtered out), fall back to the stored Selected stay.
-		if tv.Selected == nil && t.Selected != nil {
-			sel := resultRow{
-				Resort:   t.Selected.Resort,
-				RoomType: t.Selected.RoomType,
-				View:     t.Selected.View,
-				CheckIn:  t.Selected.CheckIn,
-				CheckOut: t.Selected.CheckOut,
-				Nights:   t.Selected.Nights,
-				Points:   t.Selected.Points,
-				Selected: true,
-			}
-			if showCosts {
-				priceRow(&sel, basis)
-			}
-			tv.Selected = &sel
-		}
-		if tv.Selected != nil {
-			tv.SelectedCostLabel = tv.Selected.CostLabel
-			tv.SelectedCostProjected = tv.Selected.CostProjected
-			totalSelectedCost += tv.Selected.cost
-			if tv.SelectedCostLabel != "" {
-				v.HasSelectedCost = true
-			}
-		}
-		v.Trips[i] = tv
-	}
-	if showCosts {
-		v.SelectedCostLabel = ledger.FormatUSD(totalSelectedCost)
-	}
-	return v
-}
-
 // priceRow prices row's Points at its CheckIn date's use year — see
 // ledger.UseYearForDate — against the blended rate (contractID nil: a
 // planner stay is never attributed to a specific contract, so the
@@ -267,8 +174,8 @@ func (s *Session) buildAppView(ctx context.Context, snap dvc.Snapshot) appView {
 // and CostProjected in place, and is a no-op (leaving them at their zero
 // values) when the stay's points can't be priced — CostBasis.Cost's own
 // known=false case, e.g. Points <= 0. Callers must already know
-// basis.Known() is true (see buildAppView's showCosts guard); calling this
-// otherwise is harmless but pointless, since Cost always reports known=false.
+// basis.Known() is true; calling this otherwise is harmless but pointless,
+// since Cost always reports known=false.
 func priceRow(row *resultRow, basis ledger.CostBasis) {
 	year := ledger.UseYearForDate(row.CheckIn, basis.UseYearMonth())
 	cost, projected, known := basis.Cost(row.Points, year, nil)
@@ -280,15 +187,177 @@ func priceRow(row *resultRow, basis ledger.CostBasis) {
 	row.CostProjected = projected
 }
 
-// toFiltersView adapts a Planner FilterOptionsView into the template's
-// filtersView, preserving the existing field names the templates render.
-func toFiltersView(opts dvc.FilterOptionsView) filtersView {
-	fv := filtersView{
-		Scope: filterScope{
-			IsTrip:    opts.TripIndex >= 0,
-			TripIndex: opts.TripIndex,
-			Mode:      opts.Mode,
+// priceStay prices sv's Points at its CheckIn date's use year, resolved
+// through the given use-year start month (the same anchor buildTripView's
+// caller used to derive the trip's ledger.TripBudget, rather than reaching
+// back into basis for it) against the blended rate. It sets sv.cost,
+// CostLabel and CostProjected in place, and is a no-op when the points can't
+// be priced.
+func priceStay(sv *stayView, month time.Month, basis ledger.CostBasis) {
+	year := ledger.UseYearForDate(sv.CheckIn, month)
+	cost, projected, known := basis.Cost(sv.Points, year, nil)
+	if !known {
+		return
+	}
+	sv.cost = cost
+	sv.CostLabel = ledger.FormatUSD(cost)
+	sv.CostProjected = projected
+}
+
+// deriveTripStatus reports Booked/PartlyBooked from stays' EntryID — never
+// from a stored status. Zero stays is neither booked nor partly booked.
+func deriveTripStatus(stays []ledger.TripStay) (booked, partlyBooked bool) {
+	if len(stays) == 0 {
+		return false, false
+	}
+	anyBooked, anyUnbooked := false, false
+	for _, st := range stays {
+		if st.EntryID != nil {
+			anyBooked = true
+		} else {
+			anyUnbooked = true
+		}
+	}
+	switch {
+	case anyBooked && !anyUnbooked:
+		return true, false
+	case anyBooked && anyUnbooked:
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// buildTripRowView derives one trip list row. Status is derived from each
+// stay's EntryID (see deriveTripStatus), never stored. Like buildTripView,
+// it performs no I/O — the caller has already fetched stays.
+func buildTripRowView(t ledger.Trip, stays []ledger.TripStay, month time.Month, basis ledger.CostBasis, showCosts bool) tripRowView {
+	booked, partlyBooked := deriveTripStatus(stays)
+	status := "planning"
+	switch {
+	case booked:
+		status = "booked"
+	case partlyBooked:
+		status = "partly booked"
+	}
+
+	points := 0
+	var cost ledger.Cents
+	priced := false
+	for _, st := range stays {
+		points += st.Points
+		if !showCosts {
+			continue
+		}
+		year := ledger.UseYearForDate(st.CheckIn, month)
+		c, _, known := basis.Cost(st.Points, year, nil)
+		if known {
+			cost += c
+			priced = true
+		}
+	}
+
+	row := tripRowView{
+		ID:         t.ID,
+		Name:       t.Name,
+		StartLabel: t.StartDate.Format("2006-01-02"),
+		EndLabel:   t.EndDate.Format("2006-01-02"),
+		MinNights:  t.MinNights,
+		Stays:      len(stays),
+		Points:     points,
+		Status:     status,
+	}
+	if priced {
+		row.CostLabel = ledger.FormatUSD(cost)
+	}
+	return row
+}
+
+// buildTripView projects stored trip state, a computed budget and a search
+// result set into a render-ready tripView. It performs no I/O and touches no
+// *ledger.Store — every caller has already fetched what it needs — so it is
+// unit-testable with no Postgres and no t.Skip.
+func buildTripView(
+	t ledger.Trip, stays []ledger.TripStay, b ledger.TripBudget,
+	results []dvc.StayResult, month time.Month,
+	basis ledger.CostBasis, showCosts bool,
+) tripView {
+	booked, partlyBooked := deriveTripStatus(stays)
+
+	tv := tripView{
+		ID:           t.ID,
+		Name:         t.Name,
+		StartDate:    t.StartDate,
+		EndDate:      t.EndDate,
+		StartLabel:   t.StartDate.Format("2006-01-02"),
+		EndLabel:     t.EndDate.Format("2006-01-02"),
+		MinNights:    t.MinNights,
+		ShowCosts:    showCosts,
+		Booked:       booked,
+		PartlyBooked: partlyBooked,
+		Budget: budgetView{
+			UseYear:         b.UseYear,
+			Current:         b.Current,
+			Banked:          b.Banked,
+			Borrowable:      b.Borrowable,
+			Total:           b.Total,
+			CurrentLabel:    formatSignedDelta(b.Current),
+			BankedLabel:     formatSignedDelta(b.Banked),
+			BorrowableLabel: formatSignedDelta(b.Borrowable),
 		},
+	}
+
+	var staysCost ledger.Cents
+	tv.Stays = make([]stayView, len(stays))
+	for i, st := range stays {
+		sv := stayView{
+			ID:       st.ID,
+			Resort:   st.Resort,
+			RoomType: st.RoomType,
+			View:     st.View,
+			CheckIn:  st.CheckIn,
+			CheckOut: st.CheckOut,
+			Nights:   st.Nights,
+			Points:   st.Points,
+			Booked:   st.EntryID != nil,
+		}
+		if showCosts {
+			priceStay(&sv, month, basis)
+		}
+		tv.Stays[i] = sv
+		tv.StaysPoints += st.Points
+		staysCost += sv.cost
+	}
+	if showCosts {
+		tv.StaysCostLabel = ledger.FormatUSD(staysCost)
+	}
+
+	tv.Results = make([]resultRow, len(results))
+	for i, r := range results {
+		row := resultRow{
+			RowIndex: i,
+			Resort:   r.Resort,
+			RoomType: r.RoomType,
+			View:     r.View,
+			CheckIn:  r.CheckIn,
+			CheckOut: r.CheckOut,
+			Nights:   r.Nights,
+			Points:   r.Points,
+		}
+		if showCosts {
+			priceRow(&row, basis)
+		}
+		tv.Results[i] = row
+	}
+
+	return tv
+}
+
+// toFiltersView adapts a dvc.FilterOptionsView plus the caller-resolved scope
+// into the template's filtersView.
+func toFiltersView(opts dvc.FilterOptionsView, scope filterScope) filtersView {
+	fv := filtersView{
+		Scope:     scope,
 		Resorts:   make([]resortOption, len(opts.Resorts)),
 		RoomTypes: make([]roomTypeOption, len(opts.RoomTypes)),
 	}
@@ -313,7 +382,6 @@ func templateFuncs() template.FuncMap {
 			}
 			return v
 		},
-		"add1": func(i int) int { return i + 1 },
 		"formatMonth": func(m time.Month) string {
 			return m.String()
 		},
