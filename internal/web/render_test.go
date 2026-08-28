@@ -1,6 +1,7 @@
 package web
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -179,6 +180,153 @@ func TestBuildTripView_PricesResultsWhenShowCosts(t *testing.T) {
 		if r.CostLabel != "" {
 			t.Errorf("result row CostLabel = %q, want empty with showCosts=false", r.CostLabel)
 		}
+	}
+}
+
+// intPtr is a tiny helper so table cases can express a *int literal inline.
+func intPtr(v int) *int { return &v }
+
+// TestBuildTripView_SpansUseYears is table-driven over (window, use-year
+// start month) pairs. The first two rows share the April use year the doc
+// comment describes. The third row deliberately uses April too, NOT
+// January: with a January start month ledger.UseYearForDate collapses to
+// the bare calendar year for every date (the ">= startMonth" branch is
+// always taken), so Dec 28 2026 and Jan 3 2027 land in UY2026 and UY2027
+// respectively — genuinely different use years, and the naive
+// StartDate.Year()-vs-EndDate.Year() mutation (c) would AGREE with that
+// correct answer instead of being caught by it. Under the April use year
+// shared by the rest of this table, both dates fall in UY2026 (Dec is
+// still before the following April's boundary), so this row is exactly
+// the case that catches a naive calendar-year comparison: it says "spans"
+// (2026 != 2027) while the correct use-year-aware comparison says "does
+// not span".
+func TestBuildTripView_SpansUseYears(t *testing.T) {
+	cases := []struct {
+		name           string
+		start, end     time.Time
+		month          time.Month
+		wantSpans      bool
+		wantNoteSubstr []string
+	}{
+		{
+			name:      "spans April use year",
+			start:     time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+			end:       time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC),
+			month:     time.April,
+			wantSpans: true,
+			wantNoteSubstr: []string{
+				"use years 2025 → 2026",
+				"UY2025",
+				"2026-04-01",
+				"UY2026",
+			},
+		},
+		{
+			name:      "within one use year",
+			start:     time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+			end:       time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC),
+			month:     time.April,
+			wantSpans: false,
+		},
+		{
+			name:      "Dec-to-Jan window does not cross the April boundary",
+			start:     time.Date(2026, 12, 28, 0, 0, 0, 0, time.UTC),
+			end:       time.Date(2027, 1, 3, 0, 0, 0, 0, time.UTC),
+			month:     time.April,
+			wantSpans: false,
+		},
+		{
+			// The SAME window on a JANUARY use year does span. A January use
+			// year makes every date's use year its calendar year, so Jan 3
+			// 2027 is UY2027 while Dec 28 2026 is UY2026.
+			//
+			// This is the distinction the design doc's edge-case table is
+			// easy to misread: "Dec 28 2026 → Jan 3 2027, January UY → UY2026,
+			// wholly" is about where a single STAY is charged (by check-in,
+			// never split), NOT about whether a trip's WINDOW straddles a
+			// boundary. The window does, and must warn.
+			name:      "Dec-to-Jan window crosses a January boundary",
+			start:     time.Date(2026, 12, 28, 0, 0, 0, 0, time.UTC),
+			end:       time.Date(2027, 1, 3, 0, 0, 0, 0, time.UTC),
+			month:     time.January,
+			wantSpans: true,
+			wantNoteSubstr: []string{
+				"use years 2026 → 2027",
+				"UY2026",
+				"2027-01-01",
+				"UY2027",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tr := tripFixture()
+			tr.StartDate = c.start
+			tr.EndDate = c.end
+
+			tv := buildTripView(tr, nil, ledger.TripBudget{}, nil, c.month, ledger.CostBasis{}, false)
+
+			if tv.SpansUseYears != c.wantSpans {
+				t.Errorf("SpansUseYears = %v, want %v (note = %q)", tv.SpansUseYears, c.wantSpans, tv.SpanNote)
+			}
+			if !c.wantSpans && tv.SpanNote != "" {
+				t.Errorf("SpanNote = %q, want empty when not spanning", tv.SpanNote)
+			}
+			for _, want := range c.wantNoteSubstr {
+				if !strings.Contains(tv.SpanNote, want) {
+					t.Errorf("SpanNote = %q, want substring %q", tv.SpanNote, want)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildTripView_EffectiveBudgetHonoursOverride(t *testing.T) {
+	b := ledger.TripBudget{Total: 480}
+
+	tr := tripFixture()
+	tvNil := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false)
+	if tvNil.EffectiveBudget != 480 {
+		t.Errorf("EffectiveBudget (nil override) = %d, want 480", tvNil.EffectiveBudget)
+	}
+	if tvNil.BudgetOverridden {
+		t.Errorf("BudgetOverridden (nil override) = true, want false")
+	}
+	if tvNil.Budget.Overridden {
+		t.Errorf("Budget.Overridden (nil override) = true, want false")
+	}
+	if tvNil.Budget.ComputedTotal != 480 {
+		t.Errorf("Budget.ComputedTotal (nil override) = %d, want 480", tvNil.Budget.ComputedTotal)
+	}
+
+	tr.BudgetOverride = intPtr(200)
+	tvSet := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false)
+	if tvSet.EffectiveBudget != 200 {
+		t.Errorf("EffectiveBudget (override 200) = %d, want 200", tvSet.EffectiveBudget)
+	}
+	if !tvSet.BudgetOverridden {
+		t.Errorf("BudgetOverridden (override 200) = false, want true")
+	}
+	if !tvSet.Budget.Overridden {
+		t.Errorf("Budget.Overridden (override 200) = false, want true")
+	}
+	if tvSet.Budget.ComputedTotal != 480 {
+		t.Errorf("Budget.ComputedTotal (override 200) = %d, want 480 (still the computed total)", tvSet.Budget.ComputedTotal)
+	}
+}
+
+// TestEffectiveBudget_ZeroOverrideIsRespected pins the classic *int
+// nil-vs-zero bug: a BudgetOverride pointing at 0 must yield 0, not fall
+// through to the computed total.
+func TestEffectiveBudget_ZeroOverrideIsRespected(t *testing.T) {
+	tr := tripFixture()
+	tr.BudgetOverride = intPtr(0)
+	b := ledger.TripBudget{Total: 480}
+
+	got := effectiveBudget(tr, b)
+	if got != 0 {
+		t.Errorf("effectiveBudget with BudgetOverride=&0 = %d, want 0", got)
 	}
 }
 

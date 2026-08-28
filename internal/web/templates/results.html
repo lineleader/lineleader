@@ -5,9 +5,7 @@
 {{end}}
 
 {{define "results_body"}}
-  {{if .Err}}
-    <p class="err">{{.Err}}</p>
-  {{else if eq (len .Results) 0}}
+  {{if eq (len .Results) 0}}
     <p class="empty">No stays within budget.</p>
   {{else}}
     <table class="results-table">

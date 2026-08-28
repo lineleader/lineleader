@@ -156,6 +156,48 @@ func tripID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
+// searchTrip runs dvc.Search for a stored trip. Every parameter comes from
+// the trip ROW and the process-wide chart set, never from the request:
+// Search is deterministic given (charts, params) and charts are immutable
+// for the process lifetime, so a later POST /trips/{id}/stays/{row} can
+// reconstruct an identical result set from the same trip row and resolve
+// {row} against it. The Planner got that for free by holding the results in
+// memory; now it is an explicit invariant.
+func (h *handlers) searchTrip(t ledger.Trip, budget int) []dvc.StayResult {
+	filters := dvc.EffectiveFilters(h.global.Get(), dvc.FilterMode(t.FilterMode), dvc.FilterSet{
+		ExcludeResorts:   t.ExcludeResorts,
+		ExcludeRoomTypes: t.ExcludeRoomTypes,
+	})
+	return dvc.Search(h.charts, dvc.SearchParams{
+		WindowStart:      t.StartDate,
+		WindowEnd:        t.EndDate,
+		Budget:           budget,
+		MinNights:        t.MinNights,
+		ExcludeResorts:   filters.ExcludeResorts,
+		ExcludeRoomTypes: filters.ExcludeRoomTypes,
+	})
+}
+
+// buildTripPageView fetches t's stays and budget, runs the search and
+// projects the render-ready tripView for it, with errMsg applied as
+// tv.Err (e.g. from a rejected update-trip submission).
+func (h *handlers) buildTripPageView(ctx context.Context, t ledger.Trip, errMsg string) (tripView, error) {
+	stays, err := h.store.ListStays(ctx, t.ID)
+	if err != nil {
+		return tripView{}, fmt.Errorf("listing stays for trip %d: %w", t.ID, err)
+	}
+	budget, err := h.store.TripBudget(ctx, t.StartDate)
+	if err != nil {
+		return tripView{}, err
+	}
+	basis, showCosts := h.costBasis(ctx)
+	month := basis.UseYearMonth()
+	results := h.searchTrip(t, effectiveBudget(t, budget))
+	view := buildTripView(t, stays, budget, results, month, basis, showCosts)
+	view.Err = errMsg
+	return view, nil
+}
+
 // tripPage handles GET /trips/{id}.
 func (h *handlers) tripPage(w http.ResponseWriter, r *http.Request) {
 	id, ok := tripID(w, r)
@@ -172,20 +214,77 @@ func (h *handlers) tripPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	stays, err := h.store.ListStays(ctx, id)
+	view, err := h.buildTripPageView(ctx, t, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	budget, err := h.store.TripBudget(ctx, t.StartDate)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	basis, showCosts := h.costBasis(ctx)
-	month := basis.UseYearMonth()
-	view := buildTripView(t, stays, budget, nil, month, basis, showCosts)
 	h.render(w, "trip_page", view)
+}
+
+// updateTrip handles POST /trips/{id}: edits a trip's name/dates/min-nights
+// and re-runs its search.
+//
+// A validation failure renders the "trip" fragment (200, not 400) using the
+// STORED trip — the rejected input is not preserved, following the ledger
+// handlers' inline-error convention. That is a known wart: the user's typed
+// values vanish on a rejected submit rather than staying in the form.
+//
+// On success, parseTripForm's return value carries only
+// Name/StartDate/EndDate/MinNights — it knows nothing about
+// BudgetOverride/FilterMode/ExcludeResorts/ExcludeRoomTypes, so those four
+// fields are copied forward from the existing stored trip before calling
+// UpdateTrip. Passing parseTripForm's result straight to UpdateTrip would
+// silently wipe them.
+func (h *handlers) updateTrip(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	existing, err := h.store.GetTrip(ctx, id)
+	if err != nil {
+		if errors.Is(err, ledger.ErrTripNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	edited, err := parseTripForm(r)
+	if err != nil {
+		view, verr := h.buildTripPageView(ctx, existing, err.Error())
+		if verr != nil {
+			http.Error(w, verr.Error(), http.StatusInternalServerError)
+			return
+		}
+		h.render(w, "trip", view)
+		return
+	}
+
+	edited.ID = existing.ID
+	edited.BudgetOverride = existing.BudgetOverride
+	edited.FilterMode = existing.FilterMode
+	edited.ExcludeResorts = existing.ExcludeResorts
+	edited.ExcludeRoomTypes = existing.ExcludeRoomTypes
+
+	if err := h.store.UpdateTrip(ctx, edited); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	refetched, err := h.store.GetTrip(ctx, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	view, err := h.buildTripPageView(ctx, refetched, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.render(w, "trip", view)
 }
 
 // deleteTrip handles DELETE /trips/{id}.

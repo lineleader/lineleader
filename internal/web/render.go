@@ -43,6 +43,13 @@ type budgetView struct {
 	CurrentLabel    string // signed, e.g. "+270"
 	BankedLabel     string // signed, e.g. "-60"
 	BorrowableLabel string
+
+	// Overridden and ComputedTotal let a later commit render "reset to
+	// computed (N)" next to the effective budget. Nothing writes
+	// BudgetOverride yet, so Overridden is always false today, but the
+	// fields exist so that commit only has to add a button.
+	Overridden    bool
+	ComputedTotal int
 }
 
 // stayView is one stay collected on a trip.
@@ -78,6 +85,12 @@ type tripView struct {
 
 	Budget budgetView
 
+	// EffectiveBudget is the point budget the search actually ran against
+	// (see effectiveBudget): the trip's BudgetOverride when set, otherwise
+	// Budget.Total. BudgetOverridden mirrors whether that override applied.
+	EffectiveBudget  int
+	BudgetOverridden bool
+
 	Stays          []stayView
 	StaysPoints    int
 	StaysCostLabel string
@@ -85,8 +98,14 @@ type tripView struct {
 	Booked       bool
 	PartlyBooked bool
 
-	// Results is populated once search lands (ixe.10). Callers in this
-	// commit always pass nil, and the template renders nothing for it.
+	// SpansUseYears and SpanNote flag a trip whose window straddles a
+	// use-year boundary — the budget shown is only correct for the window
+	// start's use year. See buildTripView.
+	SpansUseYears bool
+	SpanNote      string
+
+	// Results is populated by searchTrip and projected here by
+	// buildTripView.
 	Results []resultRow
 
 	Err       string
@@ -273,6 +292,25 @@ func buildTripRowView(t ledger.Trip, stays []ledger.TripStay, month time.Month, 
 	return row
 }
 
+// effectiveBudget is the point budget the search runs against: the trip's
+// hand-typed override when set, otherwise the ledger-computed total.
+// Nothing writes BudgetOverride yet — the UI for it is a later commit — but
+// the column exists and search is where it takes effect, so honour it here.
+// A *int pointing at 0 must yield 0, not fall through to the computed
+// total — only nil means "no override".
+func effectiveBudget(t ledger.Trip, b ledger.TripBudget) int {
+	if t.BudgetOverride != nil {
+		return *t.BudgetOverride
+	}
+	return b.Total
+}
+
+// spanBoundary is the first day of month in the END use year — the date on
+// or after which a stay checking in draws from the later use year.
+func spanBoundary(endUseYear int, month time.Month) time.Time {
+	return time.Date(endUseYear, month, 1, 0, 0, 0, 0, time.UTC)
+}
+
 // buildTripView projects stored trip state, a computed budget and a search
 // result set into a render-ready tripView. It performs no I/O and touches no
 // *ledger.Store — every caller has already fetched what it needs — so it is
@@ -283,18 +321,22 @@ func buildTripView(
 	basis ledger.CostBasis, showCosts bool,
 ) tripView {
 	booked, partlyBooked := deriveTripStatus(stays)
+	overridden := t.BudgetOverride != nil
+	eff := effectiveBudget(t, b)
 
 	tv := tripView{
-		ID:           t.ID,
-		Name:         t.Name,
-		StartDate:    t.StartDate,
-		EndDate:      t.EndDate,
-		StartLabel:   t.StartDate.Format("2006-01-02"),
-		EndLabel:     t.EndDate.Format("2006-01-02"),
-		MinNights:    t.MinNights,
-		ShowCosts:    showCosts,
-		Booked:       booked,
-		PartlyBooked: partlyBooked,
+		ID:               t.ID,
+		Name:             t.Name,
+		StartDate:        t.StartDate,
+		EndDate:          t.EndDate,
+		StartLabel:       t.StartDate.Format("2006-01-02"),
+		EndLabel:         t.EndDate.Format("2006-01-02"),
+		MinNights:        t.MinNights,
+		ShowCosts:        showCosts,
+		Booked:           booked,
+		PartlyBooked:     partlyBooked,
+		EffectiveBudget:  eff,
+		BudgetOverridden: overridden,
 		Budget: budgetView{
 			UseYear:         b.UseYear,
 			Current:         b.Current,
@@ -304,7 +346,20 @@ func buildTripView(
 			CurrentLabel:    formatSignedDelta(b.Current),
 			BankedLabel:     formatSignedDelta(b.Banked),
 			BorrowableLabel: formatSignedDelta(b.Borrowable),
+			Overridden:      overridden,
+			ComputedTotal:   b.Total,
 		},
+	}
+
+	startUY := ledger.UseYearForDate(t.StartDate, month)
+	endUY := ledger.UseYearForDate(t.EndDate, month)
+	if startUY != endUY {
+		tv.SpansUseYears = true
+		boundary := spanBoundary(endUY, month)
+		tv.SpanNote = fmt.Sprintf(
+			"This window spans use years %d → %d. The budget shown is for UY%d (the window start); stays checking in on or after %s draw from UY%d.",
+			startUY, endUY, startUY, boundary.Format("2006-01-02"), endUY,
+		)
 	}
 
 	var staysCost ledger.Cents

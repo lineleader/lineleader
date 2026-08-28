@@ -4,21 +4,29 @@
   <header class="trip-header">
     <a class="trip-back" href="/">← Trips</a>
     <h1>{{.Name}}</h1>
-    <span class="trip-dates">{{.StartLabel}} → {{.EndLabel}} ({{.MinNights}}+ nights)</span>
     <span class="trip-status {{if .Booked}}booked{{else if .PartlyBooked}}partly-booked{{else}}planning{{end}}">
       {{if .Booked}}Booked{{else if .PartlyBooked}}Partly booked{{else}}Planning{{end}}
     </span>
     <button type="button" class="trip-remove" hx-delete="/trips/{{.ID}}" hx-confirm="Delete this trip?">Delete trip</button>
   </header>
 
+  <form class="trip-form"
+        hx-post="/trips/{{.ID}}"
+        hx-target="#trip"
+        hx-swap="outerHTML">
+    <label>Name <input name="name" type="text" value="{{.Name}}" autocomplete="off" required></label>
+    <label>From <input name="from" type="text" value="{{.StartLabel}}" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
+    <label>To <input name="to" type="text" value="{{.EndLabel}}" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
+    <label>Min nights <input name="min_nights" type="text" value="{{.MinNights}}" autocomplete="off" required></label>
+    <button type="submit">Save</button>
+  </form>
+
+  {{if .SpansUseYears}}<p class="span-warning">{{.SpanNote}}</p>{{end}}
+
   {{template "trip_budget" .Budget}}
   {{template "trip_stays" .}}
 
-  {{if .Results}}
-    {{template "results" .}}
-  {{else}}
-    <div class="results" id="trip-results"></div>
-  {{end}}
+  {{template "results" .}}
 </div>
 {{end}}
 
