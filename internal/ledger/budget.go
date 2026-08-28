@@ -1,5 +1,11 @@
 package ledger
 
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
 // TripBudget is the point budget available to a trip checking in during UseYear,
 // decomposed so the UI can show its arithmetic rather than one unexplained number.
 //
@@ -66,4 +72,30 @@ func BudgetForUseYear(summaries []UseYearSummary, useYear, annualPointsTotal int
 		Borrowable: borrowable,
 		Total:      current + banked + borrowable,
 	}
+}
+
+// TripBudget derives the budget for a trip starting on start. It is the only
+// I/O in the budget model — two cheap queries — and is deliberately
+// UNCACHED, unlike CostBasis: the budget changes on every ledger mutation
+// (every booked trip, every hand-entered usage row) and a stale budget
+// silently misleads, where a stale cost basis merely prices slightly old.
+func (s *Store) TripBudget(ctx context.Context, start time.Time) (TripBudget, error) {
+	contracts, err := s.ListContracts(ctx)
+	if err != nil {
+		return TripBudget{}, fmt.Errorf("TripBudget: listing contracts: %w", err)
+	}
+
+	month := UseYearStartMonth(contracts)
+
+	var annualPointsTotal int
+	for _, c := range contracts {
+		annualPointsTotal += c.AnnualPoints
+	}
+
+	summaries, err := s.UseYearSummaries(ctx)
+	if err != nil {
+		return TripBudget{}, fmt.Errorf("TripBudget: summarizing use years: %w", err)
+	}
+
+	return BudgetForUseYear(summaries, UseYearForDate(start, month), annualPointsTotal), nil
 }
