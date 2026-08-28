@@ -10,6 +10,26 @@ import (
 	"database/sql"
 )
 
+const deleteEntriesForStay = `-- name: DeleteEntriesForStay :exec
+DELETE FROM entry
+ WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_stay.id = $1 AND entry_id IS NOT NULL)
+`
+
+func (q *Queries) DeleteEntriesForStay(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteEntriesForStay, id)
+	return err
+}
+
+const deleteEntriesForTrip = `-- name: DeleteEntriesForTrip :exec
+DELETE FROM entry
+ WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_id = $1 AND entry_id IS NOT NULL)
+`
+
+func (q *Queries) DeleteEntriesForTrip(ctx context.Context, tripID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteEntriesForTrip, tripID)
+	return err
+}
+
 const deleteEntry = `-- name: DeleteEntry :exec
 DELETE FROM entry WHERE id = $1
 `

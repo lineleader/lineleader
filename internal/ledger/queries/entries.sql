@@ -15,3 +15,11 @@ WHERE id = $9;
 
 -- name: DeleteEntry :exec
 DELETE FROM entry WHERE id = $1;
+
+-- name: DeleteEntriesForTrip :exec
+DELETE FROM entry
+ WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_id = $1 AND entry_id IS NOT NULL);
+
+-- name: DeleteEntriesForStay :exec
+DELETE FROM entry
+ WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_stay.id = $1 AND entry_id IS NOT NULL);

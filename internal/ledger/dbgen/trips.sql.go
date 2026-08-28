@@ -11,6 +11,24 @@ import (
 	"time"
 )
 
+const deleteTrip = `-- name: DeleteTrip :exec
+DELETE FROM trip WHERE id = $1
+`
+
+func (q *Queries) DeleteTrip(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTrip, id)
+	return err
+}
+
+const deleteTripStay = `-- name: DeleteTripStay :exec
+DELETE FROM trip_stay WHERE id = $1
+`
+
+func (q *Queries) DeleteTripStay(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTripStay, id)
+	return err
+}
+
 const getTrip = `-- name: GetTrip :one
 SELECT id, name, start_date, end_date, min_nights, budget_override, filter_mode, exclude_resorts, exclude_room_types
 FROM trip
@@ -183,6 +201,20 @@ func (q *Queries) ListTrips(ctx context.Context) ([]Trip, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setTripStayEntryID = `-- name: SetTripStayEntryID :exec
+UPDATE trip_stay SET entry_id = $1 WHERE id = $2
+`
+
+type SetTripStayEntryIDParams struct {
+	EntryID sql.NullInt64
+	ID      int64
+}
+
+func (q *Queries) SetTripStayEntryID(ctx context.Context, arg SetTripStayEntryIDParams) error {
+	_, err := q.db.ExecContext(ctx, setTripStayEntryID, arg.EntryID, arg.ID)
+	return err
 }
 
 const updateTrip = `-- name: UpdateTrip :exec

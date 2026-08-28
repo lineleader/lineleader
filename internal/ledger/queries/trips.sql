@@ -28,3 +28,12 @@ SELECT id, trip_id, resort, room_type, view, check_in, check_out, nights, points
 FROM trip_stay
 WHERE trip_id = $1
 ORDER BY check_in, id;
+
+-- name: DeleteTrip :exec
+DELETE FROM trip WHERE id = $1;
+
+-- name: DeleteTripStay :exec
+DELETE FROM trip_stay WHERE id = $1;
+
+-- name: SetTripStayEntryID :exec
+UPDATE trip_stay SET entry_id = $1 WHERE id = $2;
