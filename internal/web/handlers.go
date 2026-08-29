@@ -192,10 +192,33 @@ func (h *handlers) buildTripPageView(ctx context.Context, t ledger.Trip, errMsg 
 	}
 	basis, showCosts := h.costBasis(ctx)
 	month := basis.UseYearMonth()
-	results := h.searchTrip(t, effectiveBudget(t, budget))
+	results := h.searchTrip(t, searchBudgetFor(t, budget, stays))
 	view := buildTripView(t, stays, budget, results, month, basis, showCosts)
 	view.Err = errMsg
 	return view, nil
+}
+
+// renderTripFragment re-fetches trip id, rebuilds its page view (no error
+// message) and renders the "trip" fragment. This is the shared success tail
+// for updateTrip, addStay and removeStay: each mutates something about a
+// trip and then needs the freshly re-rendered #trip swapped into the page.
+func (h *handlers) renderTripFragment(w http.ResponseWriter, r *http.Request, id int64) {
+	ctx := r.Context()
+	t, err := h.store.GetTrip(ctx, id)
+	if err != nil {
+		if errors.Is(err, ledger.ErrTripNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	view, err := h.buildTripPageView(ctx, t, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.render(w, "trip", view)
 }
 
 // tripPage handles GET /trips/{id}.
@@ -274,17 +297,100 @@ func (h *handlers) updateTrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	refetched, err := h.store.GetTrip(ctx, id)
+	h.renderTripFragment(w, r, id)
+}
+
+// addStay handles POST /trips/{id}/stays/{row}: collects one search result
+// row onto the trip as a new, unbooked ledger.TripStay.
+func (h *handlers) addStay(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+
+	t, err := h.store.GetTrip(ctx, id)
+	if err != nil {
+		if errors.Is(err, ledger.ErrTripNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	stays, err := h.store.ListStays(ctx, id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	view, err := h.buildTripPageView(ctx, refetched, "")
+	budget, err := h.store.TripBudget(ctx, t.StartDate)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.render(w, "trip", view)
+
+	// Reconstruct the SAME result set the browser rendered: searchTrip is
+	// deterministic given (charts, params), and every param comes from the
+	// trip row and the process-wide chart set (see searchTrip's doc
+	// comment) — so re-running it here against the same searchBudgetFor
+	// budget yields byte-identical rows in the same order, and {row} can be
+	// resolved against it.
+	results := h.searchTrip(t, searchBudgetFor(t, budget, stays))
+
+	row, err := strconv.Atoi(r.PathValue("row"))
+	if err != nil || row < 0 || row >= len(results) {
+		http.Error(w, "invalid result row", http.StatusBadRequest)
+		return
+	}
+	res := results[row]
+
+	st := ledger.TripStay{
+		TripID:   id,
+		Resort:   res.Resort,
+		RoomType: res.RoomType,
+		View:     res.View,
+		CheckIn:  res.CheckIn,
+		CheckOut: res.CheckOut,
+		Nights:   res.Nights,
+		Points:   res.Points,
+		// QuoteHash is left empty: dvc.StayResult carries no resort code,
+		// column index or nightly rates, and plan §4 pins StayResult as
+		// unchanged, so the quote fingerprint cannot be computed here. The
+		// column defaults to '' and nothing reads it yet.
+	}
+	if _, err := h.store.AddStay(ctx, st); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.renderTripFragment(w, r, id)
+}
+
+// removeStay handles DELETE /trips/{id}/stays/{sid}.
+func (h *handlers) removeStay(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	sid, err := strconv.ParseInt(r.PathValue("sid"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad stay id", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	if err := h.store.DeleteStay(ctx, sid); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// DeleteStay may have deleted a BOOKED stay's linked ledger entry (see
+	// ledger.Store.DeleteStay) — invalidate the cached CostBasis so the
+	// next fetch reflects the mutated ledger, exactly as every
+	// ledger-mutating handler does (see ledger_handlers.go).
+	h.costs.Invalidate()
+
+	h.renderTripFragment(w, r, id)
 }
 
 // deleteTrip handles DELETE /trips/{id}.

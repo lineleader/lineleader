@@ -23,21 +23,28 @@
 
   {{if .SpansUseYears}}<p class="span-warning">{{.SpanNote}}</p>{{end}}
 
-  {{template "trip_budget" .Budget}}
+  {{template "trip_budget" .}}
   {{template "trip_stays" .}}
 
   {{template "results" .}}
 </div>
 {{end}}
 
+{{/*
+  trip_budget is invoked with the whole tripView (not just .Budget) because
+  the remaining-budget row needs tripView.Remaining, which budgetView does
+  not carry — searchBudgetFor computes it from the trip + stays, not from
+  the ledger.TripBudget alone.
+*/}}
 {{define "trip_budget"}}
 <section class="budget-breakdown">
-  <h2>Budget — use year {{.UseYear}}</h2>
+  <h2>Budget — use year {{.Budget.UseYear}}</h2>
   <dl>
-    <div class="budget-row"><dt>Current</dt><dd>{{.CurrentLabel}}</dd></div>
-    <div class="budget-row"><dt>Banked</dt><dd>{{.BankedLabel}}</dd></div>
-    <div class="budget-row"><dt>Borrowable</dt><dd>{{.BorrowableLabel}}</dd></div>
-    <div class="budget-row budget-total"><dt>Total</dt><dd>{{.Total}}</dd></div>
+    <div class="budget-row"><dt>Current</dt><dd>{{.Budget.CurrentLabel}}</dd></div>
+    <div class="budget-row"><dt>Banked</dt><dd>{{.Budget.BankedLabel}}</dd></div>
+    <div class="budget-row"><dt>Borrowable</dt><dd>{{.Budget.BorrowableLabel}}</dd></div>
+    <div class="budget-row budget-total"><dt>Total</dt><dd>{{.Budget.Total}}</dd></div>
+    <div class="budget-row budget-remaining"><dt>Remaining</dt><dd>{{.Remaining}}</dd></div>
   </dl>
 </section>
 {{end}}
@@ -60,6 +67,7 @@
         <th>Points</th>
         {{if .ShowCosts}}<th>Cost</th>{{end}}
         <th></th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -74,6 +82,14 @@
         <td>{{.Points}}</td>
         {{if $.ShowCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</td>{{end}}
         <td>{{if .Booked}}✓ booked{{else}}—{{end}}</td>
+        <td>
+          <button type="button"
+                  class="stay-remove"
+                  hx-delete="/trips/{{$.ID}}/stays/{{.ID}}"
+                  hx-target="#trip"
+                  hx-swap="outerHTML"
+                  hx-confirm="{{if .Booked}}This stay is booked — removing it also deletes its ledger entry. Continue?{{else}}Remove this stay?{{end}}">Remove</button>
+        </td>
       </tr>
       {{end}}
     </tbody>

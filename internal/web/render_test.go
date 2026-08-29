@@ -346,3 +346,116 @@ func TestBuildTripView_NoStaysNoResults(t *testing.T) {
 		t.Errorf("StaysPoints = %d, want 0", tv.StaysPoints)
 	}
 }
+
+// --- searchBudgetFor: the search-budget invariant ---
+
+// TestSearchBudgetFor_SubtractsOnlyUnbookedStays pins the core invariant: a
+// BOOKED stay's points are already reflected in the ledger's used(UY), which
+// already reduced Budget.Current, so subtracting them again here would
+// double-count. Only unbooked stays' points come off the top.
+func TestSearchBudgetFor_SubtractsOnlyUnbookedStays(t *testing.T) {
+	tr := tripFixture()
+	b := ledger.TripBudget{Total: 610}
+
+	stays := []ledger.TripStay{
+		{Points: 150, EntryID: nil},        // unbooked: subtracted
+		{Points: 200, EntryID: entryID(1)}, // booked: NOT subtracted
+	}
+	got := searchBudgetFor(tr, b, stays)
+	if got != 460 {
+		t.Errorf("searchBudgetFor = %d, want 460 (610 - 150 unbooked, booked 200 excluded)", got)
+	}
+
+	// Only booked stays: the answer equals the full budget, nothing
+	// subtracted.
+	onlyBooked := []ledger.TripStay{
+		{Points: 200, EntryID: entryID(1)},
+		{Points: 75, EntryID: entryID(2)},
+	}
+	got2 := searchBudgetFor(tr, b, onlyBooked)
+	if got2 != 610 {
+		t.Errorf("searchBudgetFor (only booked stays) = %d, want 610 (full budget, nothing subtracted)", got2)
+	}
+}
+
+// TestSearchBudgetFor_HonoursBudgetOverride proves searchBudgetFor subtracts
+// from the trip's BudgetOverride when set, not the computed Total — the same
+// override effectiveBudget itself honours.
+func TestSearchBudgetFor_HonoursBudgetOverride(t *testing.T) {
+	tr := tripFixture()
+	tr.BudgetOverride = intPtr(300)
+	b := ledger.TripBudget{Total: 610}
+
+	stays := []ledger.TripStay{
+		{Points: 50, EntryID: nil},
+		{Points: 200, EntryID: entryID(1)},
+	}
+	got := searchBudgetFor(tr, b, stays)
+	if got != 250 {
+		t.Errorf("searchBudgetFor = %d, want 250 (override 300 - 50 unbooked)", got)
+	}
+}
+
+// TestBuildTripView_RemainingMatchesSearchBudget proves buildTripView's
+// tripView.Remaining comes from the same searchBudgetFor helper the search
+// budget itself is computed from, so the two can never diverge.
+func TestBuildTripView_RemainingMatchesSearchBudget(t *testing.T) {
+	tr := tripFixture()
+	b := ledger.TripBudget{Total: 610}
+	stays := []ledger.TripStay{
+		{Points: 150, EntryID: nil},
+		{Points: 200, EntryID: entryID(1)},
+	}
+
+	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false)
+
+	want := searchBudgetFor(tr, b, stays)
+	if tv.Remaining != want {
+		t.Errorf("tv.Remaining = %d, want %d (searchBudgetFor)", tv.Remaining, want)
+	}
+	if tv.Remaining != 460 {
+		t.Errorf("tv.Remaining = %d, want 460", tv.Remaining)
+	}
+}
+
+// --- stayKeyForStay / Selected marking ---
+
+// TestBuildTripView_MarksCollectedResultRowsSelected proves buildTripView
+// marks a result row Selected when it matches a stored stay, and — crucially
+// — that a row differing ONLY in Points is NOT marked selected. This is the
+// reason stayKey (and its stored-stay counterpart stayKeyForStay) includes
+// Points in the identity key: without it, two otherwise-identical rows at
+// different point costs would collide.
+func TestBuildTripView_MarksCollectedResultRowsSelected(t *testing.T) {
+	checkIn := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
+	checkOut := time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)
+
+	stays := []ledger.TripStay{
+		{
+			Resort: "R1", RoomType: "STUDIO", View: "Lake",
+			CheckIn: checkIn, CheckOut: checkOut, Nights: 2, Points: 20,
+		},
+	}
+	results := []dvc.StayResult{
+		{ // matches the stored stay exactly
+			Resort: "R1", RoomType: "STUDIO", View: "Lake",
+			CheckIn: checkIn, CheckOut: checkOut, Nights: 2, Points: 20,
+		},
+		{ // differs ONLY in Points
+			Resort: "R1", RoomType: "STUDIO", View: "Lake",
+			CheckIn: checkIn, CheckOut: checkOut, Nights: 2, Points: 25,
+		},
+	}
+
+	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+
+	if len(tv.Results) != 2 {
+		t.Fatalf("len(Results) = %d, want 2", len(tv.Results))
+	}
+	if !tv.Results[0].Selected {
+		t.Errorf("Results[0] (exact match) Selected = false, want true")
+	}
+	if tv.Results[1].Selected {
+		t.Errorf("Results[1] (Points differs) Selected = true, want false")
+	}
+}

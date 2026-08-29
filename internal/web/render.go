@@ -104,6 +104,12 @@ type tripView struct {
 	SpansUseYears bool
 	SpanNote      string
 
+	// Remaining is the point budget the search actually ran against — see
+	// searchBudgetFor. Unlike EffectiveBudget, it has already had unbooked
+	// stays' points subtracted, so it is what a user thinks of as "what's
+	// left to spend."
+	Remaining int
+
 	// Results is populated by searchTrip and projected here by
 	// buildTripView.
 	Results []resultRow
@@ -183,6 +189,19 @@ func stayKey(r dvc.StayResult) string {
 		r.CheckIn.Format("2006-01-02"),
 		r.CheckOut.Format("2006-01-02"),
 		r.Points,
+	)
+}
+
+// stayKeyForStay is stayKey's counterpart for a stored TripStay, so a result
+// row already collected on this trip renders as selected. It MUST produce a
+// byte-identical key for the same stay — including Points, for the reason
+// stayKey documents.
+func stayKeyForStay(st ledger.TripStay) string {
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%d",
+		st.Resort, st.RoomType, st.View,
+		st.CheckIn.Format("2006-01-02"),
+		st.CheckOut.Format("2006-01-02"),
+		st.Points,
 	)
 }
 
@@ -305,6 +324,23 @@ func effectiveBudget(t ledger.Trip, b ledger.TripBudget) int {
 	return b.Total
 }
 
+// searchBudgetFor is the point budget a trip's search runs against: the
+// effective budget less the points of stays not yet booked. A BOOKED stay's
+// points are already reflected in the ledger's used(UY) and so already
+// reduced Budget.Current — subtracting them here too would double-count.
+// Booking therefore must not move this number: the points shift out of the
+// local subtraction and into the ledger's used, leaving the result
+// unchanged. ixe.14 pins that as TestBookTrip_DoesNotChangeRemainingBudget.
+func searchBudgetFor(t ledger.Trip, b ledger.TripBudget, stays []ledger.TripStay) int {
+	budget := effectiveBudget(t, b)
+	for _, st := range stays {
+		if st.EntryID == nil {
+			budget -= st.Points
+		}
+	}
+	return budget
+}
+
 // spanBoundary is the first day of month in the END use year — the date on
 // or after which a stay checking in draws from the later use year.
 func spanBoundary(endUseYear int, month time.Month) time.Time {
@@ -337,6 +373,7 @@ func buildTripView(
 		PartlyBooked:     partlyBooked,
 		EffectiveBudget:  eff,
 		BudgetOverridden: overridden,
+		Remaining:        searchBudgetFor(t, b, stays),
 		Budget: budgetView{
 			UseYear:         b.UseYear,
 			Current:         b.Current,
@@ -387,6 +424,11 @@ func buildTripView(
 		tv.StaysCostLabel = ledger.FormatUSD(staysCost)
 	}
 
+	collected := make(map[string]bool, len(stays))
+	for _, st := range stays {
+		collected[stayKeyForStay(st)] = true
+	}
+
 	tv.Results = make([]resultRow, len(results))
 	for i, r := range results {
 		row := resultRow{
@@ -398,6 +440,7 @@ func buildTripView(
 			CheckOut: r.CheckOut,
 			Nights:   r.Nights,
 			Points:   r.Points,
+			Selected: collected[stayKey(r)],
 		}
 		if showCosts {
 			priceRow(&row, basis)
