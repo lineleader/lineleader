@@ -393,6 +393,52 @@ func (h *handlers) removeStay(w http.ResponseWriter, r *http.Request) {
 	h.renderTripFragment(w, r, id)
 }
 
+// bookTrip handles POST /trips/{id}/book: writes one usage ledger entry per
+// unbooked stay (ledger.Store.BookTrip; idempotent — see its doc comment)
+// and links each stay to its new entry.
+func (h *handlers) bookTrip(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	if _, ok := h.getTripOr404(w, r, id); !ok {
+		return
+	}
+	if err := h.store.BookTrip(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// BookTrip added ledger entries — invalidate the cached CostBasis so the
+	// next fetch reflects them, exactly as every ledger-mutating handler
+	// does (see ledger_handlers.go and removeStay).
+	h.costs.Invalidate()
+	h.renderTripFragment(w, r, id)
+}
+
+// unbookTrip handles POST /trips/{id}/unbook: deletes every ledger entry
+// this trip's stays created (ledger.Store.UnbookTrip) and clears their
+// links. UnbookTrip itself does not 404 on an unknown trip id (it has no
+// reason to fetch the trip row), so the existence check happens here, via
+// getTripOr404, before calling it — matching removeStay/addStay's own
+// fetch-then-mutate order.
+func (h *handlers) unbookTrip(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	if _, ok := h.getTripOr404(w, r, id); !ok {
+		return
+	}
+	if err := h.store.UnbookTrip(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// UnbookTrip removed ledger entries — invalidate the cached CostBasis
+	// for the same reason bookTrip does.
+	h.costs.Invalidate()
+	h.renderTripFragment(w, r, id)
+}
+
 // deleteTrip handles DELETE /trips/{id}.
 func (h *handlers) deleteTrip(w http.ResponseWriter, r *http.Request) {
 	id, ok := tripID(w, r)

@@ -7,6 +7,7 @@
     <span class="trip-status {{if .Booked}}booked{{else if .PartlyBooked}}partly-booked{{else}}planning{{end}}">
       {{if .Booked}}Booked{{else if .PartlyBooked}}Partly booked{{else}}Planning{{end}}
     </span>
+    {{template "book_controls" .}}
     <button type="button"
             class="trip-filters"
             hx-get="/trips/{{.ID}}/filters"
@@ -52,6 +53,20 @@
     <div class="budget-row budget-remaining"><dt>Remaining</dt><dd>{{.Remaining}}</dd></div>
   </dl>
 </section>
+{{end}}
+
+{{/*
+  book_controls is invoked with the whole tripView from inside the "trip"
+  header. HasUnbookedStays/HasBookedStays are exact synonyms for the
+  anyBooked/anyUnbooked booleans buildTripView computes from stays' EntryID
+  (see render.go) — never reconstructed from Booked/PartlyBooked, since that
+  pair can't distinguish "no stays" from "all unbooked". Both buttons can
+  render together for a partly-booked trip; neither renders for a trip with
+  zero stays.
+*/}}
+{{define "book_controls"}}
+{{if .HasUnbookedStays}}<button type="button" class="trip-book" hx-post="/trips/{{.ID}}/book" hx-target="#trip" hx-swap="outerHTML">Book it</button>{{end}}
+{{if .HasBookedStays}}<button type="button" class="trip-unbook" hx-post="/trips/{{.ID}}/unbook" hx-target="#trip" hx-swap="outerHTML">Unbook</button>{{end}}
 {{end}}
 
 {{define "trip_stays"}}

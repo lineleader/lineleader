@@ -166,6 +166,78 @@ func TestBuildTripView_DerivesStatusFromEntryID(t *testing.T) {
 	}
 }
 
+// TestBuildTripView_HasBookedAndUnbookedFlags mirrors
+// TestBuildTripView_DerivesStatusFromEntryID's table exactly (same four stay
+// shapes) but asserts the two new HasBookedStays/HasUnbookedStays flags
+// buildTripView must expose. These flags exist because Booked/PartlyBooked
+// alone are ambiguous for the template's book_controls sub-template: a
+// trip with Booked=false && PartlyBooked=false could mean EITHER "no stays
+// at all" OR "one or more stays, all unbooked" — and only the latter case
+// should render a "Book it" button. HasBookedStays/HasUnbookedStays are
+// exact synonyms for the anyBooked/anyUnbooked booleans computed once from
+// stays' EntryID, so they resolve that ambiguity directly rather than
+// asking a caller to reverse-engineer it from the other three fields.
+func TestBuildTripView_HasBookedAndUnbookedFlags(t *testing.T) {
+	cases := []struct {
+		name                 string
+		stays                []ledger.TripStay
+		wantBooked           bool
+		wantPartlyBooked     bool
+		wantHasBookedStays   bool
+		wantHasUnbookedStays bool
+	}{
+		{
+			name: "no stays",
+			// Neither flag set: there is nothing to book or unbook.
+		},
+		{
+			name: "all unbooked",
+			stays: []ledger.TripStay{
+				{Points: 10, EntryID: nil},
+				{Points: 20, EntryID: nil},
+			},
+			wantHasUnbookedStays: true,
+		},
+		{
+			name: "all booked",
+			stays: []ledger.TripStay{
+				{Points: 10, EntryID: entryID(1)},
+				{Points: 20, EntryID: entryID(2)},
+			},
+			wantBooked:         true,
+			wantHasBookedStays: true,
+		},
+		{
+			name: "mixed",
+			stays: []ledger.TripStay{
+				{Points: 10, EntryID: entryID(1)},
+				{Points: 20, EntryID: nil},
+			},
+			wantPartlyBooked:     true,
+			wantHasBookedStays:   true,
+			wantHasUnbookedStays: true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tv := buildTripView(tripFixture(), c.stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false)
+			if tv.Booked != c.wantBooked {
+				t.Errorf("Booked = %v, want %v", tv.Booked, c.wantBooked)
+			}
+			if tv.PartlyBooked != c.wantPartlyBooked {
+				t.Errorf("PartlyBooked = %v, want %v", tv.PartlyBooked, c.wantPartlyBooked)
+			}
+			if tv.HasBookedStays != c.wantHasBookedStays {
+				t.Errorf("HasBookedStays = %v, want %v", tv.HasBookedStays, c.wantHasBookedStays)
+			}
+			if tv.HasUnbookedStays != c.wantHasUnbookedStays {
+				t.Errorf("HasUnbookedStays = %v, want %v", tv.HasUnbookedStays, c.wantHasUnbookedStays)
+			}
+		})
+	}
+}
+
 func TestBuildTripView_BudgetLabelsAreSigned(t *testing.T) {
 	b := ledger.TripBudget{UseYear: 2026, Current: 270, Banked: -60, Borrowable: 270, Total: 480}
 
