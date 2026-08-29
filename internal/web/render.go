@@ -154,16 +154,19 @@ type resultRow struct {
 // filterScope tells the ONE filters template which panel it is rendering so it
 // can serve both the global filter panel and per-trip filter panels.
 //
-// Contract for templates (fpl.18/19):
+// Contract for templates (fpl.18/19, ixe.13):
 //   - .Scope.IsTrip selects the POST URLs: global "/filters/..." when false,
-//     per-trip "/trips/{.Scope.TripIndex}/filters/..." when true.
+//     per-trip "/trips/{.Scope.TripID}/filters/..." when true.
 //   - .Scope.Mode (only meaningful when IsTrip) drives the inherit/override
 //     switch and the disabled-rows-on-inherit hint. It is empty/ignored for
 //     the global panel.
+//   - .Scope.TripName drives filterTitle's per-trip heading text; unlike
+//     TripID it is never rendered into a URL.
 type filterScope struct {
-	IsTrip    bool
-	TripIndex int
-	Mode      dvc.FilterMode // inherit/override; empty/ignored when !IsTrip
+	IsTrip   bool
+	TripID   int64
+	TripName string
+	Mode     dvc.FilterMode // inherit/override; empty/ignored when !IsTrip
 }
 
 type filtersView struct {
@@ -547,8 +550,8 @@ func templateFuncs() template.FuncMap {
 			return m, nil
 		},
 		// filterTitle builds the scope-aware panel header text, e.g.
-		// "Filters — Global" or "Filters — Trip 2 (override)" using 1-based
-		// trip numbering consistent with the rest of the UI.
+		// "Filters — Global" or "Filters — Beach week (override)" — the
+		// trip's actual name, not positional numbering.
 		"filterTitle": func(s filterScope) string {
 			if !s.IsTrip {
 				return "Filters — Global"
@@ -557,7 +560,7 @@ func templateFuncs() template.FuncMap {
 			if s.Mode == dvc.FilterModeOverride {
 				mode = "override"
 			}
-			return fmt.Sprintf("Filters — Trip %d (%s)", s.TripIndex+1, mode)
+			return fmt.Sprintf("Filters — %s (%s)", s.TripName, mode)
 		},
 		// modeLabel normalizes a FilterMode into a stable template label:
 		// the override constant stays "override", every other value (including

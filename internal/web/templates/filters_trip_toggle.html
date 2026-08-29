@@ -1,0 +1,15 @@
+{{/*
+  filters_trip_toggle re-renders the per-trip filter panel plus that trip's
+  results, out of band, after a per-trip filter mutation (mode switch,
+  resort/room-type toggle, or reset-to-inherit). Modeled on filters_toggle,
+  but scoped to one trip's #trip-results instead of the global #trip-list.
+
+  Only results are re-rendered OOB: the budget and Remaining figures are
+  unaffected by filters (see buildTripView/searchBudgetFor — filters narrow
+  which stays dvc.Search returns, they don't change the points budget), so
+  there is nothing else on the trip page a filter change could have altered.
+*/}}
+{{define "filters_trip_toggle"}}
+{{template "filters" .Filters}}
+{{template "results_oob" .Trip}}
+{{end}}

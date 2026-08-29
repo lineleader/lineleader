@@ -429,6 +429,209 @@ func (h *handlers) openFilters(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "filters", toFiltersView(opts, filterScope{}))
 }
 
+// tripFilterScope builds the per-trip filterScope for t, used both to open
+// the panel and to re-render it after a mutation.
+func tripFilterScope(t ledger.Trip) filterScope {
+	return filterScope{
+		IsTrip:   true,
+		TripID:   t.ID,
+		TripName: t.Name,
+		Mode:     dvc.FilterMode(t.FilterMode),
+	}
+}
+
+// tripFilterSet adapts t's stored exclusion columns into a dvc.FilterSet.
+func tripFilterSet(t ledger.Trip) dvc.FilterSet {
+	return dvc.FilterSet{
+		ExcludeResorts:   t.ExcludeResorts,
+		ExcludeRoomTypes: t.ExcludeRoomTypes,
+	}
+}
+
+// getTripOr404 fetches trip id, writing 404 (ledger.ErrTripNotFound) or 500
+// (any other error) and returning ok=false when it can't. Shared by every
+// per-trip filter handler, mirroring tripPage/renderTripFragment's own
+// GetTrip-or-404 handling.
+func (h *handlers) getTripOr404(w http.ResponseWriter, r *http.Request, id int64) (ledger.Trip, bool) {
+	t, err := h.store.GetTrip(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ledger.ErrTripNotFound) {
+			http.NotFound(w, r)
+			return ledger.Trip{}, false
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return ledger.Trip{}, false
+	}
+	return t, true
+}
+
+// openTripFilters handles GET /trips/{id}/filters — the per-trip filter
+// panel. The options shown reflect the trip's EFFECTIVE filters (its own set
+// when overriding, the global set when inheriting) — the same resolution
+// searchTrip uses, so the panel never shows something search doesn't apply.
+func (h *handlers) openTripFilters(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	t, ok := h.getTripOr404(w, r, id)
+	if !ok {
+		return
+	}
+	filters := dvc.EffectiveFilters(h.global.Get(), dvc.FilterMode(t.FilterMode), tripFilterSet(t))
+	opts := dvc.FilterOptionsFor(h.charts, filters)
+	h.render(w, "filters", toFiltersView(opts, tripFilterScope(t)))
+}
+
+// renderTripFilterToggle renders the filters_trip_toggle template (the
+// per-trip panel plus that trip's #trip-results OOB) reflecting a
+// just-applied per-trip filter change on t (already persisted by the
+// caller).
+func (h *handlers) renderTripFilterToggle(w http.ResponseWriter, r *http.Request, t ledger.Trip) {
+	ctx := r.Context()
+	filters := dvc.EffectiveFilters(h.global.Get(), dvc.FilterMode(t.FilterMode), tripFilterSet(t))
+	opts := dvc.FilterOptionsFor(h.charts, filters)
+
+	tv, err := h.buildTripPageView(ctx, t, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Filters filtersView
+		Trip    tripView
+	}{
+		Filters: toFiltersView(opts, tripFilterScope(t)),
+		Trip:    tv,
+	}
+	h.render(w, "filters_trip_toggle", data)
+}
+
+// setTripFilterMode handles POST /trips/{id}/filters/mode, form field "mode":
+// "inherit" | "override".
+//
+// Switching to override SEEDS the trip's exclusion set from the current
+// global config via dvc.CloneFilterSet — a deep copy, so the trip's slices
+// never alias the global config's. Without seeding, flipping to override
+// would silently clear every exclusion the user was already seeing (since an
+// override trip with no exclusions of its own would exclude nothing).
+//
+// Switching to inherit (and DELETE /trips/{id}/filters, see resetTripFilters)
+// clears both exclusion slices to nil rather than leaving them populated:
+// leaving a stale set behind means a later switch back to override
+// resurrects filters the user reset, instead of re-seeding from the
+// then-current global config. marshalStringList treats a nil slice the same
+// as an empty one (both round-trip through the stored '[]'), so nil is fine
+// here.
+func (h *handlers) setTripFilterMode(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	t, ok := h.getTripOr404(w, r, id)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	switch r.FormValue("mode") {
+	case "override":
+		cloned := dvc.CloneFilterSet(h.global.Get().AsFilterSet())
+		t.FilterMode = ledger.TripFilterOverride
+		t.ExcludeResorts = cloned.ExcludeResorts
+		t.ExcludeRoomTypes = cloned.ExcludeRoomTypes
+	case "inherit":
+		t.FilterMode = ledger.TripFilterInherit
+		t.ExcludeResorts = nil
+		t.ExcludeRoomTypes = nil
+	default:
+		http.Error(w, "invalid mode", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.UpdateTrip(r.Context(), t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.renderTripFilterToggle(w, r, t)
+}
+
+// toggleTripFilter is the shared body of toggleTripResortFilter and
+// toggleTripRoomTypeFilter: fetch the trip, reject the mutation with 409 if
+// it's in inherit mode, otherwise apply mutate and persist.
+//
+// The template already disables the toggle buttons in inherit mode, so a
+// request reaching this handler while inheriting is out-of-band (a stale
+// panel, a replayed request, or a client bypassing the UI). Silently writing
+// exclusions onto an inherit-mode trip would create a row whose stored
+// filters are invisible in the UI (the panel shows the global set, not the
+// trip's) and spring back into effect the moment the trip switches to
+// override — so this rejects rather than absorbs the request.
+func (h *handlers) toggleTripFilter(w http.ResponseWriter, r *http.Request, id int64, mutate func(*ledger.Trip)) {
+	t, ok := h.getTripOr404(w, r, id)
+	if !ok {
+		return
+	}
+	if dvc.FilterMode(t.FilterMode) != dvc.FilterModeOverride {
+		http.Error(w, "trip is inheriting global filters; switch to override to edit its filters", http.StatusConflict)
+		return
+	}
+	mutate(&t)
+	if err := h.store.UpdateTrip(r.Context(), t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.renderTripFilterToggle(w, r, t)
+}
+
+// toggleTripResortFilter handles POST /trips/{id}/filters/resorts/{code}.
+func (h *handlers) toggleTripResortFilter(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	code := r.PathValue("code")
+	h.toggleTripFilter(w, r, id, func(t *ledger.Trip) {
+		t.ExcludeResorts = toggleString(t.ExcludeResorts, code)
+	})
+}
+
+// toggleTripRoomTypeFilter handles POST /trips/{id}/filters/roomtypes/{name}.
+func (h *handlers) toggleTripRoomTypeFilter(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	name := r.PathValue("name")
+	h.toggleTripFilter(w, r, id, func(t *ledger.Trip) {
+		t.ExcludeRoomTypes = toggleString(t.ExcludeRoomTypes, name)
+	})
+}
+
+// resetTripFilters handles DELETE /trips/{id}/filters: sets the trip back to
+// inherit and clears both exclusion slices (see setTripFilterMode's doc
+// comment for why the slices are cleared, not just the mode).
+func (h *handlers) resetTripFilters(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	t, ok := h.getTripOr404(w, r, id)
+	if !ok {
+		return
+	}
+	t.FilterMode = ledger.TripFilterInherit
+	t.ExcludeResorts = nil
+	t.ExcludeRoomTypes = nil
+	if err := h.store.UpdateTrip(r.Context(), t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.renderTripFilterToggle(w, r, t)
+}
+
 // toggleResortFilter handles POST /filters/resorts/{code}.
 func (h *handlers) toggleResortFilter(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")

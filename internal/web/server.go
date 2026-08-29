@@ -87,6 +87,11 @@ func NewServer(opts Options) http.Handler {
 	mux.HandleFunc("GET /filters", h.openFilters)
 	mux.HandleFunc("POST /filters/resorts/{code}", h.toggleResortFilter)
 	mux.HandleFunc("POST /filters/roomtypes/{name}", h.toggleRoomTypeFilter)
+	mux.HandleFunc("GET /trips/{id}/filters", h.openTripFilters)
+	mux.HandleFunc("POST /trips/{id}/filters/mode", h.setTripFilterMode)
+	mux.HandleFunc("POST /trips/{id}/filters/resorts/{code}", h.toggleTripResortFilter)
+	mux.HandleFunc("POST /trips/{id}/filters/roomtypes/{name}", h.toggleTripRoomTypeFilter)
+	mux.HandleFunc("DELETE /trips/{id}/filters", h.resetTripFilters)
 	mux.HandleFunc("GET /panel/close", h.closePanel)
 
 	lh := &ledgerHandlers{tmpl: tmpl, store: opts.Ledger, costs: costs}

@@ -7,6 +7,11 @@
     <span class="trip-status {{if .Booked}}booked{{else if .PartlyBooked}}partly-booked{{else}}planning{{end}}">
       {{if .Booked}}Booked{{else if .PartlyBooked}}Partly booked{{else}}Planning{{end}}
     </span>
+    <button type="button"
+            class="trip-filters"
+            hx-get="/trips/{{.ID}}/filters"
+            hx-target="#panel"
+            hx-swap="outerHTML">Filters</button>
     <button type="button" class="trip-remove" hx-delete="/trips/{{.ID}}" hx-confirm="Delete this trip?">Delete trip</button>
   </header>
 

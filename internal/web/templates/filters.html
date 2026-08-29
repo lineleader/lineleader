@@ -10,13 +10,13 @@
   <div class="filter-mode-switch" role="group" aria-label="Filter mode">
     <button type="button"
             class="mode-btn{{if not $editable}} active{{end}}"
-            hx-post="/trips/{{.Scope.TripIndex}}/filters/mode"
+            hx-post="/trips/{{.Scope.TripID}}/filters/mode"
             hx-vars="mode:'inherit'"
             hx-target="#panel"
             hx-swap="outerHTML">Inherit</button>
     <button type="button"
             class="mode-btn{{if $editable}} active{{end}}"
-            hx-post="/trips/{{.Scope.TripIndex}}/filters/mode"
+            hx-post="/trips/{{.Scope.TripID}}/filters/mode"
             hx-vars="mode:'override'"
             hx-target="#panel"
             hx-swap="outerHTML">Override</button>
@@ -38,7 +38,7 @@
         </button>
         {{else}}
         <button type="button"
-                hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripIndex}}/filters/resorts/{{.Code}}{{else}}/filters/resorts/{{.Code}}{{end}}"
+                hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripID}}/filters/resorts/{{.Code}}{{else}}/filters/resorts/{{.Code}}{{end}}"
                 hx-target="#panel"
                 hx-swap="outerHTML">
           {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
@@ -59,7 +59,7 @@
         </button>
         {{else}}
         <button type="button"
-                hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripIndex}}/filters/roomtypes/{{.Name}}{{else}}/filters/roomtypes/{{.Name}}{{end}}"
+                hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripID}}/filters/roomtypes/{{.Name}}{{else}}/filters/roomtypes/{{.Name}}{{end}}"
                 hx-target="#panel"
                 hx-swap="outerHTML">
           {{if .Enabled}}[✓]{{else}}[ ]{{end}} {{.Name}}
@@ -73,13 +73,13 @@
   {{if .Scope.IsTrip}}
   {{if eq (modeLabel .Scope.Mode) "override"}}
   <form class="filter-reset"
-        hx-delete="/trips/{{.Scope.TripIndex}}/filters"
+        hx-delete="/trips/{{.Scope.TripID}}/filters"
         hx-target="#panel"
         hx-swap="outerHTML">
     <button type="submit">Reset to inherit</button>
   </form>
   {{end}}
-  <p class="panel-hint">Per-trip filter changes are in-memory only and are lost on restart; they don't persist to config.json.</p>
+  <p class="panel-hint">Per-trip filter changes are saved with the trip. Global filter changes still persist to config.json and apply to every trip that is inheriting (not overriding) filters.</p>
   {{else}}
   <p class="panel-hint">Toggle to exclude. Changes persist to config.json. Reload the page to see updated results across all trips.</p>
   {{end}}

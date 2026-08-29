@@ -28,18 +28,18 @@ func TestToFiltersView_GlobalScope(t *testing.T) {
 }
 
 // A trip-scoped FilterOptionsView, paired with a caller-constructed
-// filterScope, projects the trip scope carrying TripIndex and Mode.
+// filterScope, projects the trip scope carrying TripID and Mode.
 func TestToFiltersView_TripScope(t *testing.T) {
 	fv := toFiltersView(dvc.FilterOptionsView{
 		Resorts:   []dvc.ResortOption{{Code: "TST", Name: "Test Resort", Enabled: false}},
 		RoomTypes: []dvc.RoomTypeOption{{Name: "Studio", Enabled: true}},
-	}, filterScope{IsTrip: true, TripIndex: 1, Mode: dvc.FilterModeOverride})
+	}, filterScope{IsTrip: true, TripID: 1, Mode: dvc.FilterModeOverride})
 
 	if !fv.Scope.IsTrip {
 		t.Errorf("Scope.IsTrip = false, want true for trip")
 	}
-	if fv.Scope.TripIndex != 1 {
-		t.Errorf("Scope.TripIndex = %d, want 1", fv.Scope.TripIndex)
+	if fv.Scope.TripID != 1 {
+		t.Errorf("Scope.TripID = %d, want 1", fv.Scope.TripID)
 	}
 	if fv.Scope.Mode != dvc.FilterModeOverride {
 		t.Errorf("Scope.Mode = %q, want override", fv.Scope.Mode)
@@ -49,6 +49,57 @@ func TestToFiltersView_TripScope(t *testing.T) {
 	}
 	if len(fv.RoomTypes) != 1 || !fv.RoomTypes[0].Enabled {
 		t.Errorf("RoomTypes = %+v, want one enabled room type (Enabled intact)", fv.RoomTypes)
+	}
+}
+
+// TestToFiltersView_TripScopeCarriesIDAndName proves the trip scope's ID and
+// Name both make it through toFiltersView unchanged — filterTitle depends on
+// TripName, and the per-trip template URLs depend on TripID.
+func TestToFiltersView_TripScopeCarriesIDAndName(t *testing.T) {
+	fv := toFiltersView(dvc.FilterOptionsView{}, filterScope{
+		IsTrip:   true,
+		TripID:   7,
+		TripName: "Beach week",
+		Mode:     dvc.FilterModeOverride,
+	})
+	if fv.Scope.TripID != 7 {
+		t.Errorf("Scope.TripID = %d, want 7", fv.Scope.TripID)
+	}
+	if fv.Scope.TripName != "Beach week" {
+		t.Errorf("Scope.TripName = %q, want %q", fv.Scope.TripName, "Beach week")
+	}
+}
+
+// TestFilterTitle_UsesTripName proves filterTitle renders the trip's actual
+// name (not "Trip N" numbering) for both trip modes, and leaves the global
+// title alone.
+func TestFilterTitle_UsesTripName(t *testing.T) {
+	filterTitle := templateFuncs()["filterTitle"].(func(filterScope) string)
+
+	if got := filterTitle(filterScope{}); got != "Filters — Global" {
+		t.Errorf("global title = %q, want %q", got, "Filters — Global")
+	}
+
+	inherit := filterTitle(filterScope{IsTrip: true, TripID: 42, TripName: "Fall trip", Mode: dvc.FilterModeInherit})
+	if !strings.Contains(inherit, "Fall trip") {
+		t.Errorf("inherit title = %q, want to contain the trip name", inherit)
+	}
+	if !strings.Contains(inherit, "inherit") {
+		t.Errorf("inherit title = %q, want to mention inherit mode", inherit)
+	}
+	if strings.Contains(inherit, "Trip 42") || strings.Contains(inherit, "Trip 43") {
+		t.Errorf("inherit title = %q, want no Trip N numbering", inherit)
+	}
+
+	override := filterTitle(filterScope{IsTrip: true, TripID: 42, TripName: "Fall trip", Mode: dvc.FilterModeOverride})
+	if !strings.Contains(override, "Fall trip") {
+		t.Errorf("override title = %q, want to contain the trip name", override)
+	}
+	if !strings.Contains(override, "override") {
+		t.Errorf("override title = %q, want to mention override mode", override)
+	}
+	if strings.Contains(override, "Trip 42") || strings.Contains(override, "Trip 43") {
+		t.Errorf("override title = %q, want no Trip N numbering", override)
 	}
 }
 
