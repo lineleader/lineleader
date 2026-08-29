@@ -489,6 +489,172 @@ func TestTripPage_RenderedRowsAreAllAddable(t *testing.T) {
 	}
 }
 
+// TestAddStay_LastRenderedRowIsAddableWhenTruncated proves the truncation
+// added for lineleader-ixe.12 does not break the row-index alignment
+// invariant addStay depends on: a genuinely truncated page (more than
+// maxResultRows candidate stays) must still report the truncation notice,
+// and the LAST row the page actually rendered must still be addable — the
+// page renders results[:maxResultRows], addStay resolves {row} against the
+// full untruncated re-search, and truncation is a plain prefix, so row
+// maxResultRows-1 must resolve to the same stay in both.
+//
+// A 2026-01-01..2026-01-31 window (30 days) at min_nights=1 against
+// minimalChart (single resort, single room type) yields up to 465
+// (check-in, check-out) pairs — see dvc.Search's triangular-number count for
+// a W-day window capped at dvc.MaxNights nights per check-in. A generous
+// budget (every stay, even the full 30 nights, comfortably affordable)
+// ensures the result count actually exceeds maxResultRows rather than being
+// budget-capped below it.
+func TestAddStay_LastRenderedRowIsAddableWhenTruncated(t *testing.T) {
+	ts, store := newLedgerTestServer(t)
+	defer ts.Close()
+
+	// minimalChart: TST/STUDIO, Jan 2026, 10pts Sun-Thu / 14pts Fri-Sat. A
+	// 30-night stay costs at most 30*14=420 points; 2000 annual points
+	// comfortably covers every (check-in, check-out) pair in the window.
+	addBudgetContract(t, store, 2000, time.January)
+
+	id := createTripViaForm(t, ts.URL, url.Values{
+		"name":       {"Truncated results trip"},
+		"from":       {"2026-01-01"},
+		"to":         {"2026-01-31"},
+		"min_nights": {"1"},
+	})
+
+	page := body(t, httpDo(t, http.MethodGet, ts.URL+"/trips/"+strconv.FormatInt(id, 10)))
+	if !strings.Contains(page, "results-truncated") {
+		t.Fatalf("expected the page to report truncation (more than %d candidate stays), got:\n%s", maxResultRows, page)
+	}
+	last := lastRenderedStayRow(t, page)
+	if last != maxResultRows-1 {
+		t.Fatalf("last rendered row = %d, want %d (maxResultRows-1) — the page did not render a full prefix of maxResultRows rows", last, maxResultRows-1)
+	}
+
+	// Capture the row's rendered cells BEFORE adding it, so the assertion
+	// below compares what the user saw against what was persisted.
+	rendered := renderedResultRow(t, page, last)
+
+	resp := httpDo(t, http.MethodPost, stayEndpoint(ts.URL, id, strconv.Itoa(last)))
+	got := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("addStay for the LAST rendered row (%d) status = %d, want 200 — a row the page rendered must stay addable even when truncated, body:\n%s",
+			last, resp.StatusCode, got)
+	}
+
+	// A 200 alone is NOT enough. addStay indexes {row} into the UNTRUNCATED
+	// result slice while the page renders RowIndex values from the
+	// truncated one; those agree only because truncation is a prefix. Under
+	// a suffix truncation the POST still 200s (row 199 is well inside the
+	// 465-row untruncated slice) while silently persisting a DIFFERENT stay
+	// than the one clicked. So assert the persisted stay matches the cells
+	// the page actually displayed for that row.
+	stays, err := store.ListStays(context.Background(), id)
+	if err != nil {
+		t.Fatalf("ListStays: %v", err)
+	}
+	if len(stays) != 1 {
+		t.Fatalf("len(stays) = %d, want 1", len(stays))
+	}
+	st := stays[0]
+	for _, want := range []string{
+		st.CheckIn.Format("2006-01-02"),
+		st.CheckOut.Format("2006-01-02"),
+		">" + strconv.Itoa(st.Points) + "<",
+		">" + strconv.Itoa(st.Nights) + "<",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("persisted stay value %q is absent from the cells the page rendered for row %d — addStay resolved {row} against a differently-ordered result set than the page displayed.\nrendered row: %s\npersisted stay: %+v",
+				want, last, rendered, st)
+		}
+	}
+}
+
+// renderedResultRow returns the raw HTML of the result table row whose
+// select button posts to /stays/{row}, so a test can compare what the page
+// displayed against what a subsequent addStay persisted.
+func renderedResultRow(t *testing.T, page string, row int) string {
+	t.Helper()
+	marker := "/stays/" + strconv.Itoa(row) + `"`
+	i := strings.Index(page, marker)
+	if i < 0 {
+		t.Fatalf("page has no select button for row %d", row)
+	}
+	start := strings.LastIndex(page[:i], "<tr")
+	if start < 0 {
+		t.Fatalf("no enclosing <tr> for row %d", row)
+	}
+	end := strings.Index(page[start:], "</tr>")
+	if end < 0 {
+		t.Fatalf("unterminated <tr> for row %d", row)
+	}
+	return page[start : start+end]
+}
+
+// TestTripPage_RendersTruncationNotice asserts the rendered truncation
+// notice text, including both the rendered count and the total, matches what
+// html/template actually escapes — not the raw wording.
+func TestTripPage_RendersTruncationNotice(t *testing.T) {
+	ts, store := newLedgerTestServer(t)
+	defer ts.Close()
+
+	addBudgetContract(t, store, 2000, time.January)
+
+	id := createTripViaForm(t, ts.URL, url.Values{
+		"name":       {"Notice trip"},
+		"from":       {"2026-01-01"},
+		"to":         {"2026-01-31"},
+		"min_nights": {"1"},
+	})
+
+	page := body(t, httpDo(t, http.MethodGet, ts.URL+"/trips/"+strconv.FormatInt(id, 10)))
+
+	// The exact total depends on the chart/window math (465 candidate pairs
+	// for this window, all affordable at this budget), so assert on the
+	// stable parts: the rendered count (always maxResultRows once
+	// truncated) and the em dash separator, rather than hardcoding the
+	// total.
+	wantPrefix := "Showing the " + strconv.Itoa(maxResultRows) + " cheapest of "
+	if !strings.Contains(page, wantPrefix) {
+		t.Errorf("expected truncation notice starting %q in body, got:\n%s", wantPrefix, page)
+	}
+	if !strings.Contains(page, "stays — narrow the window or raise min nights.") {
+		t.Errorf("expected truncation notice tail in body, got:\n%s", page)
+	}
+}
+
+// TestTripPage_NoTruncationNoticeUnderCap is the negative counterpart to
+// TestTripPage_RendersTruncationNotice: a page whose result count is well
+// under maxResultRows must NOT render the truncation notice. Without this,
+// nothing in the suite distinguishes the template's `gt` from a wrongly
+// permissive `ge` — `gt .ResultsTotal (len .Results)` is false only when the
+// two are equal (i.e. never truncated); `ge` would be true in that same case
+// too and the notice would show on every non-empty results table, even one
+// with a single row.
+func TestTripPage_NoTruncationNoticeUnderCap(t *testing.T) {
+	ts, store := newLedgerTestServer(t)
+	defer ts.Close()
+
+	// minimalChart / 2026-01-05..2026-01-20 / min_nights=3 / budget=100
+	// yields 67 results (see TestAddStay_SecondStayReconstructsWithNarrowedBudget's
+	// probe data) — comfortably under maxResultRows.
+	addBudgetContract(t, store, 100, time.January)
+
+	id := createTripViaForm(t, ts.URL, url.Values{
+		"name":       {"Under cap trip"},
+		"from":       {"2026-01-05"},
+		"to":         {"2026-01-20"},
+		"min_nights": {"3"},
+	})
+
+	page := body(t, httpDo(t, http.MethodGet, ts.URL+"/trips/"+strconv.FormatInt(id, 10)))
+	if !strings.Contains(page, "results-table") {
+		t.Fatalf("expected a non-empty results table, got:\n%s", page)
+	}
+	if strings.Contains(page, "results-truncated") {
+		t.Errorf("expected no truncation notice for an under-cap result set, got:\n%s", page)
+	}
+}
+
 // lastRenderedStayRow returns the highest {row} index the page's result
 // table offers via its select buttons' hx-post URLs, failing the test if the
 // page rendered no addable rows at all.

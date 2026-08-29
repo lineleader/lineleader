@@ -459,3 +459,82 @@ func TestBuildTripView_MarksCollectedResultRowsSelected(t *testing.T) {
 		t.Errorf("Results[1] (Points differs) Selected = true, want false")
 	}
 }
+
+// --- result truncation (lineleader-ixe.12) ---
+
+// manyResults builds n dvc.StayResult values with ascending Points, so a
+// test can tell truncated rows apart by their point cost and confirm order.
+func manyResults(n int) []dvc.StayResult {
+	checkIn := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
+	checkOut := time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)
+	results := make([]dvc.StayResult, n)
+	for i := 0; i < n; i++ {
+		results[i] = dvc.StayResult{
+			Resort:   "R1",
+			RoomType: "STUDIO",
+			View:     "Lake",
+			CheckIn:  checkIn,
+			CheckOut: checkOut,
+			Nights:   2,
+			Points:   i, // ascending — distinguishes rows and matches Search's own order
+		}
+	}
+	return results
+}
+
+// TestBuildTripView_TruncatesResultsAtMaxResultRows proves buildTripView caps
+// tv.Results at maxResultRows while ResultsTotal keeps the PRE-truncation
+// count, so the template can report how many stays were hidden.
+func TestBuildTripView_TruncatesResultsAtMaxResultRows(t *testing.T) {
+	results := manyResults(maxResultRows + 25)
+
+	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+
+	if len(tv.Results) != maxResultRows {
+		t.Errorf("len(Results) = %d, want %d", len(tv.Results), maxResultRows)
+	}
+	if tv.ResultsTotal != maxResultRows+25 {
+		t.Errorf("ResultsTotal = %d, want %d", tv.ResultsTotal, maxResultRows+25)
+	}
+}
+
+// TestBuildTripView_UnderCapIsNotTruncated proves a result set smaller than
+// maxResultRows passes through unchanged, and ResultsTotal equals the
+// (untruncated) length — so the template's ResultsTotal > len(Results)
+// notice condition is false and nothing renders.
+func TestBuildTripView_UnderCapIsNotTruncated(t *testing.T) {
+	results := manyResults(maxResultRows - 10)
+
+	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+
+	if len(tv.Results) != maxResultRows-10 {
+		t.Errorf("len(Results) = %d, want %d", len(tv.Results), maxResultRows-10)
+	}
+	if tv.ResultsTotal != maxResultRows-10 {
+		t.Errorf("ResultsTotal = %d, want %d", tv.ResultsTotal, maxResultRows-10)
+	}
+}
+
+// TestBuildTripView_TruncationKeepsThePrefixInOrder proves truncation is a
+// plain PREFIX slice of the ordered results — never a re-sort, filter, or
+// tail — and that each retained row's RowIndex still matches its position in
+// the untruncated slice. This is the invariant addStay depends on: it
+// resolves {row} against a freshly re-run, untruncated search, so a
+// truncated row's RowIndex must still point at the same result there.
+func TestBuildTripView_TruncationKeepsThePrefixInOrder(t *testing.T) {
+	results := manyResults(maxResultRows + 25)
+
+	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+
+	if len(tv.Results) != maxResultRows {
+		t.Fatalf("len(Results) = %d, want %d", len(tv.Results), maxResultRows)
+	}
+	for i := 0; i < maxResultRows; i++ {
+		if tv.Results[i].RowIndex != i {
+			t.Errorf("Results[%d].RowIndex = %d, want %d", i, tv.Results[i].RowIndex, i)
+		}
+		if tv.Results[i].Points != results[i].Points {
+			t.Errorf("Results[%d].Points = %d, want %d (results[%d])", i, tv.Results[i].Points, results[i].Points, i)
+		}
+	}
+}

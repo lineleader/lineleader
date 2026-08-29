@@ -111,8 +111,15 @@ type tripView struct {
 	Remaining int
 
 	// Results is populated by searchTrip and projected here by
-	// buildTripView.
+	// buildTripView, capped at maxResultRows.
 	Results []resultRow
+
+	// ResultsTotal is the PRE-truncation result count. When it exceeds
+	// len(Results), the template renders a truncation notice; the template
+	// compares the two directly rather than a separate "truncated" bool, so
+	// this must always be set (never left at its zero value once
+	// buildTripView has run).
+	ResultsTotal int
 
 	Err       string
 	ShowCosts bool
@@ -347,6 +354,15 @@ func spanBoundary(endUseYear int, month time.Month) time.Time {
 	return time.Date(endUseYear, month, 1, 0, 0, 0, 0, time.UTC)
 }
 
+// maxResultRows caps how many stays a trip page renders. The
+// ledger-computed budget is realistically 400-600 points where the old
+// hand-typed default was "100", and dvc.Search's budget only bounds stay
+// LENGTH, not the number of (check-in, check-out) pairs — so a 30-day
+// window at a real budget produces thousands of rows. Search sorts by
+// points ascending, so the first maxResultRows are the cheapest, which is
+// the useful slice.
+const maxResultRows = 200
+
 // buildTripView projects stored trip state, a computed budget and a search
 // result set into a render-ready tripView. It performs no I/O and touches no
 // *ledger.Store — every caller has already fetched what it needs — so it is
@@ -429,8 +445,19 @@ func buildTripView(
 		collected[stayKeyForStay(st)] = true
 	}
 
-	tv.Results = make([]resultRow, len(results))
-	for i, r := range results {
+	tv.ResultsTotal = len(results)
+	shown := results
+	if len(shown) > maxResultRows {
+		// PREFIX slice only — never a re-sort, filter, or tail. addStay
+		// re-runs this same deterministic search and indexes {row} into the
+		// FULL untruncated slice (see addStay's doc comment), so a
+		// truncated row's index here must stay identical to its index
+		// there. Search already sorts ascending by Points, so this keeps
+		// the maxResultRows cheapest results.
+		shown = shown[:maxResultRows]
+	}
+	tv.Results = make([]resultRow, len(shown))
+	for i, r := range shown {
 		row := resultRow{
 			RowIndex: i,
 			Resort:   r.Resort,

@@ -8,6 +8,9 @@
   {{if eq (len .Results) 0}}
     <p class="empty">No stays within budget.</p>
   {{else}}
+    {{if gt .ResultsTotal (len .Results)}}
+    <p class="results-truncated">Showing the {{len .Results}} cheapest of {{.ResultsTotal}} stays — narrow the window or raise min nights.</p>
+    {{end}}
     <table class="results-table">
       <thead>
         <tr>
