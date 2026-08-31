@@ -17,11 +17,10 @@ import (
 const costBasisTTL = 60 * time.Second
 
 // costProvider hands the trip handlers a read-only, time-boxed
-// ledger.CostBasis snapshot, never a *ledger.Store — internal/dvc never
-// imports internal/ledger, and never will; that invariant is what survives
-// from the planner era, not any particular bridge type. It is safe for
-// concurrent use across the web layer's HTTP handlers, which may call Basis
-// from multiple goroutines at once.
+// ledger.CostBasis snapshot, never a *ledger.Store: internal/dvc still never
+// imports internal/ledger. It is safe for concurrent use across the web
+// layer's HTTP handlers, which may call Basis from multiple goroutines at
+// once.
 //
 // Basis never returns an error: when there is no store configured (nil,
 // which no longer happens in production now that Options.Ledger is

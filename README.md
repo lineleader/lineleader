@@ -43,15 +43,35 @@ check-in/out dates, nights, and total points.
 
 **Web UI:**
 
-The planner is also available as a browser app. Each trip card has a
-**Filters** button that opens a panel scoped to that trip, with an
-**Inherit** / **Override** switch. While inheriting, the trip's filter rows
-mirror the global exclusions and are read-only; switch to Override (or toggle
-a row) to edit that trip's own exclusions. Changes update only that trip via
-an out-of-band swap — other trips are untouched — and an
+The browser app's primary view is the trip list at `/`. A trip is a named
+date window with a minimum-night requirement; the **+ New trip** form creates
+one and takes you to its page, which searches every point chart for stays
+that fit the window and a point budget the app derives from your ledger (see
+[Trips](#trips) below). Selecting a search result row **collects** it onto
+the trip as a stay — that alone doesn't touch the ledger. **Book it** turns
+every unbooked stay into a ledger usage entry in one transaction; **Unbook**
+deletes those entries again (both are idempotent, so a repeated click is
+safe). The trip page also has a **budget override** field that replaces the
+computed total with a hand-typed number for search purposes, plus a button
+to reset back to the computed figure once one is set.
+
+Each trip card (and the trip page) has a **Filters** button that opens a
+panel scoped to that trip, with an **Inherit** / **Override** switch. While
+inheriting, the trip's filter rows mirror the global exclusions and are
+read-only; switch to Override (or toggle a row) to edit that trip's own
+exclusions, seeded from the current global set. Changes update only that
+trip via an out-of-band swap — other trips are untouched — and an
 `[filters: override]` / `[filters: inherit]` chip on the trip card reflects
-the current mode. Per-trip filter changes are in-memory only for now (lost on
-restart); global filter changes persist to `config.json`.
+the current mode. Per-trip filter overrides are persisted in Postgres with
+the rest of the trip row (not lost on restart); global filter changes
+persist to `config.json`.
+
+A trip's result table is capped at the 200 cheapest stays
+(`maxResultRows` in `internal/web/render.go`): a ledger-derived budget is
+realistically 400–600 points, and a wide date window at that budget can
+otherwise return thousands of (check-in, check-out) pairs. Results are
+sorted by points ascending, so the cap always keeps the cheapest options,
+and a notice above the table reports how many were hidden.
 
 **Show available data:**
 
@@ -215,6 +235,91 @@ Schema changes go in a new numbered file under
 source, so `make sqlc` must be re-run after any change there, and the
 regenerated `internal/ledger/dbgen/` is committed (nothing generates code in
 CI).
+
+## Trips
+
+A trip (`internal/ledger/trip.go`) is a persisted, named date window the app
+searches for stays against — the replacement for the old
+`~/.config/lineleader/plans.json` planner session, now stored in Postgres
+alongside the ledger. See `docs/plans/trips.md` for the schema and
+implementation rationale; this section documents the budget model and the
+book/unbook lifecycle a user of the app needs to reason about.
+
+### Budget model
+
+`ledger.BudgetForUseYear` (`internal/ledger/budget.go`) decomposes a trip's
+point budget for use year `uy` into three signed pieces, so the UI can show
+its arithmetic rather than one opaque number:
+
+```
+current    = Net(uy)
+banked     = Net(uy-1)                                   # signed, NOT clamped
+borrowable = max(0, annualPointsTotal - Used(uy+1))
+total      = current + banked + borrowable
+```
+
+`Net` and `Used` come from `UseYearSummaries`, which rolls the ledger up
+**per use year** — and every summary rests on one convention: **a usage
+entry is charged to the use year whose points it consumed, which the user
+sets explicitly, not the use year its date falls in.** Someone booking a
+trip in UY2026 but paying with banked UY2025 points tags that ledger entry's
+use year `2025` by hand; nothing else tells the app which use year an
+entry's points actually came from.
+
+`current` and `banked` are **signed and never clamped** — a negative
+`banked` means UY(`uy`-1) over-spent its allotment by borrowing `uy`'s own
+points backward into it, and clamping that to zero would hide the debt and
+overstate the budget. `total` can be negative when the ledger is
+over-spent.
+
+There is **no 50% borrow cap** — that was a temporary COVID-era DVC measure
+that has since been lifted, so `borrowable` is the full contractual annual
+allotment (summed across every contract) less whatever's already charged to
+`uy`+1, floored at zero. Only **one year of look-back** is consulted (`uy`-1,
+never `uy`-2 or earlier), matching DVC's single bank-forward rule — this
+understates the budget for someone who chronically under-spends, which is
+the safe direction to be wrong in, and the manual budget override (below)
+covers the rest.
+
+### Booking
+
+Collecting a search result onto a trip creates an unbooked stay row — it
+does not touch the ledger. **Book it** (`ledger.BookTrip`) writes one ledger
+usage entry per unbooked stay in a single transaction and links each stay to
+its new entry; re-booking is a no-op, so a repeated submit is safe. Each
+entry is charged to **the use year of its own check-in date**, computed per
+stay, not per trip — a trip's date *window* can straddle a use-year boundary
+even though the budget shown on its page is only ever for one use year (the
+one the window's start date falls in); a banner appears on a straddling trip
+explaining which check-in dates draw from the other use year. A stay is
+never split across use years — the whole stay's points post to its check-in's
+use year, whichever side of the boundary that is.
+
+**Unbook** (`ledger.UnbookTrip`) deletes every ledger entry a trip's stays
+created; deleting a trip or a single stay does the same, plus the row(s)
+itself. Booked-ness is never stored — it's derived from whether
+`trip_stay.entry_id` is set — so deleting the linked entry directly from
+`/ledger` *is* unbooking, with no separate flag that can fall out of sync.
+
+The trip page's **Remaining** figure — the budget the search actually runs
+against — starts from the trip's effective budget (its override, if set,
+else the computed total) and subtracts only **unbooked** stays' points. A
+booked stay's points are already reflected in the ledger's `used(uy)`, and so
+already reduced `current`; subtracting them a second time would double-count,
+so booking a stay is designed to leave this number unchanged.
+
+### Testing
+
+`internal/web`'s server hard-requires a ledger (`Options.Ledger` is never
+nil in production, and `NewServer` panics without one), so meaningful
+coverage of the trip handlers needs a real Postgres. Bring one up with
+`make test-db` and point the tests at it:
+
+```sh
+make test-db
+export LEDGER_TEST_DSN=postgres://postgres:test@localhost:5433/lineleader_test?sslmode=disable
+make test
+```
 
 ## Deployment
 

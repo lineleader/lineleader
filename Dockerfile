@@ -11,8 +11,8 @@ RUN go mod download
 
 COPY . .
 
-# Pure-Go deps only (pgx, bubbletea/lipgloss) — CGO_ENABLED=0 gives a fully
-# static binary, so the final stage needs no libc.
+# Pure-Go deps only (pgx et al.) — CGO_ENABLED=0 gives a fully static
+# binary, so the final stage needs no libc.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # Pre-create /state here so it can be COPY --chown'd into the distroless
