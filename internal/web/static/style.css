@@ -270,8 +270,45 @@ button:focus-visible {
 .trip:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
 .trip.collapsed { padding: 0.6rem 1.2rem; }
 
-.trip-header { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+.trip-header { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin-bottom: var(--sp-4); }
 .trip.collapsed .trip-header { flex-wrap: nowrap; }
+.trip-header h1 { margin: 0; font-size: var(--fs-xl); font-weight: var(--fw-black); color: var(--brand); flex: 1; min-width: 0; }
+
+.trip-back {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+}
+.trip-back:hover { text-decoration: underline; }
+
+/* Standalone .trip-status (trip page header). .trip-row .trip-status below
+   is a separate, more specific rule for the list-row context. */
+.trip-status {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.trip-status.booked { color: var(--brand); font-weight: var(--fw-black); }
+.trip-status.partly-booked { color: var(--accent-ink); font-weight: var(--fw-semibold); }
+
+/* Book/unbook is the primary action pair on the trip page: trip-book takes
+   the --primary treatment used for the one CTA per view elsewhere in this
+   file (.add-entry summary, "+ Add trip"); trip-unbook and .stay-remove
+   below are destructive-ish and use the --danger tint/ink pair, mirroring
+   how .mode-btn.active uses --brand tint/ink for its own toggle state. */
+.trip-book {
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-color: transparent;
+}
+.trip-unbook {
+  background: var(--danger-tint);
+  color: var(--danger-ink);
+  border-color: transparent;
+}
+.trip-unbook:hover { background: var(--danger); color: var(--surface); }
 
 .trip-label {
   font-weight: var(--fw-black);
@@ -292,19 +329,30 @@ button:focus-visible {
 }
 .trip-toggle:hover { color: var(--brand); transform: none; box-shadow: none; }
 
-.trip-form { display: flex; align-items: center; gap: var(--sp-3); flex: 1; flex-wrap: wrap; }
-.trip-form label { display: flex; align-items: center; gap: 0.4rem; color: var(--text-dim); font-weight: var(--fw-semibold); }
-.trip-form input { width: 7.5rem; }
+.trip-form,
+.trip-new-form { display: flex; align-items: center; gap: var(--sp-3); flex: 1; flex-wrap: wrap; }
+.trip-form label,
+.trip-new-form label { display: flex; align-items: center; gap: 0.4rem; color: var(--text-dim); font-weight: var(--fw-semibold); }
+.trip-form input,
+.trip-new-form input { width: 7.5rem; }
 
-/* Modest for now — full styling is ixe.16. */
+/* Caution notice: the displayed budget only covers the trip window's first
+   use year when the window spans more than one — not an error, just worth
+   flagging, so it gets the accent (yellow) tint rather than danger red. */
 .span-warning {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
   background: var(--accent-tint);
   color: var(--accent-ink);
-  border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
   padding: 0.5rem 0.75rem;
   margin: 0.6rem 0;
   font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
 }
+.span-warning::before { content: "⚠"; }
 
 .trip-budget {
   font-variant-numeric: tabular-nums;
@@ -368,9 +416,13 @@ button:focus-visible {
    .trip-budget, not a filled badge. */
 .trip-summary .summary-cost { color: var(--text-dim); font-weight: var(--fw-semibold); }
 
-/* ==================== Trip list + trip page (ixe.9) ====================
-   Deliberately modest — this is the persisted-trips replacement for the
-   planner session, not a restyle. Full styling is a later task (ixe.16). */
+/* ==================== Trip list + trip page (ixe.16) ====================
+   Full styling pass for the persisted-trips UI (ixe.9 shipped it deliberately
+   modest). The trip list gets one overview card, echoing the ledger Recent
+   view's .ledger-card. On the trip page, the budget breakdown gets its own
+   small card (echoing .balance-block) while the stays table is a plain
+   section, echoing History/Contracts' unwrapped .ledger-body sections —
+   not every table needs a card, just the "at a glance" summary widget. */
 .trips-page,
 .trip-page {
   flex: 1;
@@ -398,28 +450,167 @@ button:focus-visible {
 }
 .site-nav-links a.active { color: var(--text); font-weight: var(--fw-bold); text-decoration: underline; }
 
+/* ---- Trip list (GET /) ----
+   overflow-x lives on the card itself (not a separate wrapper — there isn't
+   one in the markup), the same technique .ledger-body section uses: at
+   narrow widths the table's min-width below forces this card to scroll
+   horizontally in its own box instead of widening the page body. */
+.trip-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-6);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .trip-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-4); }
+.trip-list-header h1 { margin: 0; font-size: var(--fs-xl); font-weight: var(--fw-black); color: var(--brand); }
 .trip-list-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .trip-list-table th,
-.trip-list-table td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; text-align: left; }
+.trip-list-table td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; }
+.trip-list-table th { color: var(--text-mute); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.trip-list-table tbody tr { transition: background var(--dur-fast); }
+.trip-list-table tbody tr:hover { background: var(--surface-2); }
 .trip-row .trip-status { font-size: var(--fs-sm); color: var(--text-mute); }
 .trip-row.status-booked .trip-status { color: var(--brand); font-weight: var(--fw-black); }
 .trip-row.status-partly-booked .trip-status { color: var(--accent-ink); font-weight: var(--fw-semibold); }
 
-.budget-breakdown dl { font-variant-numeric: tabular-nums; }
-.budget-breakdown .budget-row { display: flex; justify-content: space-between; gap: var(--sp-3); max-width: 20rem; }
+/* "+ New trip" disclosure — same details/summary CTA pattern as .add-entry
+   on the ledger's Recent view, duplicated rather than shared so this
+   section stays self-contained. */
+.add-trip { margin-top: var(--sp-4); }
+.add-trip summary {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-weight: var(--fw-semibold);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.85rem;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast);
+}
+.add-trip summary::-webkit-details-marker { display: none; }
+.add-trip summary::marker { content: ""; }
+.add-trip summary:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.add-trip[open] summary { margin-bottom: var(--sp-3); }
+
+/* ---- Budget breakdown (trip page) ---- */
+.budget-breakdown {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5) var(--sp-6);
+  margin: var(--sp-4) 0;
+}
+.budget-breakdown h2 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-black);
+  color: var(--brand);
+}
+.budget-breakdown dl { margin: 0; font-variant-numeric: tabular-nums; }
+.budget-breakdown .budget-row { display: flex; justify-content: space-between; gap: var(--sp-3); max-width: 20rem; padding: 0.2rem 0; }
 .budget-breakdown .budget-row dt { color: var(--text-dim); font-weight: var(--fw-semibold); }
 .budget-breakdown .budget-row dd { margin: 0; }
-.budget-breakdown .budget-total dt,
-.budget-breakdown .budget-total dd { font-weight: var(--fw-black); }
 
+/* .budget-computed wraps the Current/Banked/Borrowable rows; it's always
+   present, .budget-computed-dimmed is added alongside it only once an
+   override is active (see .budget-computed-dimmed below). The bottom
+   margin here is what separates that group from Total/Remaining even when
+   nothing is dimmed. */
+.budget-computed { margin-bottom: 0.2rem; }
+
+/* Computed Current/Banked/Borrowable rows: dimmed, never hidden, once an
+   override is active — the arithmetic behind the total stays visible, it's
+   just no longer the operative number. */
+.budget-computed-dimmed .budget-row dt,
+.budget-computed-dimmed .budget-row dd {
+  color: var(--text-mute);
+  font-weight: var(--fw-regular);
+  opacity: 0.75;
+}
+
+/* Total and Remaining stay prominent regardless of override state. */
+.budget-breakdown .budget-total,
+.budget-breakdown .budget-remaining {
+  border-top: 1px solid var(--border);
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-2);
+}
+.budget-breakdown .budget-total dt,
+.budget-breakdown .budget-total dd,
+.budget-breakdown .budget-remaining dt,
+.budget-breakdown .budget-remaining dd { font-weight: var(--fw-black); }
+.budget-breakdown .budget-remaining dd { color: var(--accent-ink); }
+
+.budget-override-form,
+.budget-reset-form {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-4);
+}
+.budget-override-form label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-dim);
+  font-weight: var(--fw-semibold);
+}
+.budget-override-form input { width: 8rem; }
+
+/* ---- Stays table (trip page) ---- */
+.trip-stays {
+  margin: var(--sp-4) 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.trip-stays h2 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-black);
+  color: var(--brand);
+}
 .stays-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .stays-table th,
-.stays-table td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; text-align: left; }
-.stay-row.booked td:last-child { color: var(--brand); font-weight: var(--fw-semibold); }
+.stays-table td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; }
+.stays-table th { color: var(--text-mute); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.stays-table td.cost { text-align: right; }
+
+/* Booked marker: same tint + inset accent bar .results-table uses for its
+   selected row, in --brand rather than a bespoke color. */
+.stay-row.booked {
+  background: var(--brand-tint);
+  box-shadow: inset 4px 0 0 var(--brand);
+}
+/* The "✓ booked" marker is the SECOND-to-last cell: the last one holds the
+   Remove button, which paints itself via .stay-remove. Targeting
+   td:last-child here styled the button cell and was a silent no-op. */
+.stay-row.booked td:nth-last-child(2) { color: var(--brand); font-weight: var(--fw-semibold); }
+
+.stay-remove {
+  color: var(--danger);
+  background: transparent;
+  border: 1px solid transparent;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.6rem;
+}
+.stay-remove:hover { background: var(--danger-tint); box-shadow: none; }
 
 /* ============================ Results table ============================ */
 .results { margin-top: 0.9rem; }
+/* Quiet note above a truncated results list — informational, not an error,
+   so it takes .panel-hint's muted treatment rather than .err's danger red. */
+.results-truncated {
+  color: var(--text-mute);
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--sp-3);
+}
 .results-table {
   width: 100%;
   border-collapse: collapse;
@@ -819,6 +1010,8 @@ button:focus-visible {
   body { flex-direction: column; }
   #app { padding: 0.9rem; }
   .ledger-page { padding: 0.9rem; }
+  .trips-page,
+  .trip-page { padding: 0.9rem; }
 
   /* Side panel (Filters/Plans) takes the full width instead of a fixed
      400px column, and no longer forces a full-height viewport slab. */
@@ -833,19 +1026,37 @@ button:focus-visible {
 
   /* Trip card: from/to/min-nights form stacks vertically, full width. */
   .trip { padding: 0.85rem 1rem; }
-  .trip-form { flex-direction: column; align-items: stretch; gap: 0.6rem; }
-  .trip-form label { justify-content: space-between; gap: 0.6rem; }
-  .trip-form input { width: 100%; }
+  .trip-form,
+  .trip-new-form,
+  .budget-override-form,
+  .budget-reset-form { flex-direction: column; align-items: stretch; gap: 0.6rem; }
+  .trip-form label,
+  .trip-new-form label,
+  .budget-override-form label { justify-content: space-between; gap: 0.6rem; }
+  .trip-form input,
+  .trip-new-form input,
+  .budget-override-form input { width: 100%; }
 
   /* Comfortable tap targets. */
   button, .btn-link { padding: 0.55rem 0.9rem; }
   .trip-toggle, .trip-remove { padding: 0.45rem 0.55rem; }
   .select-btn { min-width: 2.5rem; padding: 0.45rem 0.6rem; }
+  .stay-remove { padding: 0.45rem 0.6rem; }
+
+  /* Trip list, budget breakdown and stays sections: same reduced padding
+     the ledger card gets, so the card chrome doesn't eat the narrow
+     viewport's width budget. */
+  .trip-list,
+  .budget-breakdown { padding: var(--sp-4); }
 
   /* Results and ledger tables scroll horizontally in their own
-     container rather than squeezing columns unreadably thin. */
+     container rather than squeezing columns unreadably thin. Trip list
+     and stays tables follow the same pattern — see .trip-list/.trip-stays
+     above, which already carry the overflow-x:auto that makes this work. */
   .results { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .results-table { min-width: 650px; } /* +90px: the new COST column */
+  .trip-list-table { min-width: 480px; }
+  .stays-table { min-width: 560px; }
 
   .ledger-body table { min-width: 610px; } /* +90px: the new Cost column */
   /* Recent activity / Spent by use year are narrow (2-3 short columns) —
