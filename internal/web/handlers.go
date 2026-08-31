@@ -300,6 +300,84 @@ func (h *handlers) updateTrip(w http.ResponseWriter, r *http.Request) {
 	h.renderTripFragment(w, r, id)
 }
 
+// parseBudgetOverride parses the "budget" form field, following
+// parseTripForm's inline-error convention: a non-numeric or negative value
+// is returned as an error for the caller to render inline (200, not a
+// Postgres constraint violation surfaced as a 500). Zero is valid — see
+// effectiveBudget's doc comment in render.go for why only nil means "no
+// override".
+func parseBudgetOverride(r *http.Request) (int, error) {
+	if err := r.ParseForm(); err != nil {
+		return 0, err
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("budget")))
+	if err != nil {
+		return 0, errors.New("invalid budget")
+	}
+	if v < 0 {
+		return 0, errors.New("budget must not be negative")
+	}
+	return v, nil
+}
+
+// setBudgetOverride handles POST /trips/{id}/budget, form field "budget":
+// sets the trip's hand-typed budget override.
+//
+// Like updateTrip, this must not disturb the trip's other stored fields —
+// FilterMode/ExcludeResorts/ExcludeRoomTypes especially (see updateTrip's
+// doc comment for the bug this already caused once). Mutating the FETCHED
+// trip (from getTripOr404) in place, rather than building a fresh
+// ledger.Trip, is what keeps those fields intact here.
+func (h *handlers) setBudgetOverride(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	t, ok := h.getTripOr404(w, r, id)
+	if !ok {
+		return
+	}
+
+	v, err := parseBudgetOverride(r)
+	if err != nil {
+		view, verr := h.buildTripPageView(ctx, t, err.Error())
+		if verr != nil {
+			http.Error(w, verr.Error(), http.StatusInternalServerError)
+			return
+		}
+		h.render(w, "trip", view)
+		return
+	}
+
+	t.BudgetOverride = &v
+	if err := h.store.UpdateTrip(ctx, t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.renderTripFragment(w, r, id)
+}
+
+// clearBudgetOverride handles DELETE /trips/{id}/budget: clears the trip's
+// budget override, reverting search and the displayed budget to the
+// computed total.
+func (h *handlers) clearBudgetOverride(w http.ResponseWriter, r *http.Request) {
+	id, ok := tripID(w, r)
+	if !ok {
+		return
+	}
+	t, ok := h.getTripOr404(w, r, id)
+	if !ok {
+		return
+	}
+	t.BudgetOverride = nil
+	if err := h.store.UpdateTrip(r.Context(), t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.renderTripFragment(w, r, id)
+}
+
 // addStay handles POST /trips/{id}/stays/{row}: collects one search result
 // row onto the trip as a new, unbooked ledger.TripStay.
 func (h *handlers) addStay(w http.ResponseWriter, r *http.Request) {

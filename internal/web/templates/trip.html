@@ -46,12 +46,30 @@
 <section class="budget-breakdown">
   <h2>Budget — use year {{.Budget.UseYear}}</h2>
   <dl>
-    <div class="budget-row"><dt>Current</dt><dd>{{.Budget.CurrentLabel}}</dd></div>
-    <div class="budget-row"><dt>Banked</dt><dd>{{.Budget.BankedLabel}}</dd></div>
-    <div class="budget-row"><dt>Borrowable</dt><dd>{{.Budget.BorrowableLabel}}</dd></div>
-    <div class="budget-row budget-total"><dt>Total</dt><dd>{{.Budget.Total}}</dd></div>
+    <div class="budget-computed{{if .Budget.Overridden}} budget-computed-dimmed{{end}}">
+      <div class="budget-row"><dt>Current</dt><dd>{{.Budget.CurrentLabel}}</dd></div>
+      <div class="budget-row"><dt>Banked</dt><dd>{{.Budget.BankedLabel}}</dd></div>
+      <div class="budget-row"><dt>Borrowable</dt><dd>{{.Budget.BorrowableLabel}}</dd></div>
+    </div>
+    <div class="budget-row budget-total"><dt>Total</dt><dd>{{.EffectiveBudget}}</dd></div>
     <div class="budget-row budget-remaining"><dt>Remaining</dt><dd>{{.Remaining}}</dd></div>
   </dl>
+  {{if .Budget.Overridden}}
+  <form class="budget-reset-form"
+        hx-delete="/trips/{{.ID}}/budget"
+        hx-target="#trip"
+        hx-swap="outerHTML">
+    <button type="submit">reset to computed ({{.Budget.ComputedTotal}})</button>
+  </form>
+  {{else}}
+  <form class="budget-override-form"
+        hx-post="/trips/{{.ID}}/budget"
+        hx-target="#trip"
+        hx-swap="outerHTML">
+    <label>Override budget <input name="budget" type="text" autocomplete="off" required></label>
+    <button type="submit">Set override</button>
+  </form>
+  {{end}}
 </section>
 {{end}}
 

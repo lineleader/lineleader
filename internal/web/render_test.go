@@ -453,6 +453,59 @@ func TestEffectiveBudget_ZeroOverrideIsRespected(t *testing.T) {
 	}
 }
 
+// TestBuildTripView_OverriddenBudgetSetsEffectiveAndComputed proves an
+// override's effect reaches the whole tripView, not just EffectiveBudget in
+// isolation: Budget.ComputedTotal keeps the ledger total, Budget.Overridden
+// flips true, and — the part TestBuildTripView_EffectiveBudgetHonoursOverride
+// doesn't cover — Remaining subtracts unbooked stays' points from the
+// OVERRIDE, not from the computed total.
+func TestBuildTripView_OverriddenBudgetSetsEffectiveAndComputed(t *testing.T) {
+	tr := tripFixture()
+	tr.BudgetOverride = intPtr(100)
+	b := ledger.TripBudget{Total: 480}
+	stays := []ledger.TripStay{
+		{Points: 30, EntryID: nil},         // unbooked: subtracted
+		{Points: 200, EntryID: entryID(1)}, // booked: not subtracted
+	}
+
+	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false)
+
+	if tv.EffectiveBudget != 100 {
+		t.Errorf("EffectiveBudget = %d, want 100 (the override)", tv.EffectiveBudget)
+	}
+	if tv.Budget.ComputedTotal != 480 {
+		t.Errorf("Budget.ComputedTotal = %d, want 480 (still the ledger total)", tv.Budget.ComputedTotal)
+	}
+	if !tv.Budget.Overridden {
+		t.Errorf("Budget.Overridden = false, want true")
+	}
+	if tv.Remaining != 70 {
+		t.Errorf("Remaining = %d, want 70 (100 override - 30 unbooked points) — Remaining must subtract from the OVERRIDE, not the computed total (which would give 450)", tv.Remaining)
+	}
+}
+
+// TestBuildTripView_ZeroOverrideIsHonoured guards against a `> 0` or
+// truthiness check creeping into buildTripView's override handling: an
+// override of exactly 0 is a legitimate, honoured budget (see
+// effectiveBudget's doc comment), not treated as "no override".
+func TestBuildTripView_ZeroOverrideIsHonoured(t *testing.T) {
+	tr := tripFixture()
+	tr.BudgetOverride = intPtr(0)
+	b := ledger.TripBudget{Total: 480}
+
+	tv := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false)
+
+	if tv.EffectiveBudget != 0 {
+		t.Errorf("EffectiveBudget = %d, want 0", tv.EffectiveBudget)
+	}
+	if !tv.Budget.Overridden {
+		t.Errorf("Budget.Overridden = false, want true — a 0 override is still an override")
+	}
+	if !tv.BudgetOverridden {
+		t.Errorf("BudgetOverridden = false, want true")
+	}
+}
+
 func TestBuildTripView_NoStaysNoResults(t *testing.T) {
 	tv := buildTripView(ledger.Trip{}, nil, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false)
 
