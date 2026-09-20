@@ -11,11 +11,14 @@ import (
 	"github.com/lineleader/lineleader/internal/ledger/dbgen"
 )
 
-// tagFor maps a PointDraw's Disposition to the Entry.Tag convention
+// DispositionTag maps a PointDraw's Disposition to the Entry.Tag convention
 // documented in types.go ("Bank" | "Borrow" | ""): banked points are
 // tagged "Bank", borrowed points "Borrow", and current-year points get no
-// annotation at all — the common case needs none.
-func tagFor(disposition string) string {
+// annotation at all — the common case needs none. Exported so nyj.5's
+// funding preview (trip_accounting.go) can show the web layer the same
+// wording BookTrip actually writes to the ledger, rather than inventing
+// its own.
+func DispositionTag(disposition string) string {
 	switch disposition {
 	case DispositionBanked:
 		return "Bank"
@@ -114,7 +117,7 @@ func (s *Store) bookTripOnce(ctx context.Context, tripID int64) error {
 				Allotted:   0,
 				Used:       draw.Points,
 				ContractID: &draw.ContractID,
-				Tag:        tagFor(draw.Disposition),
+				Tag:        DispositionTag(draw.Disposition),
 			})
 			if err != nil {
 				return fmt.Errorf("BookTrip: adding entry for stay %d: %w", st.ID, err)

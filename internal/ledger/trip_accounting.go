@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -232,4 +233,126 @@ func (s *Store) PreviewStayFunding(ctx context.Context, checkIn time.Time, point
 	}
 
 	return AllocateStayPoints(contracts, lots, consumed, checkIn, points)
+}
+
+// StayFunding is one stay's slot in a TripFundingPreview: either the draws
+// PreviewTripFunding decided would fund it (Fundable true, ShortBy zero),
+// or how many additional points it would need (Fundable false, Draws nil)
+// — computed the same way bookTripOnce would decide it for real.
+type StayFunding struct {
+	StayID   int64
+	Fundable bool
+	Draws    []PointDraw
+	ShortBy  int
+}
+
+// TripFundingPreview is PreviewTripFunding's result: one StayFunding per
+// unbooked stay bookTripOnce's loop would attempt to fund, in the same
+// order, stopping at (and including) the first stay that can't be funded.
+// Stays after a failure are never evaluated — bookTripOnce itself never
+// reaches them either, since a single ErrInsufficientPoints aborts the
+// whole booking — so showing them as fundable here would be a lie.
+type TripFundingPreview struct {
+	Stays []StayFunding
+
+	// Fundable is true only when every unbooked stay passed in was
+	// fundable. False with an empty Stays slice cannot happen: Fundable
+	// starts true and is only ever flipped to false alongside appending
+	// the StayFunding that failed.
+	Fundable bool
+}
+
+// shortfall reports how many more points than contracts/lots/consumed can
+// currently fund for a stay checking in on checkIn, for a stay that needs
+// `points` and has already failed AllocateStayPoints once. It works by
+// binary search over AllocateStayPoints itself rather than re-deriving
+// AllocateStayPoints' own eligibility and ranking rules: which lots are
+// candidates (banked/current/borrowed for checkIn) never depends on the
+// amount requested, so "AllocateStayPoints succeeds for n points" is
+// monotonic in n — true for every n up to the real capacity, false above
+// it — and this searches for that boundary instead of duplicating the
+// candidate-selection logic that produces it.
+//
+// It must only be called once AllocateStayPoints(..., points) has already
+// returned ErrInsufficientPoints, which guarantees the true capacity is
+// strictly less than points and bounds the search.
+func shortfall(contracts []Contract, lots []PointLot, consumed []PointDraw, checkIn time.Time, points int) int {
+	lo, hi := 0, points
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if _, err := AllocateStayPoints(contracts, lots, consumed, checkIn, mid); err == nil {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return points - lo
+}
+
+// PreviewTripFunding is a dry-run, whole-trip counterpart to
+// PreviewStayFunding: it decides funding for every stay in stays (as
+// ListStays returns them — booked stays included) exactly the way
+// bookTripOnce's own loop would, in the same order, threading each stay's
+// draws into the next stay's `consumed` before deciding it. A caller that
+// evaluated each stay independently against a fresh snapshot would predict
+// a different (too optimistic) split for any trip where one stay's draw
+// eats into a lot a later stay also wants — see TripFundingPreview.
+//
+// Like PreviewStayFunding, this is unlocked, outside any transaction, and
+// writes nothing: it exists purely for nyj.5's trip-page preview, and a
+// stale read is caught the same way booking itself catches one — by
+// bookTripOnce's own locked snapshot at the moment of a real Book click,
+// not by this function.
+//
+// Already-booked stays (Booked() true, including partially-booked ones —
+// see TripStay.PartiallyBooked) are skipped, matching bookTripOnce
+// exactly: re-booking is a no-op, so a stay whose entries already exist
+// never draws points a second time here either.
+func (s *Store) PreviewTripFunding(ctx context.Context, stays []TripStay) (TripFundingPreview, error) {
+	contracts, lots, consumed, err := s.lotSnapshot(ctx, s.db, false)
+	if err != nil {
+		return TripFundingPreview{}, fmt.Errorf("PreviewTripFunding: %w", err)
+	}
+	legacyUsed, err := s.unattributedUsage(ctx, s.db)
+	if err != nil {
+		return TripFundingPreview{}, fmt.Errorf("PreviewTripFunding: %w", err)
+	}
+
+	preview := TripFundingPreview{Fundable: true}
+	for _, st := range stays {
+		if st.Booked() {
+			continue
+		}
+
+		if st.Points > availablePoints(lots, consumed, legacyUsed) {
+			preview.Stays = append(preview.Stays, StayFunding{
+				StayID:  st.ID,
+				ShortBy: st.Points - availablePoints(lots, consumed, legacyUsed),
+			})
+			preview.Fundable = false
+			break
+		}
+
+		draws, err := AllocateStayPoints(contracts, lots, consumed, st.CheckIn, st.Points)
+		if err != nil {
+			if !errors.Is(err, ErrInsufficientPoints) {
+				return TripFundingPreview{}, fmt.Errorf("PreviewTripFunding: allocating stay %d: %w", st.ID, err)
+			}
+			preview.Stays = append(preview.Stays, StayFunding{
+				StayID:  st.ID,
+				ShortBy: shortfall(contracts, lots, consumed, st.CheckIn, st.Points),
+			})
+			preview.Fundable = false
+			break
+		}
+
+		preview.Stays = append(preview.Stays, StayFunding{
+			StayID:   st.ID,
+			Fundable: true,
+			Draws:    draws,
+		})
+		consumed = append(consumed, draws...)
+	}
+
+	return preview, nil
 }
