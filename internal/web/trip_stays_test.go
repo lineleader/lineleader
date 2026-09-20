@@ -347,15 +347,17 @@ func TestRemoveStay_BookedStayInvalidatesCostProvider(t *testing.T) {
 
 	// A priced contract, so CostBasis.Known() is true — seed.sql stores
 	// dues rates back to 2019, including 2026.
-	if _, err := store.AddContract(ctx, ledger.Contract{
+	cid, err := store.AddContract(ctx, ledger.Contract{
 		Name:          "C1",
 		AnnualPoints:  100,
 		UseYearMonth:  time.January,
 		TermYears:     10,
 		PurchasePrice: 100_000_00,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("AddContract: %v", err)
 	}
+	fundContract(t, store, cid, 2026, 30)
 
 	id, err := store.AddTrip(ctx, ledger.Trip{
 		Name:      "Booked stay trip",

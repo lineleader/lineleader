@@ -68,7 +68,8 @@ func TestBookTrip_DoesNotChangeRemainingBudget(t *testing.T) {
 	defer ts.Close()
 	ctx := context.Background()
 
-	addBudgetContract(t, store, 100, time.January)
+	cid := addBudgetContract(t, store, 100, time.January)
+	fundContract(t, store, cid, 2026, 10_000)
 
 	id := createTripViaForm(t, ts.URL, url.Values{
 		"name":       {"Book invariant trip"},
@@ -148,7 +149,8 @@ func TestBookTrip_WritesOneEntryPerStay(t *testing.T) {
 	defer ts.Close()
 	ctx := context.Background()
 
-	addBudgetContract(t, store, 100, time.January)
+	cid := addBudgetContract(t, store, 100, time.January)
+	fundContract(t, store, cid, 2026, 10_000)
 
 	id := createTripViaForm(t, ts.URL, url.Values{
 		"name":       {"Two stays trip"},
@@ -223,7 +225,8 @@ func TestBookTrip_IsIdempotent(t *testing.T) {
 	defer ts.Close()
 	ctx := context.Background()
 
-	addBudgetContract(t, store, 100, time.January)
+	cid := addBudgetContract(t, store, 100, time.January)
+	fundContract(t, store, cid, 2026, 10_000)
 
 	id := createTripViaForm(t, ts.URL, url.Values{
 		"name":       {"Idempotent book trip"},
@@ -291,7 +294,8 @@ func TestUnbookTrip_RemovesTheEntriesAndClearsTheLinks(t *testing.T) {
 	defer ts.Close()
 	ctx := context.Background()
 
-	addBudgetContract(t, store, 100, time.January)
+	cid := addBudgetContract(t, store, 100, time.January)
+	fundContract(t, store, cid, 2026, 10_000)
 
 	id := createTripViaForm(t, ts.URL, url.Values{
 		"name":       {"Unbook trip"},
@@ -396,11 +400,13 @@ func TestBookAndUnbook_InvalidateTheCostProvider(t *testing.T) {
 		store := ledger.OpenTest(t)
 		ctx := context.Background()
 
-		if _, err := store.AddContract(ctx, ledger.Contract{
+		cid, err := store.AddContract(ctx, ledger.Contract{
 			Name: "C1", AnnualPoints: 100, UseYearMonth: time.January, TermYears: 10, PurchasePrice: 100_000_00,
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("AddContract: %v", err)
 		}
+		fundContract(t, store, cid, 2026, 30)
 		id, err := store.AddTrip(ctx, ledger.Trip{
 			Name:      "Book invalidate trip",
 			StartDate: dateParse(t, "2026-01-05"),
@@ -456,11 +462,13 @@ func TestBookAndUnbook_InvalidateTheCostProvider(t *testing.T) {
 		store := ledger.OpenTest(t)
 		ctx := context.Background()
 
-		if _, err := store.AddContract(ctx, ledger.Contract{
+		cid, err := store.AddContract(ctx, ledger.Contract{
 			Name: "C1", AnnualPoints: 100, UseYearMonth: time.January, TermYears: 10, PurchasePrice: 100_000_00,
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("AddContract: %v", err)
 		}
+		fundContract(t, store, cid, 2026, 30)
 		id, err := store.AddTrip(ctx, ledger.Trip{
 			Name:      "Unbook invalidate trip",
 			StartDate: dateParse(t, "2026-01-05"),
@@ -523,7 +531,8 @@ func TestTripPage_BookControlsReflectDerivedStatus(t *testing.T) {
 	t.Run("no stays", func(t *testing.T) {
 		ts, store := newLedgerTestServer(t)
 		defer ts.Close()
-		addBudgetContract(t, store, 100, time.January)
+		cid := addBudgetContract(t, store, 100, time.January)
+		fundContract(t, store, cid, 2026, 10_000)
 		id := createTripViaForm(t, ts.URL, url.Values{
 			"name": {"No stays trip"}, "from": {"2026-01-05"}, "to": {"2026-01-20"}, "min_nights": {"3"},
 		})
@@ -539,7 +548,8 @@ func TestTripPage_BookControlsReflectDerivedStatus(t *testing.T) {
 	t.Run("all unbooked", func(t *testing.T) {
 		ts, store := newLedgerTestServer(t)
 		defer ts.Close()
-		addBudgetContract(t, store, 100, time.January)
+		cid := addBudgetContract(t, store, 100, time.January)
+		fundContract(t, store, cid, 2026, 10_000)
 		id := createTripViaForm(t, ts.URL, url.Values{
 			"name": {"All unbooked trip"}, "from": {"2026-01-05"}, "to": {"2026-01-20"}, "min_nights": {"3"},
 		})
@@ -558,7 +568,8 @@ func TestTripPage_BookControlsReflectDerivedStatus(t *testing.T) {
 	t.Run("all booked", func(t *testing.T) {
 		ts, store := newLedgerTestServer(t)
 		defer ts.Close()
-		addBudgetContract(t, store, 100, time.January)
+		cid := addBudgetContract(t, store, 100, time.January)
+		fundContract(t, store, cid, 2026, 10_000)
 		id := createTripViaForm(t, ts.URL, url.Values{
 			"name": {"All booked trip"}, "from": {"2026-01-05"}, "to": {"2026-01-20"}, "min_nights": {"3"},
 		})
@@ -582,7 +593,8 @@ func TestTripPage_BookControlsReflectDerivedStatus(t *testing.T) {
 	t.Run("mixed", func(t *testing.T) {
 		ts, store := newLedgerTestServer(t)
 		defer ts.Close()
-		addBudgetContract(t, store, 100, time.January)
+		cid := addBudgetContract(t, store, 100, time.January)
+		fundContract(t, store, cid, 2026, 10_000)
 		id := createTripViaForm(t, ts.URL, url.Values{
 			"name": {"Mixed trip"}, "from": {"2026-01-05"}, "to": {"2026-01-20"}, "min_nights": {"3"},
 		})

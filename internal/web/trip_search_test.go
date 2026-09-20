@@ -60,16 +60,44 @@ func newLedgerTestServerWithCharts(t *testing.T, charts []*dvc.ResortChart) (*ht
 
 // addBudgetContract seeds a single unposted contract giving a trip a real,
 // non-zero effective budget (Total == AnnualPoints when nothing has yet
-// been allotted or used — see ledger.BudgetForUseYear).
-func addBudgetContract(t *testing.T, store *ledger.Store, annualPoints int, useYearMonth time.Month) {
+// been allotted or used — see ledger.BudgetForUseYear). It returns the new
+// contract's id so a caller that also needs BookTrip to succeed can fund a
+// real lot against it with fundContract — addBudgetContract itself
+// deliberately posts no allocation entry, since several budget-display
+// tests assert Total against the unposted (Borrowable-only) case.
+func addBudgetContract(t *testing.T, store *ledger.Store, annualPoints int, useYearMonth time.Month) int64 {
 	t.Helper()
-	if _, err := store.AddContract(context.Background(), ledger.Contract{
+	id, err := store.AddContract(context.Background(), ledger.Contract{
 		Name:         "C1",
 		AnnualPoints: annualPoints,
 		UseYearMonth: useYearMonth,
 		TermYears:    10,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("AddContract: %v", err)
+	}
+	return id
+}
+
+// fundContract posts a real allocation entry for contractID/useYear so
+// ledger's allocator (AllocateStayPoints, via BookTrip) has an actual lot
+// to draw from — it only ever draws from entries that already exist (see
+// PointLot's doc comment in internal/ledger/allocation.go). Tests that
+// merely render the budget page can rely on addBudgetContract's unposted
+// "Borrowable" projection, but anything that actually calls BookTrip needs
+// this too.
+func fundContract(t *testing.T, store *ledger.Store, contractID int64, useYear, points int) {
+	t.Helper()
+	cid := contractID
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
+		UseYear:    useYear,
+		Date:       time.Date(useYear, time.January, 1, 0, 0, 0, 0, time.UTC),
+		Desc:       "Point allocation",
+		Kind:       ledger.KindAllocation,
+		Allotted:   points,
+		ContractID: &cid,
+	}); err != nil {
+		t.Fatalf("fundContract: AddEntry: %v", err)
 	}
 }
 
