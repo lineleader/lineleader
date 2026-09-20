@@ -48,10 +48,12 @@ date window with a minimum-night requirement; the **+ New trip** form creates
 one and takes you to its page, which searches every point chart for stays
 that fit the window and a point budget the app derives from your ledger (see
 [Trips](#trips) below). Selecting a search result row **collects** it onto
-the trip as a stay — that alone doesn't touch the ledger. **Book it** turns
-every unbooked stay into a ledger usage entry in one transaction; **Unbook**
-deletes those entries again (both are idempotent, so a repeated click is
-safe). The trip page also has a **budget override** field that replaces the
+the trip as a stay — that alone doesn't touch the ledger. **Book it** runs
+every unbooked stay through the point allocator (see [Trips](#trips) below)
+and posts one ledger usage entry per draw it decides on — a stay funded by
+more than one contract's points gets more than one entry — in a single
+transaction; **Unbook** deletes those entries again (both are idempotent,
+so a repeated click is safe). The trip page also has a **budget override** field that replaces the
 computed total with a hand-typed number for search purposes, plus a button
 to reset back to the computed figure once one is set.
 
@@ -281,25 +283,41 @@ understates the budget for someone who chronically under-spends, which is
 the safe direction to be wrong in, and the manual budget override (below)
 covers the rest.
 
+`BudgetForUseYear` is a coarse, single-number-per-disposition *projection*
+— what the trip page shows and what search runs against. It is not what
+decides whether a booking can actually happen; see Booking below and
+`docs/plans/trips.md` for the allocator that does.
+
 ### Booking
 
 Collecting a search result onto a trip creates an unbooked stay row — it
-does not touch the ledger. **Book it** (`ledger.BookTrip`) writes one ledger
-usage entry per unbooked stay in a single transaction and links each stay to
-its new entry; re-booking is a no-op, so a repeated submit is safe. Each
-entry is charged to **the use year of its own check-in date**, computed per
-stay, not per trip — a trip's date *window* can straddle a use-year boundary
-even though the budget shown on its page is only ever for one use year (the
-one the window's start date falls in); a banner appears on a straddling trip
-explaining which check-in dates draw from the other use year. A stay is
-never split across use years — the whole stay's points post to its check-in's
-use year, whichever side of the boundary that is.
+does not touch the ledger. **Book it** (`ledger.BookTrip`) runs each
+unbooked stay through the point allocator (`ledger.AllocateStayPoints`),
+which decides which contracts' points fund it — banked points (expiring
+soonest) first, then current-year points, then borrowed points, tie-broken
+by contract id — and writes one ledger usage entry **per draw**, not per
+stay: a stay funded by two contracts gets two entries, each carrying its
+own `contract_id`, source use year and `Bank`/`Borrow`/empty tag, linked to
+the stay via the `trip_stay_entry` table. Re-booking is a no-op, so a
+repeated submit is safe. The whole booking runs in one transaction at
+`SERIALIZABLE` isolation with locked contract/lot rows and a bounded retry
+on serialization conflicts — either every unbooked stay is booked or none
+is. A trip's date *window* can straddle a use-year boundary even though the
+budget shown on its page is only ever for one use year (the one the
+window's start date falls in); a banner appears on a straddling trip
+explaining which check-in dates draw from the other use year. See
+`docs/plans/trips.md` for the full allocation, concurrency and known-limitation
+detail.
 
 **Unbook** (`ledger.UnbookTrip`) deletes every ledger entry a trip's stays
-created; deleting a trip or a single stay does the same, plus the row(s)
-itself. Booked-ness is never stored — it's derived from whether
-`trip_stay.entry_id` is set — so deleting the linked entry directly from
-`/ledger` *is* unbooking, with no separate flag that can fall out of sync.
+created (which, for a multi-contract stay, is more than one entry); deleting
+a trip or a single stay does the same, plus the row(s) itself. Booked-ness
+is never stored — it's derived from whether a stay has any linked entries
+in `trip_stay_entry` — so deleting a linked entry directly from `/ledger`
+*is* (partial) unbooking, with no separate flag that can fall out of sync.
+Deleting only some of a multi-entry stay's entries leaves it **partially
+booked** — the trip and stay views show that state distinctly rather than
+calling it booked.
 
 The trip page's **Remaining** figure — the budget the search actually runs
 against — starts from the trip's effective budget (its override, if set,
