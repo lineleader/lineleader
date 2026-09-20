@@ -184,6 +184,23 @@ func (s *Store) unattributedUsage(ctx context.Context, q rowQueryer) (int, error
 	return used, nil
 }
 
+// availablePoints sums every lot's points, less every consumed draw against
+// those lots, less legacyUsed (unattributedUsage's legacy, contract-less
+// usage). This is the aggregate total PreviewStayFunding and BookTrip both
+// fast-fail against before delegating to AllocateStayPoints, which has no
+// visibility into unattributed legacy usage on its own — nothing in its
+// consumed argument carries it, since it has no ContractID to key against.
+func availablePoints(lots []PointLot, consumed []PointDraw, legacyUsed int) int {
+	available := -legacyUsed
+	for _, lot := range lots {
+		available += lot.Points
+	}
+	for _, draw := range consumed {
+		available -= draw.Points
+	}
+	return available
+}
+
 // PreviewStayFunding is a dry-run of AllocateStayPoints against the current
 // ledger: unlocked, outside any transaction, and it writes nothing. It
 // exists for the booking UI (nyj.5) to show a member which lots a stay
@@ -193,14 +210,13 @@ func (s *Store) unattributedUsage(ctx context.Context, q rowQueryer) (int, error
 // trusting a preview that may be stale by the time the member confirms.
 //
 // Before delegating to AllocateStayPoints, it fast-fails with
-// ErrInsufficientPoints if points exceeds the aggregate total actually
-// available: every lot's points, less every consumed draw against those
-// lots, less unattributedUsage's legacy usage. AllocateStayPoints would
-// eventually reach the same conclusion on its own — its candidate walk
-// simply runs out of lots — but only after checking use-year eligibility
-// per lot; this check is a plain aggregate total, so it also catches the
-// case AllocateStayPoints cannot see at all: enough points exist across all
-// lots, but old, unattributed usage has already spent them.
+// ErrInsufficientPoints if points exceeds availablePoints' aggregate total.
+// AllocateStayPoints would eventually reach the same conclusion on its own
+// — its candidate walk simply runs out of lots — but only after checking
+// use-year eligibility per lot; this check is a plain aggregate total, so it
+// also catches the case AllocateStayPoints cannot see at all: enough points
+// exist across all lots, but old, unattributed usage has already spent
+// them.
 func (s *Store) PreviewStayFunding(ctx context.Context, checkIn time.Time, points int) ([]PointDraw, error) {
 	contracts, lots, consumed, err := s.lotSnapshot(ctx, s.db, false)
 	if err != nil {
@@ -211,14 +227,7 @@ func (s *Store) PreviewStayFunding(ctx context.Context, checkIn time.Time, point
 		return nil, fmt.Errorf("PreviewStayFunding: %w", err)
 	}
 
-	available := -legacyUsed
-	for _, lot := range lots {
-		available += lot.Points
-	}
-	for _, draw := range consumed {
-		available -= draw.Points
-	}
-	if points > available {
+	if points > availablePoints(lots, consumed, legacyUsed) {
 		return nil, ErrInsufficientPoints
 	}
 
