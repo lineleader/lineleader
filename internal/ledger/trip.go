@@ -64,6 +64,14 @@ type TripStay struct {
 	Points    int
 	QuoteHash string
 	EntryIDs  []int64 // empty = not booked
+
+	// EntryPoints is the sum of Used across every entry in EntryIDs — 0
+	// when the stay is unbooked. It exists so Booked() alone (which only
+	// checks whether EntryIDs is non-empty) doesn't have to be trusted for
+	// "fully funded": someone deleting one of a stay's linked entries on
+	// /ledger leaves EntryIDs non-empty but EntryPoints short of Points.
+	// See PartiallyBooked.
+	EntryPoints int
 }
 
 // Booked reports whether st has at least one linked ledger entry. This is
@@ -72,6 +80,16 @@ type TripStay struct {
 // the trips design doc asks of the web layer's own status derivation.
 func (st TripStay) Booked() bool {
 	return len(st.EntryIDs) > 0
+}
+
+// PartiallyBooked reports whether st has linked entries whose points fall
+// short of the stay's own Points — e.g. someone deleted one of the entries
+// a multi-lot booking created for this stay on /ledger, without removing
+// the trip_stay_entry link to the rest. Booked() alone can't see this: it
+// only checks whether EntryIDs is non-empty, so a partially-booked stay
+// reports Booked() == true even though it isn't fully funded.
+func (st TripStay) PartiallyBooked() bool {
+	return st.Booked() && st.EntryPoints < st.Points
 }
 
 // nullInt32FromIntPtr converts a possibly-nil *int into the sql.NullInt32
@@ -277,10 +295,21 @@ func (s *Store) ListStays(ctx context.Context, tripID int64) ([]TripStay, error)
 	for _, l := range links {
 		entryIDsByStay[l.TripStayID] = append(entryIDsByStay[l.TripStayID], l.EntryID)
 	}
+
+	used, err := s.q.ListTripStayUsedPointsForTrip(ctx, tripID)
+	if err != nil {
+		return nil, err
+	}
+	usedByStay := make(map[int64]int, len(used))
+	for _, u := range used {
+		usedByStay[u.TripStayID] = int(u.Used)
+	}
+
 	var out []TripStay
 	for _, row := range rows {
 		st := tripStayFromRow(row)
 		st.EntryIDs = entryIDsByStay[st.ID]
+		st.EntryPoints = usedByStay[st.ID]
 		out = append(out, st)
 	}
 	return out, nil

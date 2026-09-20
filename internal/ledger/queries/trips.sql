@@ -48,3 +48,18 @@ FROM trip_stay_entry tse
 JOIN trip_stay ts ON ts.id = tse.trip_stay_id
 WHERE ts.trip_id = $1
 ORDER BY tse.trip_stay_id, tse.entry_id;
+
+-- name: ListTripStayUsedPointsForTrip :many
+-- The summed Used points across every entry linked to each of tripID's
+-- stays, grouped by trip_stay_id — Store.ListStays uses this to populate
+-- TripStay.EntryPoints so partial booking (some, but not all, of a stay's
+-- entries deleted on /ledger) can be told apart from full booking. A stay
+-- with no linked entries is simply absent from the result, same as
+-- ListTripStayEntryIDsForTrip.
+SELECT tse.trip_stay_id, SUM(e.used)::bigint AS used
+FROM trip_stay_entry tse
+JOIN trip_stay ts ON ts.id = tse.trip_stay_id
+JOIN entry e ON e.id = tse.entry_id
+WHERE ts.trip_id = $1
+GROUP BY tse.trip_stay_id
+ORDER BY tse.trip_stay_id;

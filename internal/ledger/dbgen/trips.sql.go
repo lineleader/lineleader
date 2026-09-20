@@ -174,6 +174,50 @@ func (q *Queries) ListTripStayEntryIDsForTrip(ctx context.Context, tripID int64)
 	return items, nil
 }
 
+const listTripStayUsedPointsForTrip = `-- name: ListTripStayUsedPointsForTrip :many
+SELECT tse.trip_stay_id, SUM(e.used)::bigint AS used
+FROM trip_stay_entry tse
+JOIN trip_stay ts ON ts.id = tse.trip_stay_id
+JOIN entry e ON e.id = tse.entry_id
+WHERE ts.trip_id = $1
+GROUP BY tse.trip_stay_id
+ORDER BY tse.trip_stay_id
+`
+
+type ListTripStayUsedPointsForTripRow struct {
+	TripStayID int64
+	Used       int64
+}
+
+// The summed Used points across every entry linked to each of tripID's
+// stays, grouped by trip_stay_id — Store.ListStays uses this to populate
+// TripStay.EntryPoints so partial booking (some, but not all, of a stay's
+// entries deleted on /ledger) can be told apart from full booking. A stay
+// with no linked entries is simply absent from the result, same as
+// ListTripStayEntryIDsForTrip.
+func (q *Queries) ListTripStayUsedPointsForTrip(ctx context.Context, tripID int64) ([]ListTripStayUsedPointsForTripRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTripStayUsedPointsForTrip, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTripStayUsedPointsForTripRow
+	for rows.Next() {
+		var i ListTripStayUsedPointsForTripRow
+		if err := rows.Scan(&i.TripStayID, &i.Used); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTripStays = `-- name: ListTripStays :many
 SELECT id, trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash
 FROM trip_stay
