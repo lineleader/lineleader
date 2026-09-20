@@ -117,8 +117,8 @@ func TestAddStay_PersistsTheSelectedResultRow(t *testing.T) {
 	if st.Points != want.Points {
 		t.Errorf("Points = %d, want %d", st.Points, want.Points)
 	}
-	if st.EntryID != nil {
-		t.Errorf("EntryID = %v, want nil (newly added stay is unbooked)", st.EntryID)
+	if st.Booked() {
+		t.Errorf("EntryIDs = %v, want empty (newly added stay is unbooked)", st.EntryIDs)
 	}
 	if st.TripID != id {
 		t.Errorf("TripID = %d, want %d", st.TripID, id)

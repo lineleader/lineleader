@@ -126,8 +126,8 @@ func TestBookTrip_DoesNotChangeRemainingBudget(t *testing.T) {
 		t.Fatalf("len(stays) = %d, want 2", len(stays))
 	}
 	for _, st := range stays {
-		if st.EntryID == nil {
-			t.Errorf("stay %d EntryID = nil, want non-nil after booking", st.ID)
+		if !st.Booked() {
+			t.Errorf("stay %d EntryIDs = %v, want non-empty after booking", st.ID, st.EntryIDs)
 		}
 	}
 
@@ -246,10 +246,10 @@ func TestBookTrip_IsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStays (after first book): %v", err)
 	}
-	if len(staysAfterFirst) != 1 || staysAfterFirst[0].EntryID == nil {
-		t.Fatalf("precondition: stay must be booked after first book: %+v", staysAfterFirst)
+	if len(staysAfterFirst) != 1 || len(staysAfterFirst[0].EntryIDs) != 1 {
+		t.Fatalf("precondition: stay must be booked with exactly one entry after first book: %+v", staysAfterFirst)
 	}
-	wantEntryID := *staysAfterFirst[0].EntryID
+	wantEntryID := staysAfterFirst[0].EntryIDs[0]
 
 	entriesAfterFirst, err := store.ListEntries(ctx)
 	if err != nil {
@@ -274,17 +274,17 @@ func TestBookTrip_IsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStays (after second book): %v", err)
 	}
-	if len(staysAfterSecond) != 1 || staysAfterSecond[0].EntryID == nil {
-		t.Fatalf("stay must remain booked after second book: %+v", staysAfterSecond)
+	if len(staysAfterSecond) != 1 || len(staysAfterSecond[0].EntryIDs) != 1 {
+		t.Fatalf("stay must remain booked with exactly one entry after second book: %+v", staysAfterSecond)
 	}
-	if *staysAfterSecond[0].EntryID != wantEntryID {
-		t.Errorf("EntryID after second book = %d, want %d (unchanged — re-booking must not rewrite the link)", *staysAfterSecond[0].EntryID, wantEntryID)
+	if staysAfterSecond[0].EntryIDs[0] != wantEntryID {
+		t.Errorf("EntryIDs after second book = %v, want [%d] (unchanged — re-booking must not rewrite the link)", staysAfterSecond[0].EntryIDs, wantEntryID)
 	}
 }
 
 // TestUnbookTrip_RemovesTheEntriesAndClearsTheLinks proves POST
 // /trips/{id}/unbook deletes the ledger entries this trip's stays created
-// and clears their EntryID links, and that Remaining round-trips back to
+// and clears their EntryIDs links, and that Remaining round-trips back to
 // what it was before the book+unbook pair.
 func TestUnbookTrip_RemovesTheEntriesAndClearsTheLinks(t *testing.T) {
 	ts, store := newLedgerTestServer(t)
@@ -325,10 +325,10 @@ func TestUnbookTrip_RemovesTheEntriesAndClearsTheLinks(t *testing.T) {
 	}
 	var bookedEntryIDs []int64
 	for _, st := range staysBooked {
-		if st.EntryID == nil {
+		if !st.Booked() {
 			t.Fatalf("precondition: stay %d not booked: %+v", st.ID, st)
 		}
-		bookedEntryIDs = append(bookedEntryIDs, *st.EntryID)
+		bookedEntryIDs = append(bookedEntryIDs, st.EntryIDs...)
 	}
 
 	unbookResp := httpDo(t, http.MethodPost, unbookEndpoint(ts.URL, id))
@@ -350,8 +350,8 @@ func TestUnbookTrip_RemovesTheEntriesAndClearsTheLinks(t *testing.T) {
 		t.Fatalf("len(stays) after unbook = %d, want 2 (unbook removes ledger entries, not stays)", len(staysUnbooked))
 	}
 	for _, st := range staysUnbooked {
-		if st.EntryID != nil {
-			t.Errorf("stay %d EntryID = %v, want nil after unbook", st.ID, *st.EntryID)
+		if st.Booked() {
+			t.Errorf("stay %d EntryIDs = %v, want empty after unbook", st.ID, st.EntryIDs)
 		}
 	}
 

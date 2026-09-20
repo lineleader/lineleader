@@ -76,7 +76,7 @@
 {{/*
   book_controls is invoked with the whole tripView from inside the "trip"
   header. HasUnbookedStays/HasBookedStays are exact synonyms for the
-  anyBooked/anyUnbooked booleans buildTripView computes from stays' EntryID
+  anyBooked/anyUnbooked booleans buildTripView computes from stays' Booked()
   (see render.go) — never reconstructed from Booked/PartlyBooked, since that
   pair can't distinguish "no stays" from "all unbooked". Both buttons can
   render together for a partly-booked trip; neither renders for a trip with

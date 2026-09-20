@@ -17,8 +17,8 @@ type tripListView struct {
 }
 
 // tripRowView is one row of the trip list. Status is DERIVED here from each
-// stay's EntryID — never read from the database. A stored status becomes a lie
-// the moment someone deletes a booked entry from /ledger.
+// stay's Booked() — never read from the database. A stored status becomes a
+// lie the moment someone deletes a booked entry from /ledger.
 type tripRowView struct {
 	ID         int64
 	Name       string
@@ -100,7 +100,7 @@ type tripView struct {
 
 	// HasBookedStays and HasUnbookedStays are exact synonyms for the
 	// anyBooked/anyUnbooked values stayBookingStatus computes from stays'
-	// EntryID — never re-derived from Booked/PartlyBooked/len(Stays). That
+	// Booked() — never re-derived from Booked/PartlyBooked/len(Stays). That
 	// combination is genuinely ambiguous: Booked=false && PartlyBooked=false
 	// covers BOTH "zero stays" and "one or more stays, all unbooked", and
 	// book_controls needs to tell those apart to know whether "Book it"
@@ -263,13 +263,13 @@ func priceStay(sv *stayView, month time.Month, basis ledger.CostBasis) {
 }
 
 // stayBookingStatus reports whether ANY and whether ANY-NOT of stays are
-// booked, derived from each stay's EntryID — never from a stored status.
-// This is the single loop both deriveTripStatus and the
-// HasBookedStays/HasUnbookedStays tripView fields are built from, so the two
-// can never disagree about what "booked" means.
+// booked, derived from each stay's Booked() (in turn derived from its
+// EntryIDs) — never from a stored status. This is the single loop both
+// deriveTripStatus and the HasBookedStays/HasUnbookedStays tripView fields
+// are built from, so the two can never disagree about what "booked" means.
 func stayBookingStatus(stays []ledger.TripStay) (anyBooked, anyUnbooked bool) {
 	for _, st := range stays {
-		if st.EntryID != nil {
+		if st.Booked() {
 			anyBooked = true
 		} else {
 			anyUnbooked = true
@@ -292,7 +292,7 @@ func deriveTripStatus(anyBooked, anyUnbooked bool) (booked, partlyBooked bool) {
 }
 
 // buildTripRowView derives one trip list row. Status is derived from each
-// stay's EntryID (see deriveTripStatus), never stored. Like buildTripView,
+// stay's Booked() (see deriveTripStatus), never stored. Like buildTripView,
 // it performs no I/O — the caller has already fetched stays.
 func buildTripRowView(t ledger.Trip, stays []ledger.TripStay, month time.Month, basis ledger.CostBasis, showCosts bool) tripRowView {
 	anyBooked, anyUnbooked := stayBookingStatus(stays)
@@ -360,7 +360,7 @@ func effectiveBudget(t ledger.Trip, b ledger.TripBudget) int {
 func searchBudgetFor(t ledger.Trip, b ledger.TripBudget, stays []ledger.TripStay) int {
 	budget := effectiveBudget(t, b)
 	for _, st := range stays {
-		if st.EntryID == nil {
+		if !st.Booked() {
 			budget -= st.Points
 		}
 	}
@@ -449,7 +449,7 @@ func buildTripView(
 			CheckOut: st.CheckOut,
 			Nights:   st.Nights,
 			Points:   st.Points,
-			Booked:   st.EntryID != nil,
+			Booked:   st.Booked(),
 		}
 		if showCosts {
 			priceStay(&sv, month, basis)

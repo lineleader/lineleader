@@ -115,7 +115,7 @@ func tripFixture() ledger.Trip {
 	}
 }
 
-func entryID(id int64) *int64 { return &id }
+func entryIDs(ids ...int64) []int64 { return ids }
 
 func TestBuildTripView_DerivesStatusFromEntryID(t *testing.T) {
 	cases := []struct {
@@ -131,23 +131,23 @@ func TestBuildTripView_DerivesStatusFromEntryID(t *testing.T) {
 		{
 			name: "all unbooked",
 			stays: []ledger.TripStay{
-				{Points: 10, EntryID: nil},
-				{Points: 20, EntryID: nil},
+				{Points: 10, EntryIDs: nil},
+				{Points: 20, EntryIDs: nil},
 			},
 		},
 		{
 			name: "all booked",
 			stays: []ledger.TripStay{
-				{Points: 10, EntryID: entryID(1)},
-				{Points: 20, EntryID: entryID(2)},
+				{Points: 10, EntryIDs: entryIDs(1)},
+				{Points: 20, EntryIDs: entryIDs(2)},
 			},
 			wantBooked: true,
 		},
 		{
 			name: "mixed",
 			stays: []ledger.TripStay{
-				{Points: 10, EntryID: entryID(1)},
-				{Points: 20, EntryID: nil},
+				{Points: 10, EntryIDs: entryIDs(1)},
+				{Points: 20, EntryIDs: nil},
 			},
 			wantPartlyBooked: true,
 		},
@@ -175,7 +175,7 @@ func TestBuildTripView_DerivesStatusFromEntryID(t *testing.T) {
 // at all" OR "one or more stays, all unbooked" — and only the latter case
 // should render a "Book it" button. HasBookedStays/HasUnbookedStays are
 // exact synonyms for the anyBooked/anyUnbooked booleans computed once from
-// stays' EntryID, so they resolve that ambiguity directly rather than
+// stays' EntryIDs, so they resolve that ambiguity directly rather than
 // asking a caller to reverse-engineer it from the other three fields.
 func TestBuildTripView_HasBookedAndUnbookedFlags(t *testing.T) {
 	cases := []struct {
@@ -193,16 +193,16 @@ func TestBuildTripView_HasBookedAndUnbookedFlags(t *testing.T) {
 		{
 			name: "all unbooked",
 			stays: []ledger.TripStay{
-				{Points: 10, EntryID: nil},
-				{Points: 20, EntryID: nil},
+				{Points: 10, EntryIDs: nil},
+				{Points: 20, EntryIDs: nil},
 			},
 			wantHasUnbookedStays: true,
 		},
 		{
 			name: "all booked",
 			stays: []ledger.TripStay{
-				{Points: 10, EntryID: entryID(1)},
-				{Points: 20, EntryID: entryID(2)},
+				{Points: 10, EntryIDs: entryIDs(1)},
+				{Points: 20, EntryIDs: entryIDs(2)},
 			},
 			wantBooked:         true,
 			wantHasBookedStays: true,
@@ -210,8 +210,8 @@ func TestBuildTripView_HasBookedAndUnbookedFlags(t *testing.T) {
 		{
 			name: "mixed",
 			stays: []ledger.TripStay{
-				{Points: 10, EntryID: entryID(1)},
-				{Points: 20, EntryID: nil},
+				{Points: 10, EntryIDs: entryIDs(1)},
+				{Points: 20, EntryIDs: nil},
 			},
 			wantPartlyBooked:     true,
 			wantHasBookedStays:   true,
@@ -259,9 +259,9 @@ func TestBuildTripView_BudgetLabelsAreSigned(t *testing.T) {
 
 func TestBuildTripView_SumsStayPoints(t *testing.T) {
 	stays := []ledger.TripStay{
-		{Points: 40, EntryID: entryID(1)}, // booked
-		{Points: 25, EntryID: nil},        // unbooked
-		{Points: 15, EntryID: nil},        // unbooked
+		{Points: 40, EntryIDs: entryIDs(1)}, // booked
+		{Points: 25, EntryIDs: nil},         // unbooked
+		{Points: 15, EntryIDs: nil},         // unbooked
 	}
 
 	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false)
@@ -464,8 +464,8 @@ func TestBuildTripView_OverriddenBudgetSetsEffectiveAndComputed(t *testing.T) {
 	tr.BudgetOverride = intPtr(100)
 	b := ledger.TripBudget{Total: 480}
 	stays := []ledger.TripStay{
-		{Points: 30, EntryID: nil},         // unbooked: subtracted
-		{Points: 200, EntryID: entryID(1)}, // booked: not subtracted
+		{Points: 30, EntryIDs: nil},          // unbooked: subtracted
+		{Points: 200, EntryIDs: entryIDs(1)}, // booked: not subtracted
 	}
 
 	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false)
@@ -534,8 +534,8 @@ func TestSearchBudgetFor_SubtractsOnlyUnbookedStays(t *testing.T) {
 	b := ledger.TripBudget{Total: 610}
 
 	stays := []ledger.TripStay{
-		{Points: 150, EntryID: nil},        // unbooked: subtracted
-		{Points: 200, EntryID: entryID(1)}, // booked: NOT subtracted
+		{Points: 150, EntryIDs: nil},         // unbooked: subtracted
+		{Points: 200, EntryIDs: entryIDs(1)}, // booked: NOT subtracted
 	}
 	got := searchBudgetFor(tr, b, stays)
 	if got != 460 {
@@ -545,8 +545,8 @@ func TestSearchBudgetFor_SubtractsOnlyUnbookedStays(t *testing.T) {
 	// Only booked stays: the answer equals the full budget, nothing
 	// subtracted.
 	onlyBooked := []ledger.TripStay{
-		{Points: 200, EntryID: entryID(1)},
-		{Points: 75, EntryID: entryID(2)},
+		{Points: 200, EntryIDs: entryIDs(1)},
+		{Points: 75, EntryIDs: entryIDs(2)},
 	}
 	got2 := searchBudgetFor(tr, b, onlyBooked)
 	if got2 != 610 {
@@ -563,8 +563,8 @@ func TestSearchBudgetFor_HonoursBudgetOverride(t *testing.T) {
 	b := ledger.TripBudget{Total: 610}
 
 	stays := []ledger.TripStay{
-		{Points: 50, EntryID: nil},
-		{Points: 200, EntryID: entryID(1)},
+		{Points: 50, EntryIDs: nil},
+		{Points: 200, EntryIDs: entryIDs(1)},
 	}
 	got := searchBudgetFor(tr, b, stays)
 	if got != 250 {
@@ -579,8 +579,8 @@ func TestBuildTripView_RemainingMatchesSearchBudget(t *testing.T) {
 	tr := tripFixture()
 	b := ledger.TripBudget{Total: 610}
 	stays := []ledger.TripStay{
-		{Points: 150, EntryID: nil},
-		{Points: 200, EntryID: entryID(1)},
+		{Points: 150, EntryIDs: nil},
+		{Points: 200, EntryIDs: entryIDs(1)},
 	}
 
 	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false)
