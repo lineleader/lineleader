@@ -1268,10 +1268,12 @@ func TestLedgerRecentActivityTableAlignsColumns(t *testing.T) {
 		// Allocation row: no cost, but the cost <td> still renders (empty)
 		// so the column keeps its track. html/template escapes "+" as
 		// "&#43;" (its conservative text escaper, same as any other "+" in
-		// rendered ledger output).
-		`<tr><td class="recent-date">2026-04-01</td><td class="recent-desc">Alloc</td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
+		// rendered ledger output). Both rows carry ContractID, so each also
+		// gains a funding dim-line inside .recent-desc (right after the
+		// description, no separator before it since it's a block element).
+		`<tr><td class="recent-date">2026-04-01</td><td class="recent-desc">Alloc<span class="recent-funding">Point allocation · UY2026 · Current</span></td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
 		// Usage row: same four <td>s, cost populated.
-		`<tr><td class="recent-date">2026-05-01</td><td class="recent-desc">Priced trip</td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
+		`<tr><td class="recent-date">2026-05-01</td><td class="recent-desc">Priced trip<span class="recent-funding">Point allocation · UY2026 · Current</span></td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
 		// Spent-by-year row: year/pts/cost, same shape.
 		`<tr><td>2026</td><td class="spent-pts">40 pts</td><td class="cost">$556.12</td></tr>`,
 		// Visually-hidden column headers for screen readers.
@@ -1311,6 +1313,56 @@ func TestLedgerRecentActivityNoCostColumnWhenHidden(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("recent page missing empty-state %q; got:\n%s", want, out)
+		}
+	}
+}
+
+// TestLedgerRecentDistinguishesMultiLotFunding covers the actual bug behind
+// lineleader-d9x: BookTrip writes one KindUsage entry per point draw, so a
+// stay funded from multiple lots produces multiple Recent rows sharing the
+// same date and description, differing only in points. Each row must show
+// which contract/use-year funded it, so the rows read as distinct draws
+// rather than a stray duplicate.
+func TestLedgerRecentDistinguishesMultiLotFunding(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	c1, err := store.AddContract(context.Background(), ledger.Contract{
+		Name: "Contract One", AnnualPoints: 120, UseYearMonth: time.April,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := store.AddContract(context.Background(), ledger.Contract{
+		Name: "Contract Two", AnnualPoints: 150, UseYearMonth: time.April,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-06-01"), Desc: "Beach Club trip",
+		Kind: ledger.KindUsage, Used: 30, ContractID: &c1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-06-01"), Desc: "Beach Club trip",
+		Kind: ledger.KindUsage, Used: 10, ContractID: &c2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	for _, want := range []string{"Contract One · UY2026 · Current", "Contract Two · UY2026 · Current"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recent page missing funding line %q; got:\n%s", want, out)
 		}
 	}
 }

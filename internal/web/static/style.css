@@ -977,6 +977,14 @@ button:focus-visible {
    applies table-wide via .ledger-body table above, so the digits line up. */
 .recent-table td.recent-date { color: var(--text-dim); white-space: nowrap; }
 .recent-table td.recent-desc { color: var(--text); }
+/* Funding source (contract/use-year/disposition) — a secondary dim line
+   under the description, not a new column (phone-width overflow bug
+   lineleader-2i5 is out of scope; this stays inside the existing cell). */
+.recent-table td.recent-desc .recent-funding {
+  display: block;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
 .recent-table td.recent-delta { font-weight: var(--fw-semibold); text-align: right; white-space: nowrap; }
 .recent-table td.cost { color: var(--text-mute); white-space: nowrap; }
 .recent-empty { color: var(--text-mute); }
