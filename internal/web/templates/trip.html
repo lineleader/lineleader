@@ -30,6 +30,7 @@
   {{if .SpansUseYears}}<p class="span-warning">{{.SpanNote}}</p>{{end}}
 
   {{template "trip_budget" .}}
+  {{template "trip_funding" .}}
   {{template "trip_stays" .}}
 
   {{template "results" .}}
@@ -74,6 +75,35 @@
 {{end}}
 
 {{/*
+  trip_funding is nyj.5's read-only preview of how BookTrip would actually
+  fund this trip's unbooked stays right now — a more exacting number than
+  the budget breakdown above it, which is a deliberately coarse
+  current+banked+borrowable projection. .Funding.Show is false (buildTripView
+  never sets it) whenever the trip has no unbooked stays, so this renders
+  nothing for an empty or fully-booked trip.
+*/}}
+{{define "trip_funding"}}
+{{if .Funding.Show}}
+<section class="budget-breakdown funding-preview">
+  <h2>How this would be funded</h2>
+  {{if .Funding.Fundable}}
+  <p class="funding-total">{{.Funding.TotalPoints}} pts would be drawn</p>
+  <dl>
+    {{range .Funding.Lines}}
+    <div class="budget-row funding-row">
+      <dt>Contract {{.ContractID}} · UY{{.UseYear}}{{if .Tag}} · {{.Tag}}{{end}}</dt>
+      <dd>{{.Points}} pts</dd>
+    </div>
+    {{end}}
+  </dl>
+  {{else}}
+  <p class="funding-short">Short by {{.Funding.ShortBy}} pts — "{{.Funding.ShortStayLabel}}" ({{formatDate .Funding.ShortCheckIn}}) can't be fully funded with the points currently in the ledger.</p>
+  {{end}}
+</section>
+{{end}}
+{{end}}
+
+{{/*
   book_controls is invoked with the whole tripView from inside the "trip"
   header. HasUnbookedStays/HasBookedStays are exact synonyms for the
   anyBooked/anyUnbooked booleans buildTripView computes from stays' Booked()
@@ -110,7 +140,7 @@
     </thead>
     <tbody>
       {{range .Stays}}
-      <tr class="stay-row{{if .Booked}} booked{{end}}">
+      <tr class="stay-row{{if .PartiallyBooked}} partially-booked{{else if .Booked}} booked{{end}}">
         <td>{{.Resort}}</td>
         <td>{{.RoomType}}</td>
         <td>{{viewOrDash .View}}</td>
@@ -119,7 +149,7 @@
         <td>{{.Nights}}</td>
         <td>{{.Points}}</td>
         {{if $.ShowCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</td>{{end}}
-        <td>{{if .Booked}}✓ booked{{else}}—{{end}}</td>
+        <td>{{if .PartiallyBooked}}⚠ partially booked{{else if .Booked}}✓ booked{{else}}—{{end}}</td>
         <td>
           <button type="button"
                   class="stay-remove"

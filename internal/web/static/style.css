@@ -547,6 +547,32 @@ button:focus-visible {
 .budget-breakdown .budget-remaining dd { font-weight: var(--fw-black); }
 .budget-breakdown .budget-remaining dd { color: var(--accent-ink); }
 
+/* ---- Funding preview (trip page, nyj.5) ----
+   Reuses .budget-breakdown's card chrome; .funding-total/.funding-row are
+   its own rows inside that same card. .funding-short mirrors
+   .span-warning's shape (icon-less here) with the danger tokens instead of
+   accent, since an unfundable trip is a harder stop than a use-year span
+   note. */
+.funding-preview .funding-total {
+  font-weight: var(--fw-black);
+  font-variant-numeric: tabular-nums;
+  margin: 0 0 var(--sp-2);
+}
+.funding-preview .funding-row dt { font-weight: var(--fw-regular); color: var(--text-dim); }
+.funding-preview .funding-short {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  background: var(--danger-tint);
+  color: var(--danger-ink);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
 .budget-override-form,
 .budget-reset-form {
   display: flex;
@@ -592,6 +618,17 @@ button:focus-visible {
    Remove button, which paints itself via .stay-remove. Targeting
    td:last-child here styled the button cell and was a silent no-op. */
 .stay-row.booked td:nth-last-child(2) { color: var(--brand); font-weight: var(--fw-semibold); }
+
+/* Partially-booked marker: same shape as .stay-row.booked above, but in
+   --danger tokens rather than --brand — someone deleted one of this
+   stay's linked entries on /ledger, so it is NOT fully funded even though
+   it has entries (see ledger.TripStay.PartiallyBooked). Mutually exclusive
+   with .booked in the template, never combined on the same row. */
+.stay-row.partially-booked {
+  background: var(--danger-tint);
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+.stay-row.partially-booked td:nth-last-child(2) { color: var(--danger-ink); font-weight: var(--fw-semibold); }
 
 .stay-remove {
   color: var(--danger);
