@@ -156,8 +156,8 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion: %v", err)
 	}
-	if version != 4 {
-		t.Fatalf("goose db version after Open = %d, want 4 (all migrations applied)", version)
+	if version != 5 {
+		t.Fatalf("goose db version after Open = %d, want 5 (all migrations applied)", version)
 	}
 
 	// Step 4: calling Open a second time must be a complete no-op.
@@ -180,8 +180,8 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion after second Open: %v", err)
 	}
-	if version2 != 4 {
-		t.Fatalf("goose db version after second Open = %d, want 4 (no new versions)", version2)
+	if version2 != 5 {
+		t.Fatalf("goose db version after second Open = %d, want 5 (no new versions)", version2)
 	}
 	var versionRows int
 	if err := admin.QueryRow(`SELECT count(*) FROM goose_db_version`).Scan(&versionRows); err != nil {
@@ -189,7 +189,7 @@ func TestOpen_BaselineOverPreExistingDatabase(t *testing.T) {
 	}
 	// goose records one bootstrap row (version 0) plus one row per applied
 	// migration; a second Open must not add any more.
-	const wantVersionRows = 5 // 0 (bootstrap), 1, 2, 3, 4
+	const wantVersionRows = 6 // 0 (bootstrap), 1, 2, 3, 4, 5
 	if versionRows != wantVersionRows {
 		t.Fatalf("goose_db_version row count after second Open = %d, want %d (no duplicate version rows)", versionRows, wantVersionRows)
 	}
@@ -228,8 +228,8 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("goose.GetDBVersion: %v", err)
 	}
-	if version != 4 {
-		t.Fatalf("goose db version on fresh database = %d, want 4", version)
+	if version != 5 {
+		t.Fatalf("goose db version on fresh database = %d, want 5", version)
 	}
 
 	// The rest of Store's API should work immediately, too.
@@ -400,6 +400,135 @@ func TestTripMigration_DownUpRoundTrips(t *testing.T) {
 	}
 	if v := countRows(t, admin, "trip"); v != 0 {
 		t.Fatalf("trip rows after Up = %d, want 0 (Down dropped the table, taking the earlier row with it)", v)
+	}
+}
+
+// TestTripStayEntryMigration_BackfillsExistingBookings proves
+// 00005_trip_stay_entry.sql's backfill step, not just its final shape: a
+// stay booked under the OLD single-column shape (trip_stay.entry_id set
+// directly, the way every stay booked before this migration shipped was
+// represented) must survive the migration with its booked-ness intact — a
+// trip_stay_entry row linking the same stay to the same entry, created
+// automatically, with no application code involved.
+func TestTripStayEntryMigration_BackfillsExistingBookings(t *testing.T) {
+	dsn := OpenTestDSN(t)
+
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("opening admin connection: %v", err)
+	}
+	defer admin.Close()
+
+	if err := gooseSetup(); err != nil {
+		t.Fatalf("gooseSetup: %v", err)
+	}
+
+	// Bring the schema up to version 4 only — trip_stay still has its
+	// entry_id column, and trip_stay_entry does not exist yet. This is
+	// deliberately NOT Open(), which would run every migration including
+	// 00005 and leave nothing to backfill.
+	if err := goose.UpTo(admin, "migrations", 4); err != nil {
+		t.Fatalf("goose.UpTo(4): %v", err)
+	}
+
+	var contractID int64
+	if err := admin.QueryRow(
+		`INSERT INTO contract (name, number, home_resort, annual_points, use_year_month, term_years, purchase_price_cents, closing_costs_cents)
+		 VALUES ('C', '1', 'BLT', 150, 4, 10, 0, 0) RETURNING id`,
+	).Scan(&contractID); err != nil {
+		t.Fatalf("inserting contract: %v", err)
+	}
+
+	var entryID int64
+	if err := admin.QueryRow(
+		`INSERT INTO entry (use_year, date, description, kind, allotted, used, tag, contract_id)
+		 VALUES (2026, '2026-06-01', 'Booked stay', 'usage', 0, 100, '', NULL) RETURNING id`,
+	).Scan(&entryID); err != nil {
+		t.Fatalf("inserting entry: %v", err)
+	}
+
+	var tripID int64
+	if err := admin.QueryRow(
+		`INSERT INTO trip (name, start_date, end_date, min_nights) VALUES ('Pre-migration trip', '2026-06-01', '2026-06-10', 1) RETURNING id`,
+	).Scan(&tripID); err != nil {
+		t.Fatalf("inserting trip: %v", err)
+	}
+
+	// A booked stay (entry_id set) under the OLD shape ...
+	var bookedStayID int64
+	if err := admin.QueryRow(
+		`INSERT INTO trip_stay (trip_id, resort, room_type, check_in, check_out, nights, points, entry_id)
+		 VALUES ($1, 'BLT', 'Studio', '2026-06-01', '2026-06-05', 4, 100, $2) RETURNING id`,
+		tripID, entryID,
+	).Scan(&bookedStayID); err != nil {
+		t.Fatalf("inserting booked stay: %v", err)
+	}
+
+	// ... and an unbooked stay (entry_id NULL) alongside it, to prove the
+	// backfill doesn't manufacture a link out of nothing.
+	var unbookedStayID int64
+	if err := admin.QueryRow(
+		`INSERT INTO trip_stay (trip_id, resort, room_type, check_in, check_out, nights, points, entry_id)
+		 VALUES ($1, 'AKV', '1 Bedroom', '2026-06-05', '2026-06-10', 5, 150, NULL) RETURNING id`,
+		tripID,
+	).Scan(&unbookedStayID); err != nil {
+		t.Fatalf("inserting unbooked stay: %v", err)
+	}
+
+	// Run the migration under test.
+	if err := goose.UpTo(admin, "migrations", 5); err != nil {
+		t.Fatalf("goose.UpTo(5): %v", err)
+	}
+
+	var linkedEntryID int64
+	var linkCount int
+	if err := admin.QueryRow(
+		`SELECT count(*), coalesce(max(entry_id), 0) FROM trip_stay_entry WHERE trip_stay_id = $1`,
+		bookedStayID,
+	).Scan(&linkCount, &linkedEntryID); err != nil {
+		t.Fatalf("querying trip_stay_entry for booked stay: %v", err)
+	}
+	if linkCount != 1 {
+		t.Fatalf("trip_stay_entry rows for booked stay = %d, want 1", linkCount)
+	}
+	if linkedEntryID != entryID {
+		t.Fatalf("backfilled entry_id = %d, want %d (the same entry the stay was booked to before the migration)", linkedEntryID, entryID)
+	}
+
+	var unbookedLinkCount int
+	if err := admin.QueryRow(
+		`SELECT count(*) FROM trip_stay_entry WHERE trip_stay_id = $1`, unbookedStayID,
+	).Scan(&unbookedLinkCount); err != nil {
+		t.Fatalf("querying trip_stay_entry for unbooked stay: %v", err)
+	}
+	if unbookedLinkCount != 0 {
+		t.Fatalf("trip_stay_entry rows for unbooked stay = %d, want 0 (it was never booked)", unbookedLinkCount)
+	}
+
+	// The old column is really gone.
+	var hasEntryIDColumn bool
+	if err := admin.QueryRow(
+		`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'trip_stay' AND column_name = 'entry_id')`,
+	).Scan(&hasEntryIDColumn); err != nil {
+		t.Fatalf("checking for trip_stay.entry_id: %v", err)
+	}
+	if hasEntryIDColumn {
+		t.Fatal("trip_stay.entry_id still exists after migration 5 — the DROP COLUMN step did not run")
+	}
+
+	// Deleting the entry must cascade the link away, the same self-healing
+	// property the old column's ON DELETE SET NULL provided.
+	if _, err := admin.Exec(`DELETE FROM entry WHERE id = $1`, entryID); err != nil {
+		t.Fatalf("deleting entry: %v", err)
+	}
+	var linkCountAfterDelete int
+	if err := admin.QueryRow(
+		`SELECT count(*) FROM trip_stay_entry WHERE trip_stay_id = $1`, bookedStayID,
+	).Scan(&linkCountAfterDelete); err != nil {
+		t.Fatalf("querying trip_stay_entry after deleting entry: %v", err)
+	}
+	if linkCountAfterDelete != 0 {
+		t.Fatalf("trip_stay_entry rows after deleting the linked entry = %d, want 0 (ON DELETE CASCADE must clear the link)", linkCountAfterDelete)
 	}
 }
 
