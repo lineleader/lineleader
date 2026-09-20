@@ -165,6 +165,76 @@ func TestRecentEntryDateAndDesc(t *testing.T) {
 	}
 }
 
+// TestRecentEntryFundingLine covers the funding-source dim line
+// (recentEntryRow.FundingLine) that distinguishes multiple same-date,
+// same-desc rows produced when BookTrip draws points from more than one
+// contract/use-year/disposition — see lineleader-d9x.
+func TestRecentEntryFundingLine(t *testing.T) {
+	cases := []struct {
+		name string
+		tag  string
+		want string
+	}{
+		{"bank disposition", "Bank", "Point allocation · UY2026 · Bank"},
+		{"borrow disposition", "Borrow", "Point allocation · UY2026 · Borrow"},
+		{"empty tag reads as Current", "", "Point allocation · UY2026 · Current"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store := ledger.OpenTest(t)
+			cid, err := store.AddContract(context.Background(), ledger.Contract{
+				Name: "Point allocation", AnnualPoints: 120, UseYearMonth: 4,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.AddEntry(context.Background(), ledger.Entry{
+				UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Trip",
+				Kind: ledger.KindUsage, Used: 40, ContractID: &cid, Tag: c.tag,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			h := &ledgerHandlers{store: store}
+
+			view, err := h.buildLedgerView(context.Background(), 0, 0, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(view.Recent) != 1 {
+				t.Fatalf("len(Recent) = %d, want 1", len(view.Recent))
+			}
+			if got := view.Recent[0].FundingLine; got != c.want {
+				t.Errorf("FundingLine = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestRecentEntryNoFundingLineWithoutContract covers the absence case: a
+// hand-entered entry with no ContractID must produce no funding line at all
+// (empty string), not a line with a blank contract name.
+func TestRecentEntryNoFundingLineWithoutContract(t *testing.T) {
+	store := ledger.OpenTest(t)
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Trip",
+		Kind: ledger.KindUsage, Used: 40,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := &ledgerHandlers{store: store}
+
+	view, err := h.buildLedgerView(context.Background(), 0, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Recent) != 1 {
+		t.Fatalf("len(Recent) = %d, want 1", len(view.Recent))
+	}
+	if got := view.Recent[0].FundingLine; got != "" {
+		t.Errorf("FundingLine = %q, want empty", got)
+	}
+}
+
 // TestSpentByYear covers the ordering/limit behavior through the real view
 // (h.buildLedgerView), using only past use years so the current-use-year
 // clock the view derives internally can't interact with the future-year

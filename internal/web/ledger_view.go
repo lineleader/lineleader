@@ -96,6 +96,12 @@ type recentEntryRow struct {
 	// rendered under the page's ShowCosts guard.
 	CostLabel     string
 	CostProjected bool
+
+	// FundingLine names which contract/use-year/disposition funded this
+	// entry's points, e.g. "Point allocation · UY2026 · Bank" — "" when the
+	// entry has no ContractID (hand-entered usage), in which case nothing
+	// renders. See fundingLine.
+	FundingLine string
 }
 
 // yearSpend is one row of the Spent by Use Year widget: points SPENT in that
@@ -266,7 +272,7 @@ func (h *ledgerHandlers) buildLedgerView(ctx context.Context, editID, editContra
 		EditID:            editID,
 		EditContractID:    editContractID,
 		Err:               errMsg,
-		Recent:            recentEntries(entries),
+		Recent:            recentEntries(entries, contracts),
 		SpentByYear:       spentByYear(summaries, ledger.UseYearForDate(time.Now(), basis.UseYearMonth())),
 		ShowCosts:         basis.Known(),
 		TotalCostLabel:    ledger.FormatUSD(totalCost),
@@ -322,8 +328,9 @@ func sumEntryCosts(entries []ledger.Entry) (total ledger.Cents, anyProjected boo
 // entries has fewer than that many) in reverse-chronological order. entries
 // is ascending by (Date, ID) — the same slice the History view renders — so
 // this walks it backwards into a fresh slice rather than sorting in place,
-// which would reorder Entries out from under the History view.
-func recentEntries(entries []ledger.Entry) []recentEntryRow {
+// which would reorder Entries out from under the History view. contracts
+// resolves each entry's ContractID into a display name for FundingLine.
+func recentEntries(entries []ledger.Entry, contracts []ledger.Contract) []recentEntryRow {
 	n := len(entries)
 	if n > recentActivityLimit {
 		n = recentActivityLimit
@@ -339,9 +346,36 @@ func recentEntries(entries []ledger.Entry) []recentEntryRow {
 			DeltaLabel:    formatSignedDelta(delta),
 			CostLabel:     costLabel(e.Cost, e.CostKnown),
 			CostProjected: e.CostProjected,
+			FundingLine:   fundingLine(e, contracts),
 		}
 	}
 	return rows
+}
+
+// fundingLine formats an entry's funding source for display, or "" when the
+// entry has no ContractID (hand-entered usage) — nothing should render in
+// that case. Disposition is the entry's Tag ("Bank"/"Borrow") when set, or
+// the literal word "Current" for a plain current-use-year draw (Tag "").
+func fundingLine(e ledger.Entry, contracts []ledger.Contract) string {
+	if e.ContractID == nil {
+		return ""
+	}
+	disposition := e.Tag
+	if disposition == "" {
+		disposition = "Current"
+	}
+	return fmt.Sprintf("%s · UY%d · %s", contractNameOf(contracts, *e.ContractID), e.UseYear, disposition)
+}
+
+// contractNameOf looks up a contract's Name by ID, or "" if not found (e.g.
+// a deleted contract an old entry still references).
+func contractNameOf(contracts []ledger.Contract, id int64) string {
+	for _, c := range contracts {
+		if c.ID == id {
+			return c.Name
+		}
+	}
+	return ""
 }
 
 // formatSignedDelta renders a points delta with an explicit sign, e.g.
