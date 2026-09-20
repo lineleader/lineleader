@@ -86,8 +86,8 @@ func (q *Queries) InsertTrip(ctx context.Context, arg InsertTripParams) (int64, 
 }
 
 const insertTripStay = `-- name: InsertTripStay :one
-INSERT INTO trip_stay (trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash, entry_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO trip_stay (trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id
 `
 
@@ -101,7 +101,6 @@ type InsertTripStayParams struct {
 	Nights    int32
 	Points    int32
 	QuoteHash string
-	EntryID   sql.NullInt64
 }
 
 func (q *Queries) InsertTripStay(ctx context.Context, arg InsertTripStayParams) (int64, error) {
@@ -115,15 +114,68 @@ func (q *Queries) InsertTripStay(ctx context.Context, arg InsertTripStayParams) 
 		arg.Nights,
 		arg.Points,
 		arg.QuoteHash,
-		arg.EntryID,
 	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
 
+const insertTripStayEntry = `-- name: InsertTripStayEntry :exec
+INSERT INTO trip_stay_entry (trip_stay_id, entry_id)
+VALUES ($1, $2)
+`
+
+type InsertTripStayEntryParams struct {
+	TripStayID int64
+	EntryID    int64
+}
+
+func (q *Queries) InsertTripStayEntry(ctx context.Context, arg InsertTripStayEntryParams) error {
+	_, err := q.db.ExecContext(ctx, insertTripStayEntry, arg.TripStayID, arg.EntryID)
+	return err
+}
+
+const listTripStayEntryIDsForTrip = `-- name: ListTripStayEntryIDsForTrip :many
+SELECT tse.trip_stay_id, tse.entry_id
+FROM trip_stay_entry tse
+JOIN trip_stay ts ON ts.id = tse.trip_stay_id
+WHERE ts.trip_id = $1
+ORDER BY tse.trip_stay_id, tse.entry_id
+`
+
+type ListTripStayEntryIDsForTripRow struct {
+	TripStayID int64
+	EntryID    int64
+}
+
+// Every (trip_stay_id, entry_id) link for tripID's stays, in one query —
+// Store.ListStays groups these by trip_stay_id in Go rather than each stay
+// issuing its own lookup.
+func (q *Queries) ListTripStayEntryIDsForTrip(ctx context.Context, tripID int64) ([]ListTripStayEntryIDsForTripRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTripStayEntryIDsForTrip, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTripStayEntryIDsForTripRow
+	for rows.Next() {
+		var i ListTripStayEntryIDsForTripRow
+		if err := rows.Scan(&i.TripStayID, &i.EntryID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTripStays = `-- name: ListTripStays :many
-SELECT id, trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash, entry_id
+SELECT id, trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash
 FROM trip_stay
 WHERE trip_id = $1
 ORDER BY check_in, id
@@ -149,7 +201,6 @@ func (q *Queries) ListTripStays(ctx context.Context, tripID int64) ([]TripStay, 
 			&i.Nights,
 			&i.Points,
 			&i.QuoteHash,
-			&i.EntryID,
 		); err != nil {
 			return nil, err
 		}
@@ -201,20 +252,6 @@ func (q *Queries) ListTrips(ctx context.Context) ([]Trip, error) {
 		return nil, err
 	}
 	return items, nil
-}
-
-const setTripStayEntryID = `-- name: SetTripStayEntryID :exec
-UPDATE trip_stay SET entry_id = $1 WHERE id = $2
-`
-
-type SetTripStayEntryIDParams struct {
-	EntryID sql.NullInt64
-	ID      int64
-}
-
-func (q *Queries) SetTripStayEntryID(ctx context.Context, arg SetTripStayEntryIDParams) error {
-	_, err := q.db.ExecContext(ctx, setTripStayEntryID, arg.EntryID, arg.ID)
-	return err
 }
 
 const updateTrip = `-- name: UpdateTrip :exec

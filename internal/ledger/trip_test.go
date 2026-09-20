@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/lineleader/lineleader/internal/ledger/dbgen"
 )
 
 func TestTripCRUD(t *testing.T) {
@@ -127,11 +129,19 @@ func TestTripStayCRUD(t *testing.T) {
 		Nights:    5,
 		Points:    130,
 		QuoteHash: QuoteHash("BLT", 2026, 1, []int{20, 25, 30, 35, 40}),
-		EntryID:   &entryID,
 	}
 	id2, err := s.AddStay(ctx, booked)
 	if err != nil {
 		t.Fatalf("AddStay (booked): %v", err)
+	}
+	// AddStay always inserts a stay unbooked (see its doc comment) — link it
+	// to entryID directly through trip_stay_entry, the same shape BookTrip
+	// itself writes, to simulate an already-booked stay for this CRUD test.
+	if err := s.q.InsertTripStayEntry(ctx, dbgen.InsertTripStayEntryParams{
+		TripStayID: id2,
+		EntryID:    entryID,
+	}); err != nil {
+		t.Fatalf("InsertTripStayEntry: %v", err)
 	}
 
 	got, err := s.ListStays(ctx, tripID)
@@ -143,10 +153,10 @@ func TestTripStayCRUD(t *testing.T) {
 	}
 	// ListStays orders by (check_in, id); unbooked (check_in 06-01) sorts
 	// before booked (check_in 06-05).
-	if got[0].ID != id1 || got[0].EntryID != nil {
-		t.Errorf("stay 0 = %+v, want unbooked stay id %d with nil EntryID", got[0], id1)
+	if got[0].ID != id1 || got[0].Booked() {
+		t.Errorf("stay 0 = %+v, want unbooked stay id %d with empty EntryIDs", got[0], id1)
 	}
-	if got[1].ID != id2 || got[1].EntryID == nil || *got[1].EntryID != entryID {
+	if got[1].ID != id2 || len(got[1].EntryIDs) != 1 || got[1].EntryIDs[0] != entryID {
 		t.Errorf("stay 1 = %+v, want booked stay id %d linked to entry %d", got[1], id2, entryID)
 	}
 	if got[1].QuoteHash != booked.QuoteHash {

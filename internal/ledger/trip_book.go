@@ -2,16 +2,16 @@ package ledger
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/lineleader/lineleader/internal/ledger/dbgen"
 )
 
 // BookTrip writes one usage entry per unbooked stay and links each stay to
-// its new entry, all in one transaction: either every stay is booked or none
-// is. Re-booking is a no-op — only stays with a NULL entry_id are considered
-// — so a double-submitted form is safe.
+// its new entry (a trip_stay_entry row), all in one transaction: either
+// every stay is booked or none is. Re-booking is a no-op — only stays with
+// no linked entries are considered (see TripStay.Booked) — so a
+// double-submitted form is safe.
 //
 // Each entry's UseYear is UseYearForDate(stay.CheckIn, month), per stay and
 // NOT per trip: a trip window may straddle a use-year boundary even though
@@ -46,7 +46,7 @@ func (s *Store) BookTrip(ctx context.Context, tripID int64) error {
 	}
 
 	for _, st := range stays {
-		if st.EntryID != nil {
+		if st.Booked() {
 			continue // already booked; re-booking must be a no-op
 		}
 
@@ -63,9 +63,9 @@ func (s *Store) BookTrip(ctx context.Context, tripID int64) error {
 			return fmt.Errorf("BookTrip: adding entry for stay %d: %w", st.ID, err)
 		}
 
-		if err := txs.q.SetTripStayEntryID(ctx, dbgen.SetTripStayEntryIDParams{
-			EntryID: sql.NullInt64{Int64: newID, Valid: true},
-			ID:      st.ID,
+		if err := txs.q.InsertTripStayEntry(ctx, dbgen.InsertTripStayEntryParams{
+			TripStayID: st.ID,
+			EntryID:    newID,
 		}); err != nil {
 			return fmt.Errorf("BookTrip: linking stay %d to entry %d: %w", st.ID, newID, err)
 		}
@@ -75,8 +75,8 @@ func (s *Store) BookTrip(ctx context.Context, tripID int64) error {
 }
 
 // UnbookTrip deletes every ledger entry this trip's stays created, reaching
-// them only through trip_stay.entry_id and relying on that column's
-// ON DELETE SET NULL to clear the links as a side effect.
+// them only through trip_stay_entry and relying on that table's
+// ON DELETE CASCADE (on entry_id) to remove the link rows as a side effect.
 func (s *Store) UnbookTrip(ctx context.Context, tripID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

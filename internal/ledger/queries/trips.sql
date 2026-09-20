@@ -19,12 +19,12 @@ SET name = $1, start_date = $2, end_date = $3, min_nights = $4, budget_override 
 WHERE id = $9;
 
 -- name: InsertTripStay :one
-INSERT INTO trip_stay (trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash, entry_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO trip_stay (trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id;
 
 -- name: ListTripStays :many
-SELECT id, trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash, entry_id
+SELECT id, trip_id, resort, room_type, view, check_in, check_out, nights, points, quote_hash
 FROM trip_stay
 WHERE trip_id = $1
 ORDER BY check_in, id;
@@ -35,5 +35,16 @@ DELETE FROM trip WHERE id = $1;
 -- name: DeleteTripStay :exec
 DELETE FROM trip_stay WHERE id = $1;
 
--- name: SetTripStayEntryID :exec
-UPDATE trip_stay SET entry_id = $1 WHERE id = $2;
+-- name: InsertTripStayEntry :exec
+INSERT INTO trip_stay_entry (trip_stay_id, entry_id)
+VALUES ($1, $2);
+
+-- name: ListTripStayEntryIDsForTrip :many
+-- Every (trip_stay_id, entry_id) link for tripID's stays, in one query —
+-- Store.ListStays groups these by trip_stay_id in Go rather than each stay
+-- issuing its own lookup.
+SELECT tse.trip_stay_id, tse.entry_id
+FROM trip_stay_entry tse
+JOIN trip_stay ts ON ts.id = tse.trip_stay_id
+WHERE ts.trip_id = $1
+ORDER BY tse.trip_stay_id, tse.entry_id;

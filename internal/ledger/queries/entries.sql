@@ -18,8 +18,13 @@ DELETE FROM entry WHERE id = $1;
 
 -- name: DeleteEntriesForTrip :exec
 DELETE FROM entry
- WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_id = $1 AND entry_id IS NOT NULL);
+ WHERE id IN (
+     SELECT tse.entry_id
+     FROM trip_stay_entry tse
+     JOIN trip_stay ts ON ts.id = tse.trip_stay_id
+     WHERE ts.trip_id = $1
+ );
 
 -- name: DeleteEntriesForStay :exec
 DELETE FROM entry
- WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_stay.id = $1 AND entry_id IS NOT NULL);
+ WHERE id IN (SELECT entry_id FROM trip_stay_entry WHERE trip_stay_id = $1);

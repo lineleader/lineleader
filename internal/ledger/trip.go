@@ -45,8 +45,13 @@ type Trip struct {
 // TripStay is a lossless serialization of one dvc.StayResult a trip has
 // collected. internal/ledger must not import internal/dvc (that would
 // invert the layering), so Resort/RoomType/View are plain strings rather
-// than dvc's own types. EntryID is nil until the stay is booked; booked-ness
-// is always derived from it, never stored separately.
+// than dvc's own types. EntryIDs lists the ledger entries this stay is
+// linked to via the trip_stay_entry table — empty until the stay is
+// booked. Booked-ness is always derived from it (see TripStay.Booked),
+// never stored separately. BookTrip links exactly one entry per stay today
+// (see trip_book.go); the slice shape exists so a later change (issue
+// nyj.4, stay-level point allocation) can link several without another
+// schema change.
 type TripStay struct {
 	ID        int64
 	TripID    int64
@@ -58,7 +63,15 @@ type TripStay struct {
 	Nights    int
 	Points    int
 	QuoteHash string
-	EntryID   *int64 // nil = not booked
+	EntryIDs  []int64 // empty = not booked
+}
+
+// Booked reports whether st has at least one linked ledger entry. This is
+// the single place "booked" is derived from EntryIDs — callers must never
+// re-derive it by checking len(EntryIDs) themselves, the same discipline
+// the trips design doc asks of the web layer's own status derivation.
+func (st TripStay) Booked() bool {
+	return len(st.EntryIDs) > 0
 }
 
 // nullInt32FromIntPtr converts a possibly-nil *int into the sql.NullInt32
@@ -78,25 +91,6 @@ func intPtrFromNullInt32(v sql.NullInt32) *int {
 	}
 	i := int(v.Int32)
 	return &i
-}
-
-// nullInt64FromPtr converts a possibly-nil *int64 into the sql.NullInt64
-// dbgen's generated params expect for the nullable trip_stay.entry_id
-// column.
-func nullInt64FromPtr(v *int64) sql.NullInt64 {
-	if v == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: *v, Valid: true}
-}
-
-// ptrFromNullInt64 is the inverse of nullInt64FromPtr.
-func ptrFromNullInt64(v sql.NullInt64) *int64 {
-	if !v.Valid {
-		return nil
-	}
-	id := v.Int64
-	return &id
 }
 
 // marshalStringList encodes list as the JSON array text stored in
@@ -152,7 +146,9 @@ func tripFromRow(row dbgen.Trip) (Trip, error) {
 }
 
 // tripStayFromRow maps a dbgen.TripStay (sqlc's generated model) onto the
-// domain TripStay type.
+// domain TripStay type. EntryIDs is left at its zero value — trip_stay no
+// longer carries its own links, so ListStays fills EntryIDs in separately
+// from a ListTripStayEntryIDsForTrip lookup.
 func tripStayFromRow(row dbgen.TripStay) TripStay {
 	return TripStay{
 		ID:        row.ID,
@@ -165,7 +161,6 @@ func tripStayFromRow(row dbgen.TripStay) TripStay {
 		Nights:    int(row.Nights),
 		Points:    int(row.Points),
 		QuoteHash: row.QuoteHash,
-		EntryID:   ptrFromNullInt64(row.EntryID),
 	}
 }
 
@@ -244,7 +239,10 @@ func (s *Store) UpdateTrip(ctx context.Context, t Trip) error {
 	})
 }
 
-// AddStay inserts st and returns its new id.
+// AddStay inserts st and returns its new id. A stay is always inserted
+// unbooked — st.EntryIDs is ignored; a stay only gains links via BookTrip
+// (or a later nyj.4 allocator), inserted into trip_stay_entry, never on the
+// trip_stay row itself.
 func (s *Store) AddStay(ctx context.Context, st TripStay) (int64, error) {
 	return s.q.InsertTripStay(ctx, dbgen.InsertTripStayParams{
 		TripID:    st.TripID,
@@ -256,20 +254,34 @@ func (s *Store) AddStay(ctx context.Context, st TripStay) (int64, error) {
 		Nights:    int32(st.Nights),
 		Points:    int32(st.Points),
 		QuoteHash: st.QuoteHash,
-		EntryID:   nullInt64FromPtr(st.EntryID),
 	})
 }
 
 // ListStays returns every stay belonging to tripID, ordered by
-// (check_in, id).
+// (check_in, id), with each stay's EntryIDs populated from
+// trip_stay_entry. Two queries, not a join: trip_stay_entry can hold
+// several rows per stay, and grouping that in SQL (array_agg) would need a
+// Postgres array type on the Go side purely for this one field, where a
+// second flat query plus an in-memory group-by keeps every other query in
+// this package's plain scalar-per-column shape.
 func (s *Store) ListStays(ctx context.Context, tripID int64) ([]TripStay, error) {
 	rows, err := s.q.ListTripStays(ctx, tripID)
 	if err != nil {
 		return nil, err
 	}
+	links, err := s.q.ListTripStayEntryIDsForTrip(ctx, tripID)
+	if err != nil {
+		return nil, err
+	}
+	entryIDsByStay := make(map[int64][]int64, len(links))
+	for _, l := range links {
+		entryIDsByStay[l.TripStayID] = append(entryIDsByStay[l.TripStayID], l.EntryID)
+	}
 	var out []TripStay
 	for _, row := range rows {
-		out = append(out, tripStayFromRow(row))
+		st := tripStayFromRow(row)
+		st.EntryIDs = entryIDsByStay[st.ID]
+		out = append(out, st)
 	}
 	return out, nil
 }

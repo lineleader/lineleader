@@ -12,17 +12,22 @@ import (
 
 const deleteEntriesForStay = `-- name: DeleteEntriesForStay :exec
 DELETE FROM entry
- WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_stay.id = $1 AND entry_id IS NOT NULL)
+ WHERE id IN (SELECT entry_id FROM trip_stay_entry WHERE trip_stay_id = $1)
 `
 
-func (q *Queries) DeleteEntriesForStay(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteEntriesForStay, id)
+func (q *Queries) DeleteEntriesForStay(ctx context.Context, tripStayID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteEntriesForStay, tripStayID)
 	return err
 }
 
 const deleteEntriesForTrip = `-- name: DeleteEntriesForTrip :exec
 DELETE FROM entry
- WHERE id IN (SELECT entry_id FROM trip_stay WHERE trip_id = $1 AND entry_id IS NOT NULL)
+ WHERE id IN (
+     SELECT tse.entry_id
+     FROM trip_stay_entry tse
+     JOIN trip_stay ts ON ts.id = tse.trip_stay_id
+     WHERE ts.trip_id = $1
+ )
 `
 
 func (q *Queries) DeleteEntriesForTrip(ctx context.Context, tripID int64) error {

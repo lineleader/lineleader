@@ -61,5 +61,10 @@ type TripStay struct {
 	Nights    int32
 	Points    int32
 	QuoteHash string
-	EntryID   sql.NullInt64
+}
+
+type TripStayEntry struct {
+	ID         int64
+	TripStayID int64
+	EntryID    int64
 }

@@ -130,12 +130,12 @@ func TestBookTrip_WritesOneEntryPerStay(t *testing.T) {
 		t.Fatalf("ListStays: %v", err)
 	}
 	got1 := findStay(t, stays, stay1ID)
-	if got1.EntryID == nil || *got1.EntryID != e1.ID {
-		t.Errorf("stay1.EntryID = %v, want *%d", got1.EntryID, e1.ID)
+	if len(got1.EntryIDs) != 1 || got1.EntryIDs[0] != e1.ID {
+		t.Errorf("stay1.EntryIDs = %v, want [%d]", got1.EntryIDs, e1.ID)
 	}
 	got2 := findStay(t, stays, stay2ID)
-	if got2.EntryID == nil || *got2.EntryID != e2.ID {
-		t.Errorf("stay2.EntryID = %v, want *%d", got2.EntryID, e2.ID)
+	if len(got2.EntryIDs) != 1 || got2.EntryIDs[0] != e2.ID {
+		t.Errorf("stay2.EntryIDs = %v, want [%d]", got2.EntryIDs, e2.ID)
 	}
 }
 
@@ -264,10 +264,10 @@ func TestBookTrip_IdempotentReBook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStays: %v", err)
 	}
-	entryIDBefore1 := findStay(t, staysBefore, stay1ID).EntryID
-	entryIDBefore2 := findStay(t, staysBefore, stay2ID).EntryID
-	if entryIDBefore1 == nil || entryIDBefore2 == nil {
-		t.Fatalf("expected both stays booked after first BookTrip: %+v", staysBefore)
+	entryIDsBefore1 := findStay(t, staysBefore, stay1ID).EntryIDs
+	entryIDsBefore2 := findStay(t, staysBefore, stay2ID).EntryIDs
+	if len(entryIDsBefore1) != 1 || len(entryIDsBefore2) != 1 {
+		t.Fatalf("expected both stays booked with exactly one entry after first BookTrip: %+v", staysBefore)
 	}
 
 	if err := s.BookTrip(ctx, tripID); err != nil {
@@ -286,13 +286,13 @@ func TestBookTrip_IdempotentReBook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStays after second BookTrip: %v", err)
 	}
-	entryIDAfter1 := findStay(t, staysAfter, stay1ID).EntryID
-	entryIDAfter2 := findStay(t, staysAfter, stay2ID).EntryID
-	if entryIDAfter1 == nil || *entryIDAfter1 != *entryIDBefore1 {
-		t.Errorf("stay1 EntryID changed on re-book: before %v, after %v", entryIDBefore1, entryIDAfter1)
+	entryIDsAfter1 := findStay(t, staysAfter, stay1ID).EntryIDs
+	entryIDsAfter2 := findStay(t, staysAfter, stay2ID).EntryIDs
+	if len(entryIDsAfter1) != 1 || entryIDsAfter1[0] != entryIDsBefore1[0] {
+		t.Errorf("stay1 EntryIDs changed on re-book: before %v, after %v", entryIDsBefore1, entryIDsAfter1)
 	}
-	if entryIDAfter2 == nil || *entryIDAfter2 != *entryIDBefore2 {
-		t.Errorf("stay2 EntryID changed on re-book: before %v, after %v", entryIDBefore2, entryIDAfter2)
+	if len(entryIDsAfter2) != 1 || entryIDsAfter2[0] != entryIDsBefore2[0] {
+		t.Errorf("stay2 EntryIDs changed on re-book: before %v, after %v", entryIDsBefore2, entryIDsAfter2)
 	}
 }
 
@@ -359,8 +359,8 @@ func TestBookTrip_RollbackIsAllOrNothing(t *testing.T) {
 		t.Fatalf("ListStays: %v", err)
 	}
 	first := findStay(t, stays, firstStayID)
-	if first.EntryID != nil {
-		t.Errorf("first stay EntryID = %v, want nil — its insert must not have survived the rolled-back transaction", first.EntryID)
+	if first.Booked() {
+		t.Errorf("first stay EntryIDs = %v, want empty — its insert must not have survived the rolled-back transaction", first.EntryIDs)
 	}
 }
 
@@ -443,11 +443,11 @@ func TestUnbookTrip_RemovesLinkedEntriesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStays: %v", err)
 	}
-	if got := findStay(t, stays, stay1ID); got.EntryID != nil {
-		t.Errorf("stay1.EntryID = %v, want nil after UnbookTrip", got.EntryID)
+	if got := findStay(t, stays, stay1ID); got.Booked() {
+		t.Errorf("stay1.EntryIDs = %v, want empty after UnbookTrip", got.EntryIDs)
 	}
-	if got := findStay(t, stays, stay2ID); got.EntryID != nil {
-		t.Errorf("stay2.EntryID = %v, want nil after UnbookTrip", got.EntryID)
+	if got := findStay(t, stays, stay2ID); got.Booked() {
+		t.Errorf("stay2.EntryIDs = %v, want empty after UnbookTrip", got.EntryIDs)
 	}
 }
 
@@ -583,11 +583,13 @@ func TestDeleteStay_RemovesOnlyThatStayAndItsEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStays before delete: %v", err)
 	}
-	stay1EntryID := findStay(t, staysBefore, stay1ID).EntryID
-	stay2EntryID := findStay(t, staysBefore, stay2ID).EntryID
-	if stay1EntryID == nil || stay2EntryID == nil {
-		t.Fatalf("expected both stays booked before DeleteStay: %+v", staysBefore)
+	stay1EntryIDs := findStay(t, staysBefore, stay1ID).EntryIDs
+	stay2EntryIDs := findStay(t, staysBefore, stay2ID).EntryIDs
+	if len(stay1EntryIDs) != 1 || len(stay2EntryIDs) != 1 {
+		t.Fatalf("expected both stays booked with exactly one entry before DeleteStay: %+v", staysBefore)
 	}
+	stay1EntryID := stay1EntryIDs[0]
+	stay2EntryID := stay2EntryIDs[0]
 
 	if err := s.DeleteStay(ctx, stay1ID); err != nil {
 		t.Fatalf("DeleteStay: %v", err)
@@ -603,8 +605,8 @@ func TestDeleteStay_RemovesOnlyThatStayAndItsEntry(t *testing.T) {
 		}
 	}
 	remaining := findStay(t, staysAfter, stay2ID)
-	if remaining.EntryID == nil || *remaining.EntryID != *stay2EntryID {
-		t.Errorf("stay2.EntryID after DeleteStay = %v, want unchanged *%d", remaining.EntryID, *stay2EntryID)
+	if len(remaining.EntryIDs) != 1 || remaining.EntryIDs[0] != stay2EntryID {
+		t.Errorf("stay2.EntryIDs after DeleteStay = %v, want unchanged [%d]", remaining.EntryIDs, stay2EntryID)
 	}
 
 	entries, err := s.ListEntries(ctx)
@@ -615,21 +617,22 @@ func TestDeleteStay_RemovesOnlyThatStayAndItsEntry(t *testing.T) {
 	for _, e := range entries {
 		byID[e.ID] = true
 	}
-	if byID[*stay1EntryID] {
-		t.Errorf("stay1's entry (%d) still present after DeleteStay", *stay1EntryID)
+	if byID[stay1EntryID] {
+		t.Errorf("stay1's entry (%d) still present after DeleteStay", stay1EntryID)
 	}
-	if !byID[*stay2EntryID] {
-		t.Errorf("stay2's entry (%d) missing after DeleteStay; it should be untouched", *stay2EntryID)
+	if !byID[stay2EntryID] {
+		t.Errorf("stay2's entry (%d) missing after DeleteStay; it should be untouched", stay2EntryID)
 	}
 }
 
 // TestDeleteEntry_BehindBookedStayClearsTheLink documents that
-// trip_stay.entry_id's ON DELETE SET NULL is CORRECT behavior, not a bug:
-// deleting a ledger entry directly on /ledger (bypassing UnbookTrip or
+// trip_stay_entry.entry_id's ON DELETE CASCADE is CORRECT behavior, not a
+// bug: deleting a ledger entry directly on /ledger (bypassing UnbookTrip or
 // DeleteStay entirely) must not leave a dangling foreign key or break the
 // stay. The stay and its trip both keep existing; the stay's booked-ness
 // simply reverts to "not booked" because that status is always derived from
-// entry_id being non-nil, never stored separately.
+// whether it has any linked entries (TripStay.Booked), never stored
+// separately.
 func TestDeleteEntry_BehindBookedStayClearsTheLink(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -659,12 +662,12 @@ func TestDeleteEntry_BehindBookedStayClearsTheLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStays: %v", err)
 	}
-	entryID := findStay(t, stays, stayID).EntryID
-	if entryID == nil {
-		t.Fatal("expected stay to be booked before direct DeleteEntry")
+	entryIDs := findStay(t, stays, stayID).EntryIDs
+	if len(entryIDs) != 1 {
+		t.Fatal("expected stay to be booked with exactly one entry before direct DeleteEntry")
 	}
 
-	if err := s.DeleteEntry(ctx, *entryID); err != nil {
+	if err := s.DeleteEntry(ctx, entryIDs[0]); err != nil {
 		t.Fatalf("DeleteEntry: %v", err)
 	}
 
@@ -673,8 +676,8 @@ func TestDeleteEntry_BehindBookedStayClearsTheLink(t *testing.T) {
 		t.Fatalf("ListStays after direct DeleteEntry: %v", err)
 	}
 	got := findStay(t, stays, stayID)
-	if got.EntryID != nil {
-		t.Errorf("stay.EntryID after direct DeleteEntry = %v, want nil (ON DELETE SET NULL)", got.EntryID)
+	if got.Booked() {
+		t.Errorf("stay.EntryIDs after direct DeleteEntry = %v, want empty (ON DELETE CASCADE removes the link row)", got.EntryIDs)
 	}
 
 	if _, err := s.GetTrip(ctx, tripID); err != nil {
