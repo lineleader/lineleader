@@ -82,14 +82,9 @@ funded by more than one ledger entry (see the allocator section below). The
 `CREATE TABLE` block above is the current, combined shape — read the two
 migration files directly for the exact history.
 
-Both migration files' own comments are historical records of what was true
-*when each one ran*, and are left as-written rather than edited after the
-fact (`00004_trip.sql` predates this document's `entry_id` column entirely;
-`00005_trip_stay_entry.sql`'s own comment still says "a stay still gets
-exactly one entry when booked," which was accurate at the time it was
-written but is superseded now that `BookTrip` writes one entry per point
-draw — see "One `KindUsage` entry per draw" below). This document, not the
-migration comments, is the place to look for current behaviour.
+`00004_trip.sql`'s comments are a historical record of what was true when
+that migration ran and are left as-written rather than edited after the fact
+— it predates this document and cannot be reshaped without a data migration.
 
 ### `DATE`, not `TEXT`
 

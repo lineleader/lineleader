@@ -3,19 +3,19 @@
 
 -- trip_stay_entry replaces trip_stay.entry_id: instead of a single nullable
 -- FK on trip_stay pointing at the one entry a booked stay produced, a stay
--- is now linked to its entries through this join table. A stay still gets
--- exactly one entry when booked (see BookTrip in trip_book.go) — nothing
--- about booking BEHAVIOUR changes in this migration — but the new shape
--- lets a later change (issue nyj.4, stay-level point allocation across
--- current/banked/borrowed points) write SEVERAL entries per stay without
--- another schema migration.
+-- is now linked to its entries through this join table. A stay can now get
+-- multiple entries when booked (see BookTrip in trip_book.go) — this
+-- migration's job was to enable that shape change without reshaping the
+-- schema later. The point allocator (issue nyj.4, stay-level point allocation
+-- across current/banked/borrowed points) now routinely writes SEVERAL entries
+-- per stay by drawing from multiple contract lots.
 CREATE TABLE trip_stay_entry (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     trip_stay_id BIGINT NOT NULL REFERENCES trip_stay(id) ON DELETE CASCADE,
-    -- UNIQUE, not just indexed: today's one-entry-per-stay invariant still
-    -- holds, and this keeps the same entry from ever being linked to two
-    -- stays. ON DELETE CASCADE (not SET NULL — there is no column left to
-    -- null out) is what preserves the self-healing property
+    -- UNIQUE, not just indexed: this keeps the same entry from ever being
+    -- linked to two stays, a constraint that still holds even though one stay
+    -- now has many entries. ON DELETE CASCADE (not SET NULL — there is no
+    -- column left to null out) is what preserves the self-healing property
     -- docs/plans/trips.md relies on: deleting an entry from /ledger removes
     -- its trip_stay_entry row automatically, with no application code
     -- involved, and the stay's booked-ness — derived from whether it has
@@ -50,12 +50,13 @@ ALTER TABLE trip_stay DROP COLUMN entry_id;
 
 -- Down recreates entry_id and repopulates it only for stays linked to
 -- EXACTLY one entry — the only case the old single-column shape could ever
--- represent. A stay linked to more than one entry (only possible once
--- nyj.4 lands and actually writes several) CANNOT be losslessly restored to
--- a single entry_id, so Down deliberately leaves entry_id NULL for those
--- rows rather than guessing which linked entry to keep. Down is therefore a
--- genuine, lossy downgrade for any trip booked under the multi-entry shape
--- — not a lossless round trip the way 00003's rename Down is.
+-- represent. A stay linked to more than one entry (now the normal case for
+-- trips booked after nyj.4, which allocates across multiple contract lots)
+-- CANNOT be losslessly restored to a single entry_id, so Down deliberately
+-- leaves entry_id NULL for those rows rather than guessing which linked
+-- entry to keep. Down is therefore a genuine, lossy downgrade for any trip
+-- booked under the multi-entry shape — not a lossless round trip the way
+-- 00003's rename Down is.
 ALTER TABLE trip_stay ADD COLUMN entry_id BIGINT REFERENCES entry(id) ON DELETE SET NULL;
 
 UPDATE trip_stay
