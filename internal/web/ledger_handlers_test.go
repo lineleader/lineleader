@@ -1304,11 +1304,11 @@ func TestLedgerRecentActivityTableAlignsColumns(t *testing.T) {
 		// Allocation row: no cost, but the cost <td> still renders (empty)
 		// so the column keeps its track. html/template escapes "+" as
 		// "&#43;" (its conservative text escaper, same as any other "+" in
-		// rendered ledger output). Both rows carry ContractID, so each also
-		// gains a funding dim-line inside .recent-desc (right after the
-		// description, no separator before it since it's a block element).
-		`<tr><td class="recent-date">2026-04-01</td><td class="recent-desc">Alloc<span class="recent-funding">Point allocation · UY2026 · Current</span></td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
-		// Usage row: same four <td>s, cost populated.
+		// rendered ledger output). Allocation entries (Used == 0) do not
+		// render a funding line: their contract is already in their Desc.
+		`<tr><td class="recent-date">2026-04-01</td><td class="recent-desc">Alloc</td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
+		// Usage row: same four <td>s, cost populated, plus funding line
+		// since it consumes points (Used > 0).
 		`<tr><td class="recent-date">2026-05-01</td><td class="recent-desc">Priced trip<span class="recent-funding">Point allocation · UY2026 · Current</span></td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
 		// Spent-by-year row: year/pts/cost, same shape.
 		`<tr><td>2026</td><td class="spent-pts">40 pts</td><td class="cost">$556.12</td></tr>`,

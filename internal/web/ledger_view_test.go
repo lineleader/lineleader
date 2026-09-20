@@ -235,6 +235,70 @@ func TestRecentEntryNoFundingLineWithoutContract(t *testing.T) {
 	}
 }
 
+// TestRecentEntryNoFundingLineForAllocation covers the case where an
+// allocation entry (which has Allotted > 0 but Used == 0) should produce no
+// funding line: the allocation's description already names the contract, so
+// repeating it would be redundant and misleading (an allocation is not
+// "Current" / "Bank" / "Borrow" — it IS the lot those dispositions draw from).
+func TestRecentEntryNoFundingLineForAllocation(t *testing.T) {
+	store := ledger.OpenTest(t)
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
+		Name: "Grand Floridian", AnnualPoints: 120, UseYearMonth: 4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-04-01"), Desc: "Alloc",
+		Kind: ledger.KindAllocation, Allotted: 120, Used: 0, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := &ledgerHandlers{store: store}
+
+	view, err := h.buildLedgerView(context.Background(), 0, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Recent) != 1 {
+		t.Fatalf("len(Recent) = %d, want 1", len(view.Recent))
+	}
+	if got := view.Recent[0].FundingLine; got != "" {
+		t.Errorf("FundingLine = %q, want empty", got)
+	}
+}
+
+// TestRecentEntryFundingLineForUsage ensures that usage entries (which have
+// Used > 0) still produce their funding line even when ContractID is set.
+func TestRecentEntryFundingLineForUsage(t *testing.T) {
+	store := ledger.OpenTest(t)
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
+		Name: "Beach Club", AnnualPoints: 100, UseYearMonth: 4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Trip",
+		Kind: ledger.KindUsage, Used: 50, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := &ledgerHandlers{store: store}
+
+	view, err := h.buildLedgerView(context.Background(), 0, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Recent) != 1 {
+		t.Fatalf("len(Recent) = %d, want 1", len(view.Recent))
+	}
+	want := "Beach Club · UY2026 · Current"
+	if got := view.Recent[0].FundingLine; got != want {
+		t.Errorf("FundingLine = %q, want %q", got, want)
+	}
+}
+
 // TestSpentByYear covers the ordering/limit behavior through the real view
 // (h.buildLedgerView), using only past use years so the current-use-year
 // clock the view derives internally can't interact with the future-year

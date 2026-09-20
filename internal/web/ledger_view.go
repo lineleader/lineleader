@@ -353,11 +353,14 @@ func recentEntries(entries []ledger.Entry, contracts []ledger.Contract) []recent
 }
 
 // fundingLine formats an entry's funding source for display, or "" when the
-// entry has no ContractID (hand-entered usage) — nothing should render in
-// that case. Disposition is the entry's Tag ("Bank"/"Borrow") when set, or
-// the literal word "Current" for a plain current-use-year draw (Tag "").
+// entry has no ContractID (hand-entered usage) or does not consume points
+// (e.g., an allocation, bonus, or single-use entry with Used == 0) — nothing
+// should render in those cases. Allocation entries have their contract name
+// in their Desc already; repeating it would be redundant and misleading.
+// Disposition is the entry's Tag ("Bank"/"Borrow") when set, or the literal
+// word "Current" for a plain current-use-year draw (Tag "").
 func fundingLine(e ledger.Entry, contracts []ledger.Contract) string {
-	if e.ContractID == nil {
+	if e.ContractID == nil || e.Used == 0 {
 		return ""
 	}
 	disposition := e.Tag
