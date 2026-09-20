@@ -139,7 +139,7 @@
     <h2>Ledger</h2>
     <table>
       <thead>
-        <tr><th>Year</th><th>Date</th><th>Desc</th><th>Allotted</th><th>Used</th><th>Total</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th>Tag</th><th></th></tr>
+        <tr><th>Year</th><th>Date</th><th>Desc</th><th>Allotted</th><th>Used</th><th>Total</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th>Contract</th><th>Tag</th><th></th></tr>
       </thead>
       <tbody>
         {{$kinds := .Kinds}}{{$contracts := .Contracts}}{{$showCosts := .ShowCosts}}
@@ -155,6 +155,7 @@
               <td>{{blankZero .Used}}</td>
               <td>{{.RunningBalance}}</td>
               {{if $showCosts}}<td class="cost">{{if .CostKnown}}{{money .Cost}}{{if .CostProjected}}<abbr class="est" title="Dues for {{.UseYear}} are projected, not actual">*</abbr>{{end}}{{end}}</td>{{end}}
+              <td>{{contractName $contracts .ContractID}}</td>
               <td>{{.Tag}}</td>
               <td>
                 <button type="button" hx-get="/ledger/entries/{{.ID}}/edit?view=history" hx-target="#ledger-body" hx-swap="outerHTML">Edit</button>
@@ -164,7 +165,7 @@
             </tr>
           {{end}}
         {{else}}
-          <tr><td colspan="{{if .ShowCosts}}9{{else}}8{{end}}">No entries yet.</td></tr>
+          <tr><td colspan="{{if .ShowCosts}}10{{else}}9{{end}}">No entries yet.</td></tr>
         {{end}}
       </tbody>
       {{if .ShowCosts}}
@@ -172,7 +173,7 @@
         <tr>
           <td colspan="6">Total spent</td>
           <td class="cost">{{.TotalCostLabel}}</td>
-          <td colspan="2"></td>
+          <td colspan="3"></td>
         </tr>
       </tfoot>
       {{end}}
@@ -297,7 +298,7 @@
      mutation controls hardcode ?view=history. */}}
 {{define "entry_edit_row"}}
 <tr class="editing">
-  <td colspan="{{if .ShowCosts}}9{{else}}8{{end}}">
+  <td colspan="{{if .ShowCosts}}10{{else}}9{{end}}">
     <form hx-post="/ledger/entries/{{.E.ID}}/update?view=history" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form entry-form-edit">
       <label class="field"><span class="field-label">Year</span><input name="year" type="number" value="{{.E.UseYear}}"></label>
       <label class="field"><span class="field-label">Date</span><input name="date" type="date" value="{{formatDate .E.Date}}" required></label>

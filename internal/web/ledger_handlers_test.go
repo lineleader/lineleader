@@ -1169,6 +1169,42 @@ func TestLedgerHistoryShowsCostPerEntryAndUseYear(t *testing.T) {
 	}
 }
 
+// TestLedgerHistoryShowsContractName checks the History entries table (which
+// scrolls in its own container, so it can afford a new column — unlike
+// Recent's phone-width-constrained rows) shows an entry's funding contract
+// by name in its own Contract column.
+func TestLedgerHistoryShowsContractName(t *testing.T) {
+	srv, store := newLedgerTestServer(t)
+	defer srv.Close()
+
+	cid, err := store.AddContract(context.Background(), ledger.Contract{
+		Name: "Point allocation", AnnualPoints: 120, UseYearMonth: time.April,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddEntry(context.Background(), ledger.Entry{
+		UseYear: 2026, Date: dateParse(t, "2026-05-01"), Desc: "Priced trip",
+		Kind: ledger.KindUsage, Used: 40, ContractID: &cid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/ledger/history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ledger/history status = %d, body:\n%s", resp.StatusCode, out)
+	}
+	for _, want := range []string{"<th>Contract</th>", "<td>Point allocation</td>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("history page missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
 // TestLedgerRecentShowsCostsWhenKnown backfills a contract's cost data, adds
 // a priced usage entry, and checks GET /ledger (the Recent view) prices the
 // recent-activity row, the spent-by-year widget, and shows an approximate

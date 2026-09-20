@@ -658,6 +658,15 @@ func templateFuncs() template.FuncMap {
 		// rate formats a Micros per-point rate, e.g. "$5.6796". Only ever
 		// invoked from inside a ShowCosts guard.
 		"rate": ledger.FormatRate,
+		// contractName looks up a contract's Name by (possibly nil)
+		// ContractID from the .Contracts slice already in template scope —
+		// "" when id is nil or not found. Used by History's entry table.
+		"contractName": func(contracts []ledger.Contract, id *int64) string {
+			if id == nil {
+				return ""
+			}
+			return contractNameOf(contracts, *id)
+		},
 		"deref": func(p *int64) int64 {
 			if p == nil {
 				return 0
