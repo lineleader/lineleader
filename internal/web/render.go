@@ -52,6 +52,43 @@ type budgetView struct {
 	ComputedTotal int
 }
 
+// fundingLineView is one aggregated (contract, use year, disposition) line
+// in the trip page's funding-preview split: one row per distinct
+// combination across every unbooked stay's draws, so a contract funding
+// the current-year portion of two different stays shows as a single
+// summed line rather than two. Tag is ledger.DispositionTag's own wording
+// ("" | "Bank" | "Borrow") — the same text BookTrip writes to Entry.Tag —
+// rather than a separately invented label.
+type fundingLineView struct {
+	ContractID int64
+	UseYear    int
+	Tag        string
+	Points     int
+}
+
+// tripFundingView is the trip page's read-only preview of how
+// ledger.Store.BookTrip would fund this trip's unbooked stays right now
+// (nyj.5), projected from a ledger.TripFundingPreview. Show is false
+// (every other field left at its zero value) whenever there's nothing to
+// preview — no stays, or every stay already booked — so the template
+// never renders the section then.
+type tripFundingView struct {
+	Show     bool
+	Fundable bool
+
+	// TotalPoints and Lines are only meaningful when Fundable is true.
+	TotalPoints int
+	Lines       []fundingLineView
+
+	// ShortBy, ShortStayLabel and ShortCheckIn are only meaningful when
+	// Fundable is false: how many points short, and which stay first
+	// couldn't be funded — see ledger.TripFundingPreview's doc comment for
+	// why it's always the FIRST failing stay, never a later one.
+	ShortBy        int
+	ShortStayLabel string
+	ShortCheckIn   time.Time
+}
+
 // stayView is one stay collected on a trip.
 type stayView struct {
 	ID       int64
@@ -63,6 +100,14 @@ type stayView struct {
 	Nights   int
 	Points   int
 	Booked   bool
+
+	// PartiallyBooked is true when the stay has linked entries (Booked ==
+	// true) whose points fall short of Points — see
+	// ledger.TripStay.PartiallyBooked. Booked stays true regardless, since
+	// it only asks "does this stay have any linked entries at all"; the
+	// stays table uses PartiallyBooked to render this distinctly rather
+	// than silently calling it booked.
+	PartiallyBooked bool
 
 	CostLabel     string
 	CostProjected bool
@@ -94,6 +139,13 @@ type tripView struct {
 	Stays          []stayView
 	StaysPoints    int
 	StaysCostLabel string
+
+	// Funding is the read-only preview of how ledger.Store.BookTrip would
+	// actually fund this trip's unbooked stays right now (nyj.5) — a
+	// second, more exacting number than Budget/EffectiveBudget's coarse
+	// current+banked+borrowable projection. Funding.Show is false (every
+	// other field left zero) whenever there's nothing to preview.
+	Funding tripFundingView
 
 	Booked       bool
 	PartlyBooked bool
@@ -278,6 +330,62 @@ func stayBookingStatus(stays []ledger.TripStay) (anyBooked, anyUnbooked bool) {
 	return anyBooked, anyUnbooked
 }
 
+// findStayByID returns the stay with the given id, and whether it was
+// found — used by buildTripFundingView to resolve a failing draw's StayID
+// back to a human label.
+func findStayByID(stays []ledger.TripStay, id int64) (ledger.TripStay, bool) {
+	for _, st := range stays {
+		if st.ID == id {
+			return st, true
+		}
+	}
+	return ledger.TripStay{}, false
+}
+
+// buildTripFundingView projects an already-fetched ledger.TripFundingPreview
+// (buildTripView performs no I/O, same as everything else in this file) into
+// the trip page's funding-preview section. Draws from every fundable stay in
+// preview.Stays are aggregated into one line per (contract, use year,
+// disposition) rather than shown per-stay: the section answers "what would
+// get drawn", not "which stay drew it". stays resolves the first failing
+// stay's id back to a resort/room-type label for the shortfall message.
+func buildTripFundingView(preview ledger.TripFundingPreview, stays []ledger.TripStay) tripFundingView {
+	fv := tripFundingView{Show: true, Fundable: preview.Fundable}
+
+	type lineKey struct {
+		contractID int64
+		useYear    int
+		tag        string
+	}
+	totals := make(map[lineKey]int)
+	var order []lineKey
+
+	for _, sf := range preview.Stays {
+		if !sf.Fundable {
+			fv.ShortBy = sf.ShortBy
+			if st, ok := findStayByID(stays, sf.StayID); ok {
+				fv.ShortStayLabel = st.Resort + " " + st.RoomType
+				fv.ShortCheckIn = st.CheckIn
+			}
+			break
+		}
+		for _, d := range sf.Draws {
+			fv.TotalPoints += d.Points
+			key := lineKey{d.ContractID, d.UseYear, ledger.DispositionTag(d.Disposition)}
+			if _, seen := totals[key]; !seen {
+				order = append(order, key)
+			}
+			totals[key] += d.Points
+		}
+	}
+
+	fv.Lines = make([]fundingLineView, len(order))
+	for i, k := range order {
+		fv.Lines[i] = fundingLineView{ContractID: k.contractID, UseYear: k.useYear, Tag: k.tag, Points: totals[k]}
+	}
+	return fv
+}
+
 // deriveTripStatus reports Booked/PartlyBooked from anyBooked/anyUnbooked
 // (see stayBookingStatus). Zero stays is neither booked nor partly booked.
 func deriveTripStatus(anyBooked, anyUnbooked bool) (booked, partlyBooked bool) {
@@ -389,7 +497,7 @@ const maxResultRows = 200
 func buildTripView(
 	t ledger.Trip, stays []ledger.TripStay, b ledger.TripBudget,
 	results []dvc.StayResult, month time.Month,
-	basis ledger.CostBasis, showCosts bool,
+	basis ledger.CostBasis, showCosts bool, funding ledger.TripFundingPreview,
 ) tripView {
 	anyBooked, anyUnbooked := stayBookingStatus(stays)
 	booked, partlyBooked := deriveTripStatus(anyBooked, anyUnbooked)
@@ -425,6 +533,9 @@ func buildTripView(
 			ComputedTotal:   b.Total,
 		},
 	}
+	if anyUnbooked {
+		tv.Funding = buildTripFundingView(funding, stays)
+	}
 
 	startUY := ledger.UseYearForDate(t.StartDate, month)
 	endUY := ledger.UseYearForDate(t.EndDate, month)
@@ -441,15 +552,16 @@ func buildTripView(
 	tv.Stays = make([]stayView, len(stays))
 	for i, st := range stays {
 		sv := stayView{
-			ID:       st.ID,
-			Resort:   st.Resort,
-			RoomType: st.RoomType,
-			View:     st.View,
-			CheckIn:  st.CheckIn,
-			CheckOut: st.CheckOut,
-			Nights:   st.Nights,
-			Points:   st.Points,
-			Booked:   st.Booked(),
+			ID:              st.ID,
+			Resort:          st.Resort,
+			RoomType:        st.RoomType,
+			View:            st.View,
+			CheckIn:         st.CheckIn,
+			CheckOut:        st.CheckOut,
+			Nights:          st.Nights,
+			Points:          st.Points,
+			Booked:          st.Booked(),
+			PartiallyBooked: st.PartiallyBooked(),
 		}
 		if showCosts {
 			priceStay(&sv, month, basis)

@@ -193,7 +193,19 @@ func (h *handlers) buildTripPageView(ctx context.Context, t ledger.Trip, errMsg 
 	basis, showCosts := h.costBasis(ctx)
 	month := basis.UseYearMonth()
 	results := h.searchTrip(t, searchBudgetFor(t, budget, stays))
-	view := buildTripView(t, stays, budget, results, month, basis, showCosts)
+
+	// Only worth a query when there's something to preview — an empty or
+	// fully-booked trip renders no funding section regardless (see
+	// buildTripView), so skip PreviewTripFunding entirely then.
+	var funding ledger.TripFundingPreview
+	if _, anyUnbooked := stayBookingStatus(stays); anyUnbooked {
+		funding, err = h.store.PreviewTripFunding(ctx, stays)
+		if err != nil {
+			return tripView{}, fmt.Errorf("previewing funding for trip %d: %w", t.ID, err)
+		}
+	}
+
+	view := buildTripView(t, stays, budget, results, month, basis, showCosts, funding)
 	view.Err = errMsg
 	return view, nil
 }

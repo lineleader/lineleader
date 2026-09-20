@@ -155,7 +155,7 @@ func TestBuildTripView_DerivesStatusFromEntryID(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			tv := buildTripView(tripFixture(), c.stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false)
+			tv := buildTripView(tripFixture(), c.stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 			if tv.Booked != c.wantBooked {
 				t.Errorf("Booked = %v, want %v", tv.Booked, c.wantBooked)
 			}
@@ -221,7 +221,7 @@ func TestBuildTripView_HasBookedAndUnbookedFlags(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			tv := buildTripView(tripFixture(), c.stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false)
+			tv := buildTripView(tripFixture(), c.stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 			if tv.Booked != c.wantBooked {
 				t.Errorf("Booked = %v, want %v", tv.Booked, c.wantBooked)
 			}
@@ -241,7 +241,7 @@ func TestBuildTripView_HasBookedAndUnbookedFlags(t *testing.T) {
 func TestBuildTripView_BudgetLabelsAreSigned(t *testing.T) {
 	b := ledger.TripBudget{UseYear: 2026, Current: 270, Banked: -60, Borrowable: 270, Total: 480}
 
-	tv := buildTripView(tripFixture(), nil, b, nil, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tripFixture(), nil, b, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if tv.Budget.CurrentLabel != "+270" {
 		t.Errorf("CurrentLabel = %q, want %q", tv.Budget.CurrentLabel, "+270")
@@ -264,7 +264,7 @@ func TestBuildTripView_SumsStayPoints(t *testing.T) {
 		{Points: 15, EntryIDs: nil},         // unbooked
 	}
 
-	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if tv.StaysPoints != 80 {
 		t.Errorf("StaysPoints = %d, want 80 (summed over booked and unbooked alike)", tv.StaysPoints)
@@ -288,7 +288,7 @@ func TestBuildTripView_PricesResultsWhenShowCosts(t *testing.T) {
 		{Resort: "R2", RoomType: "VILLA", CheckIn: time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC), CheckOut: time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC), Nights: 2, Points: 40},
 	}
 
-	tvOn := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, basis, true)
+	tvOn := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, basis, true, ledger.TripFundingPreview{})
 	if len(tvOn.Results) != 2 {
 		t.Fatalf("len(Results) = %d, want 2", len(tvOn.Results))
 	}
@@ -298,7 +298,7 @@ func TestBuildTripView_PricesResultsWhenShowCosts(t *testing.T) {
 		}
 	}
 
-	tvOff := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, basis, false)
+	tvOff := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, basis, false, ledger.TripFundingPreview{})
 	for _, r := range tvOff.Results {
 		if r.CostLabel != "" {
 			t.Errorf("result row CostLabel = %q, want empty with showCosts=false", r.CostLabel)
@@ -388,7 +388,7 @@ func TestBuildTripView_SpansUseYears(t *testing.T) {
 			tr.StartDate = c.start
 			tr.EndDate = c.end
 
-			tv := buildTripView(tr, nil, ledger.TripBudget{}, nil, c.month, ledger.CostBasis{}, false)
+			tv := buildTripView(tr, nil, ledger.TripBudget{}, nil, c.month, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 			if tv.SpansUseYears != c.wantSpans {
 				t.Errorf("SpansUseYears = %v, want %v (note = %q)", tv.SpansUseYears, c.wantSpans, tv.SpanNote)
@@ -409,7 +409,7 @@ func TestBuildTripView_EffectiveBudgetHonoursOverride(t *testing.T) {
 	b := ledger.TripBudget{Total: 480}
 
 	tr := tripFixture()
-	tvNil := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false)
+	tvNil := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 	if tvNil.EffectiveBudget != 480 {
 		t.Errorf("EffectiveBudget (nil override) = %d, want 480", tvNil.EffectiveBudget)
 	}
@@ -424,7 +424,7 @@ func TestBuildTripView_EffectiveBudgetHonoursOverride(t *testing.T) {
 	}
 
 	tr.BudgetOverride = intPtr(200)
-	tvSet := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false)
+	tvSet := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 	if tvSet.EffectiveBudget != 200 {
 		t.Errorf("EffectiveBudget (override 200) = %d, want 200", tvSet.EffectiveBudget)
 	}
@@ -468,7 +468,7 @@ func TestBuildTripView_OverriddenBudgetSetsEffectiveAndComputed(t *testing.T) {
 		{Points: 200, EntryIDs: entryIDs(1)}, // booked: not subtracted
 	}
 
-	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if tv.EffectiveBudget != 100 {
 		t.Errorf("EffectiveBudget = %d, want 100 (the override)", tv.EffectiveBudget)
@@ -493,7 +493,7 @@ func TestBuildTripView_ZeroOverrideIsHonoured(t *testing.T) {
 	tr.BudgetOverride = intPtr(0)
 	b := ledger.TripBudget{Total: 480}
 
-	tv := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tr, nil, b, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if tv.EffectiveBudget != 0 {
 		t.Errorf("EffectiveBudget = %d, want 0", tv.EffectiveBudget)
@@ -507,7 +507,7 @@ func TestBuildTripView_ZeroOverrideIsHonoured(t *testing.T) {
 }
 
 func TestBuildTripView_NoStaysNoResults(t *testing.T) {
-	tv := buildTripView(ledger.Trip{}, nil, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(ledger.Trip{}, nil, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if tv.Booked || tv.PartlyBooked {
 		t.Errorf("zero-value trip should be neither booked nor partly booked: %+v", tv)
@@ -583,7 +583,7 @@ func TestBuildTripView_RemainingMatchesSearchBudget(t *testing.T) {
 		{Points: 200, EntryIDs: entryIDs(1)},
 	}
 
-	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tr, stays, b, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	want := searchBudgetFor(tr, b, stays)
 	if tv.Remaining != want {
@@ -623,7 +623,7 @@ func TestBuildTripView_MarksCollectedResultRowsSelected(t *testing.T) {
 		},
 	}
 
-	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if len(tv.Results) != 2 {
 		t.Fatalf("len(Results) = %d, want 2", len(tv.Results))
@@ -664,7 +664,7 @@ func manyResults(n int) []dvc.StayResult {
 func TestBuildTripView_TruncatesResultsAtMaxResultRows(t *testing.T) {
 	results := manyResults(maxResultRows + 25)
 
-	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if len(tv.Results) != maxResultRows {
 		t.Errorf("len(Results) = %d, want %d", len(tv.Results), maxResultRows)
@@ -681,7 +681,7 @@ func TestBuildTripView_TruncatesResultsAtMaxResultRows(t *testing.T) {
 func TestBuildTripView_UnderCapIsNotTruncated(t *testing.T) {
 	results := manyResults(maxResultRows - 10)
 
-	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if len(tv.Results) != maxResultRows-10 {
 		t.Errorf("len(Results) = %d, want %d", len(tv.Results), maxResultRows-10)
@@ -700,7 +700,7 @@ func TestBuildTripView_UnderCapIsNotTruncated(t *testing.T) {
 func TestBuildTripView_TruncationKeepsThePrefixInOrder(t *testing.T) {
 	results := manyResults(maxResultRows + 25)
 
-	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false)
+	tv := buildTripView(tripFixture(), nil, ledger.TripBudget{}, results, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
 
 	if len(tv.Results) != maxResultRows {
 		t.Fatalf("len(Results) = %d, want %d", len(tv.Results), maxResultRows)
@@ -712,5 +712,145 @@ func TestBuildTripView_TruncationKeepsThePrefixInOrder(t *testing.T) {
 		if tv.Results[i].Points != results[i].Points {
 			t.Errorf("Results[%d].Points = %d, want %d (results[%d])", i, tv.Results[i].Points, results[i].Points, i)
 		}
+	}
+}
+
+// --- buildTripView: funding preview (nyj.5) ---
+
+// TestBuildTripView_FundingPreview_FundableShowsSplit proves a fundable
+// preview projects into Funding.TotalPoints and a per-(contract, use year,
+// disposition) line list, in disposition wording matching
+// ledger.DispositionTag (empty for current-year, "Bank" for banked) rather
+// than inventing its own labels.
+func TestBuildTripView_FundingPreview_FundableShowsSplit(t *testing.T) {
+	stays := []ledger.TripStay{
+		{ID: 1, Resort: "BLT", RoomType: "Studio", Points: 60},
+	}
+	preview := ledger.TripFundingPreview{
+		Fundable: true,
+		Stays: []ledger.StayFunding{
+			{StayID: 1, Fundable: true, Draws: []ledger.PointDraw{
+				{ContractID: 10, UseYear: 2026, Disposition: ledger.DispositionCurrent, Points: 40},
+				{ContractID: 20, UseYear: 2026, Disposition: ledger.DispositionBanked, Points: 20},
+			}},
+		},
+	}
+
+	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, preview)
+
+	if !tv.Funding.Show {
+		t.Fatalf("Funding.Show = false, want true (trip has an unbooked stay)")
+	}
+	if !tv.Funding.Fundable {
+		t.Errorf("Funding.Fundable = false, want true")
+	}
+	if tv.Funding.TotalPoints != 60 {
+		t.Errorf("Funding.TotalPoints = %d, want 60", tv.Funding.TotalPoints)
+	}
+	want := []fundingLineView{
+		{ContractID: 10, UseYear: 2026, Tag: "", Points: 40},
+		{ContractID: 20, UseYear: 2026, Tag: "Bank", Points: 20},
+	}
+	if len(tv.Funding.Lines) != len(want) {
+		t.Fatalf("Funding.Lines = %+v, want %+v", tv.Funding.Lines, want)
+	}
+	for i := range want {
+		if tv.Funding.Lines[i] != want[i] {
+			t.Errorf("Funding.Lines[%d] = %+v, want %+v", i, tv.Funding.Lines[i], want[i])
+		}
+	}
+}
+
+// TestBuildTripView_FundingPreview_ShortfallNamesFirstFailingStay proves a
+// short trip's preview surfaces the shortfall amount and the first failing
+// stay's label/check-in — not the trip's other stays.
+func TestBuildTripView_FundingPreview_ShortfallNamesFirstFailingStay(t *testing.T) {
+	checkIn2 := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	stays := []ledger.TripStay{
+		{ID: 1, Resort: "BLT", RoomType: "Studio", Points: 60},
+		{ID: 2, Resort: "AKV", RoomType: "1 Bedroom", CheckIn: checkIn2, Points: 50},
+	}
+	preview := ledger.TripFundingPreview{
+		Fundable: false,
+		Stays: []ledger.StayFunding{
+			{StayID: 1, Fundable: true, Draws: []ledger.PointDraw{
+				{ContractID: 10, UseYear: 2026, Disposition: ledger.DispositionCurrent, Points: 60},
+			}},
+			{StayID: 2, Fundable: false, ShortBy: 20},
+		},
+	}
+
+	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, preview)
+
+	if !tv.Funding.Show {
+		t.Fatalf("Funding.Show = false, want true")
+	}
+	if tv.Funding.Fundable {
+		t.Errorf("Funding.Fundable = true, want false")
+	}
+	if tv.Funding.ShortBy != 20 {
+		t.Errorf("Funding.ShortBy = %d, want 20", tv.Funding.ShortBy)
+	}
+	if tv.Funding.ShortStayLabel != "AKV 1 Bedroom" {
+		t.Errorf("Funding.ShortStayLabel = %q, want %q", tv.Funding.ShortStayLabel, "AKV 1 Bedroom")
+	}
+	if !tv.Funding.ShortCheckIn.Equal(checkIn2) {
+		t.Errorf("Funding.ShortCheckIn = %v, want %v", tv.Funding.ShortCheckIn, checkIn2)
+	}
+}
+
+// TestBuildTripView_FundingPreview_HiddenWhenNoUnbookedStays proves the
+// section stays hidden for a trip with no stays and for one whose only
+// stay is already fully booked — even when a (stale or mismatched) preview
+// is passed in — since buildTripView itself, not the caller, is
+// responsible for deciding whether there's anything to show.
+func TestBuildTripView_FundingPreview_HiddenWhenNoUnbookedStays(t *testing.T) {
+	preview := ledger.TripFundingPreview{
+		Fundable: true,
+		Stays: []ledger.StayFunding{
+			{StayID: 1, Fundable: true, Draws: []ledger.PointDraw{{ContractID: 1, UseYear: 2026, Points: 10}}},
+		},
+	}
+	cases := []struct {
+		name  string
+		stays []ledger.TripStay
+	}{
+		{name: "no stays"},
+		{name: "fully booked", stays: []ledger.TripStay{{ID: 1, Points: 10, EntryIDs: entryIDs(1), EntryPoints: 10}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tv := buildTripView(tripFixture(), c.stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, preview)
+			if tv.Funding.Show {
+				t.Errorf("Funding.Show = true, want false")
+			}
+		})
+	}
+}
+
+// TestBuildTripView_StayView_PartiallyBooked proves stayView carries a
+// PartiallyBooked flag distinct from Booked, derived from
+// ledger.TripStay.PartiallyBooked — the gap Booked() alone can't see (see
+// ledger.TripStay's doc comment).
+func TestBuildTripView_StayView_PartiallyBooked(t *testing.T) {
+	stays := []ledger.TripStay{
+		{ID: 1, Points: 130, EntryIDs: entryIDs(5), EntryPoints: 55},  // partially booked
+		{ID: 2, Points: 100, EntryIDs: entryIDs(6), EntryPoints: 100}, // fully booked
+		{ID: 3, Points: 40}, // unbooked
+	}
+
+	tv := buildTripView(tripFixture(), stays, ledger.TripBudget{}, nil, time.January, ledger.CostBasis{}, false, ledger.TripFundingPreview{})
+
+	if len(tv.Stays) != 3 {
+		t.Fatalf("len(Stays) = %d, want 3", len(tv.Stays))
+	}
+	if !tv.Stays[0].Booked || !tv.Stays[0].PartiallyBooked {
+		t.Errorf("Stays[0] = %+v, want Booked=true PartiallyBooked=true", tv.Stays[0])
+	}
+	if !tv.Stays[1].Booked || tv.Stays[1].PartiallyBooked {
+		t.Errorf("Stays[1] = %+v, want Booked=true PartiallyBooked=false", tv.Stays[1])
+	}
+	if tv.Stays[2].Booked || tv.Stays[2].PartiallyBooked {
+		t.Errorf("Stays[2] = %+v, want Booked=false PartiallyBooked=false", tv.Stays[2])
 	}
 }
