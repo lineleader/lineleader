@@ -428,7 +428,14 @@ button:focus-visible {
   flex: 1;
   min-width: 0;
   padding: var(--sp-6);
-  max-width: 1100px;
+  /* body is display:flex, and the phone-width media query below flips it to
+     flex-direction: column — making this element's cross axis horizontal.
+     margin: 0 auto sets auto cross-axis margins, which per spec disables
+     flex-item stretch, so without a cap this wrapper shrinks to fit its
+     content instead of the viewport (min-width: 0 above is a main-axis
+     rule and doesn't touch this). The 100% term is what re-imposes the
+     viewport cap; dropping it reopens the horizontal overflow. */
+  max-width: min(1100px, 100%);
   margin: 0 auto;
 }
 .site-nav {
@@ -823,7 +830,11 @@ button:focus-visible {
   flex: 1;
   min-width: 0;
   padding: var(--sp-6);
-  max-width: 1100px;
+  /* min(1100px, 100%) not a plain max-width, same reason as .trips-page/
+     .trip-page above: margin: 0 auto disables cross-axis stretch once the
+     phone-width media query makes body's flex direction column, and
+     min-width: 0 doesn't substitute for it. Don't drop the 100% term. */
+  max-width: min(1100px, 100%);
   margin: 0 auto;
 }
 /* Wide ledger tables (History's entry table in particular) must scroll
