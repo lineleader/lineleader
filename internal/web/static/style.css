@@ -838,6 +838,12 @@ button:focus-visible {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Cross-fade between full page loads (trip list ↔ trip ↔ ledger) the way
+   an SPA router would, with no router. Opt-in only when motion is OK. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;

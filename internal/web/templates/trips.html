@@ -42,7 +42,7 @@
 {{define "trip_row"}}
 <tr class="trip-row status-{{if eq .Status "booked"}}booked{{else if eq .Status "partly booked"}}partly-booked{{else}}planning{{end}}">
   <td><a href="/trips/{{.ID}}">{{.Name}}</a></td>
-  <td>{{.StartLabel}} → {{.EndLabel}}</td>
+  <td><time datetime="{{.StartLabel}}">{{.StartLabel}}</time> → <time datetime="{{.EndLabel}}">{{.EndLabel}}</time></td>
   <td>{{.MinNights}}+</td>
   <td>{{.Stays}}</td>
   <td>{{.Points}} pts{{if .CostLabel}} <span class="cost">({{.CostLabel}})</span>{{end}}</td>

@@ -11,13 +11,15 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <main class="ledger-page">
+  <div class="ledger-page">
     {{template "ledger_header" (dict "Active" .View)}}
+    <main>
     {{if eq .View "history"}}{{template "history_body" .}}
     {{else if eq .View "contracts"}}{{template "contracts_body" .}}
     {{else}}{{template "recent_body" .}}
     {{end}}
-  </main>
+    </main>
+  </div>
 </body>
 </html>
 {{end}}
@@ -26,7 +28,7 @@
      parameterised by which nav item is active via dict (per fpl.18/19's
      established pattern for passing multiple values into a sub-template). */}}
 {{define "ledger_header"}}
-<div class="ledger-header">
+<header class="ledger-header">
   {{template "site_nav" (dict "Active" "ledger")}}
   <div class="ledger-header-left">
     <h1 class="ledger-title">Points ledger</h1>
@@ -36,7 +38,7 @@
     <a href="/ledger/history"{{if eq .Active "history"}} aria-current="page"{{end}}>History</a>
     <a href="/ledger/contracts"{{if eq .Active "contracts"}} aria-current="page"{{end}}>Contracts</a>
   </nav>
-</div>
+</header>
 {{end}}
 
 {{/* recent_body — the default /ledger view: balance + recent activity. */}}
@@ -66,7 +68,7 @@
         </thead>
         <tbody>
           {{range .Recent}}
-          <tr><td class="recent-date">{{.DateLabel}}</td><td class="recent-desc">{{.Desc}}{{if .FundingLine}}<span class="recent-funding">{{.FundingLine}}</span>{{end}}</td><td class="recent-delta">{{.DeltaLabel}}</td>{{if $showCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this year are projected, not actual">*</abbr>{{end}}</td>{{end}}</tr>
+          <tr><td class="recent-date"><time datetime="{{.DateLabel}}">{{.DateLabel}}</time></td><td class="recent-desc">{{.Desc}}{{if .FundingLine}}<span class="recent-funding">{{.FundingLine}}</span>{{end}}</td><td class="recent-delta">{{.DeltaLabel}}</td>{{if $showCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this year are projected, not actual">*</abbr>{{end}}</td>{{end}}</tr>
           {{else}}
           <tr><td class="recent-empty" colspan="{{if $showCosts}}4{{else}}3{{end}}">No entries yet.</td></tr>
           {{end}}
@@ -147,7 +149,7 @@
           {{else}}
             <tr class="{{if lt .RunningBalance 0}}negative{{end}}">
               <td>{{.UseYear}}</td>
-              <td>{{formatDate .Date}}</td>
+              <td><time datetime="{{formatDate .Date}}">{{formatDate .Date}}</time></td>
               <td>{{.Desc}}</td>
               <td>{{blankZero .Allotted}}</td>
               <td>{{blankZero .Used}}</td>

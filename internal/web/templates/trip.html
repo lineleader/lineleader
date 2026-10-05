@@ -97,7 +97,7 @@
     {{end}}
   </dl>
   {{else}}
-  <p class="funding-short">Short by {{.Funding.ShortBy}} pts — "{{.Funding.ShortStayLabel}}" ({{formatDate .Funding.ShortCheckIn}}) can't be fully funded with the points currently in the ledger.</p>
+  <p class="funding-short">Short by {{.Funding.ShortBy}} pts — "{{.Funding.ShortStayLabel}}" (<time datetime="{{formatDate .Funding.ShortCheckIn}}">{{formatDate .Funding.ShortCheckIn}}</time>) can't be fully funded with the points currently in the ledger.</p>
   {{end}}
 </section>
 {{end}}
@@ -144,8 +144,8 @@
         <td>{{.Resort}}</td>
         <td>{{.RoomType}}</td>
         <td>{{viewOrDash .View}}</td>
-        <td>{{formatDate .CheckIn}}</td>
-        <td>{{formatDate .CheckOut}}</td>
+        <td><time datetime="{{formatDate .CheckIn}}">{{formatDate .CheckIn}}</time></td>
+        <td><time datetime="{{formatDate .CheckOut}}">{{formatDate .CheckOut}}</time></td>
         <td>{{.Nights}}</td>
         <td>{{.Points}}</td>
         {{if $.ShowCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</td>{{end}}
