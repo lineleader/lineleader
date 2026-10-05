@@ -54,7 +54,7 @@ func TestLedgerPageRenders(t *testing.T) {
 	got := body(t, resp)
 	for _, want := range []string{
 		"Points ledger", "id=\"ledger-body\"", "Recent activity", "+ Add entry",
-		`href="/ledger" class="active"`,
+		`href="/ledger" aria-current="page"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("page missing %q; got:\n%s", want, got)
@@ -92,7 +92,7 @@ func TestLedgerHistoryPageRenders(t *testing.T) {
 	for _, want := range []string{
 		"Points ledger", "id=\"ledger-body\"", "Per use year", "Original",
 		"Distribute next year", "Add entry",
-		`href="/ledger/history" class="active"`,
+		`href="/ledger/history" aria-current="page"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("history page missing %q; got:\n%s", want, got)
@@ -126,7 +126,7 @@ func TestLedgerContractsPageRenders(t *testing.T) {
 	got := body(t, resp)
 	for _, want := range []string{
 		"Points ledger", "id=\"ledger-body\"", "BoardWalk", "Add contract",
-		`href="/ledger/contracts" class="active"`,
+		`href="/ledger/contracts" aria-current="page"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("contracts page missing %q; got:\n%s", want, got)

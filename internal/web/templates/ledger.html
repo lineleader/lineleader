@@ -6,10 +6,8 @@
 {{define "ledger_page"}}<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {{template "head_meta"}}
   <title>lineleader — points ledger</title>
-  <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -33,10 +31,10 @@
   <div class="ledger-header-left">
     <h1 class="ledger-title">Points ledger</h1>
   </div>
-  <nav class="ledger-nav">
-    <a href="/ledger" class="{{if eq .Active "recent"}}active{{end}}">Recent</a>
-    <a href="/ledger/history" class="{{if eq .Active "history"}}active{{end}}">History</a>
-    <a href="/ledger/contracts" class="{{if eq .Active "contracts"}}active{{end}}">Contracts</a>
+  <nav class="ledger-nav" aria-label="Ledger views">
+    <a href="/ledger"{{if eq .Active "recent"}} aria-current="page"{{end}}>Recent</a>
+    <a href="/ledger/history"{{if eq .Active "history"}} aria-current="page"{{end}}>History</a>
+    <a href="/ledger/contracts"{{if eq .Active "contracts"}} aria-current="page"{{end}}>Contracts</a>
   </nav>
 </div>
 {{end}}
@@ -117,7 +115,7 @@
   <section class="ledger-summary">
     <h2>Per use year</h2>
     <table>
-      <thead><tr><th>Year</th><th>Allotted</th><th>Used</th><th>Net</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th></th></tr></thead>
+      <thead><tr><th>Year</th><th>Allotted</th><th>Used</th><th>Net</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th>Status</th></tr></thead>
       <tbody>
         {{range .Summaries}}
         <tr class="{{if .OverBorrowed}}over-borrowed{{end}}">
@@ -139,7 +137,7 @@
     <h2>Ledger</h2>
     <table>
       <thead>
-        <tr><th>Year</th><th>Date</th><th>Desc</th><th>Allotted</th><th>Used</th><th>Total</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th>Contract</th><th>Tag</th><th></th></tr>
+        <tr><th>Year</th><th>Date</th><th>Desc</th><th>Allotted</th><th>Used</th><th>Total</th>{{if .ShowCosts}}<th>Cost</th>{{end}}<th>Contract</th><th>Tag</th><th><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>
         {{$kinds := .Kinds}}{{$contracts := .Contracts}}{{$showCosts := .ShowCosts}}
@@ -198,7 +196,7 @@
         <tr>
           <th>Name</th><th>Number</th><th>Resort</th><th>Points</th><th>Use year</th>
           {{if .ShowCosts}}<th>Term</th><th>Purchase</th><th>Closing</th><th>$/pt/yr</th>{{end}}
-          <th></th>
+          <th><span class="visually-hidden">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -232,14 +230,14 @@
 
     <h3>Add contract</h3>
     <form hx-post="/ledger/contracts?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">
-      <input name="name" type="text" placeholder="Name" required>
-      <input name="number" type="text" placeholder="Contract #">
-      <input name="resort" type="text" placeholder="Resort">
-      <input name="points" type="number" placeholder="Points" required>
-      <input name="use_year_month" type="text" placeholder="Use year month (Apr)" required>
-      <input name="term_years" type="number" placeholder="Term (years)">
-      <input name="price" type="text" placeholder="Purchase price">
-      <input name="closing" type="text" placeholder="Closing costs">
+      <input name="name" type="text" aria-label="Name" placeholder="Name" required>
+      <input name="number" type="text" aria-label="Contract number" placeholder="Contract #">
+      <input name="resort" type="text" aria-label="Resort" placeholder="Resort">
+      <input name="points" type="number" aria-label="Points" placeholder="Points" required>
+      <input name="use_year_month" type="text" aria-label="Use year month" placeholder="Use year month (Apr)" required>
+      <input name="term_years" type="number" aria-label="Term (years)" placeholder="Term (years)">
+      <input name="price" type="text" inputmode="decimal" aria-label="Purchase price" placeholder="Purchase price">
+      <input name="closing" type="text" inputmode="decimal" aria-label="Closing costs" placeholder="Closing costs">
       <button type="submit">Add contract</button>
     </form>
   </section>
@@ -247,7 +245,7 @@
   <section class="ledger-dues">
     <h2>Dues rates</h2>
     <table>
-      <thead><tr><th>Use year</th><th>$/pt</th><th></th></tr></thead>
+      <thead><tr><th>Use year</th><th>$/pt</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
       <tbody>
         {{range .Dues}}
         <tr class="{{if .Projected}}projected{{end}}">
@@ -264,8 +262,8 @@
 
     <h3>Set dues rate</h3>
     <form hx-post="/ledger/dues?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">
-      <input name="year" type="number" placeholder="Use year" required>
-      <input name="rate" type="text" placeholder="$/pt" required>
+      <input name="year" type="number" aria-label="Use year" placeholder="Use year" required>
+      <input name="rate" type="text" inputmode="decimal" aria-label="Dues rate (dollars per point)" placeholder="$/pt" required>
       <button type="submit">Save</button>
     </form>
   </section>
@@ -277,16 +275,16 @@
      hosting it so the response swaps back into the right #ledger-body. */}}
 {{define "entry_add_form"}}
 <form hx-post="/ledger/entries?view={{.View}}" hx-target="#ledger-body" hx-swap="outerHTML" class="entry-form">
-  <input name="date" type="date" required>
-  <input name="desc" type="text" placeholder="Description" required>
-  <input name="year" type="number" placeholder="Use year (auto)">
-  <select name="kind">
+  <input name="date" type="date" aria-label="Date" required>
+  <input name="desc" type="text" aria-label="Description" placeholder="Description" required>
+  <input name="year" type="number" aria-label="Use year" placeholder="Use year (auto)">
+  <select name="kind" aria-label="Kind">
     {{range .Kinds}}<option value="{{.}}">{{.}}</option>{{end}}
   </select>
-  <input name="allotted" type="number" placeholder="Allotted">
-  <input name="used" type="number" placeholder="Used">
-  <input name="tag" type="text" placeholder="Tag">
-  <select name="contract">
+  <input name="allotted" type="number" aria-label="Allotted" placeholder="Allotted">
+  <input name="used" type="number" aria-label="Used" placeholder="Used">
+  <input name="tag" type="text" aria-label="Tag" placeholder="Tag">
+  <select name="contract" aria-label="Contract">
     <option value="">(no contract)</option>
     {{range .Contracts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
   </select>
@@ -339,8 +337,8 @@
       <label class="field"><span class="field-label">Points</span><input name="points" type="number" value="{{.C.AnnualPoints}}" required></label>
       <label class="field"><span class="field-label">Use year</span><input name="use_year_month" type="text" value="{{formatMonth .C.UseYearMonth}}" required></label>
       <label class="field"><span class="field-label">Term</span><input name="term_years" type="number" value="{{.C.TermYears}}"></label>
-      <label class="field"><span class="field-label">Purchase</span><input name="price" type="text" value="{{.C.PriceInput}}"></label>
-      <label class="field"><span class="field-label">Closing</span><input name="closing" type="text" value="{{.C.ClosingInput}}"></label>
+      <label class="field"><span class="field-label">Purchase</span><input name="price" type="text" inputmode="decimal" value="{{.C.PriceInput}}"></label>
+      <label class="field"><span class="field-label">Closing</span><input name="closing" type="text" inputmode="decimal" value="{{.C.ClosingInput}}"></label>
       <button type="submit">Save</button>
       <button type="button" hx-post="/ledger/contracts/edit/cancel?view=contracts" hx-target="#ledger-body" hx-swap="outerHTML">Cancel</button>
     </form>

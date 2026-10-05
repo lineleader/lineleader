@@ -22,7 +22,7 @@
         <th>Stays</th>
         <th>Points</th>
         <th>Status</th>
-        <th></th>
+        <th><span class="visually-hidden">Actions</span></th>
       </tr>
     </thead>
     <tbody>
@@ -47,7 +47,7 @@
   <td>{{.Stays}}</td>
   <td>{{.Points}} pts{{if .CostLabel}} <span class="cost">({{.CostLabel}})</span>{{end}}</td>
   <td><span class="trip-status">{{.Status}}</span></td>
-  <td><button type="button" class="trip-remove" hx-delete="/trips/{{.ID}}" hx-confirm="Delete this trip?">×</button></td>
+  <td><button type="button" class="trip-remove" hx-delete="/trips/{{.ID}}" hx-confirm="Delete this trip?" aria-label="Delete trip {{.Name}}">×</button></td>
 </tr>
 {{end}}
 
@@ -56,9 +56,9 @@
   <summary>+ New trip</summary>
   <form class="trip-new-form" method="post" action="/trips">
     <label>Name <input name="name" type="text" autocomplete="off" required></label>
-    <label>From <input name="from" type="text" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
-    <label>To <input name="to" type="text" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
-    <label>Min nights <input name="min_nights" type="text" value="1" autocomplete="off" required></label>
+    <label>From <input name="from" type="date" required></label>
+    <label>To <input name="to" type="date" required></label>
+    <label>Min nights <input name="min_nights" type="number" min="1" max="30" value="1" required></label>
     <button type="submit">Create trip</button>
   </form>
 </details>

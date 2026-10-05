@@ -21,9 +21,9 @@
         hx-target="#trip"
         hx-swap="outerHTML">
     <label>Name <input name="name" type="text" value="{{.Name}}" autocomplete="off" required></label>
-    <label>From <input name="from" type="text" value="{{.StartLabel}}" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
-    <label>To <input name="to" type="text" value="{{.EndLabel}}" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
-    <label>Min nights <input name="min_nights" type="text" value="{{.MinNights}}" autocomplete="off" required></label>
+    <label>From <input name="from" type="date" value="{{.StartLabel}}" required></label>
+    <label>To <input name="to" type="date" value="{{.EndLabel}}" required></label>
+    <label>Min nights <input name="min_nights" type="number" min="1" max="30" value="{{.MinNights}}" required></label>
     <button type="submit">Save</button>
   </form>
 
@@ -134,8 +134,8 @@
         <th>Nights</th>
         <th>Points</th>
         {{if .ShowCosts}}<th>Cost</th>{{end}}
-        <th></th>
-        <th></th>
+        <th>Status</th>
+        <th><span class="visually-hidden">Actions</span></th>
       </tr>
     </thead>
     <tbody>

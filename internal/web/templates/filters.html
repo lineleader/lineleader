@@ -10,12 +10,14 @@
   <div class="filter-mode-switch" role="group" aria-label="Filter mode">
     <button type="button"
             class="mode-btn{{if not $editable}} active{{end}}"
+            aria-pressed="{{if not $editable}}true{{else}}false{{end}}"
             hx-post="/trips/{{.Scope.TripID}}/filters/mode"
             hx-vars="mode:'inherit'"
             hx-target="#panel"
             hx-swap="outerHTML">Inherit</button>
     <button type="button"
             class="mode-btn{{if $editable}} active{{end}}"
+            aria-pressed="{{if $editable}}true{{else}}false{{end}}"
             hx-post="/trips/{{.Scope.TripID}}/filters/mode"
             hx-vars="mode:'override'"
             hx-target="#panel"
@@ -38,6 +40,7 @@
         </button>
         {{else}}
         <button type="button"
+                aria-pressed="{{if .Enabled}}true{{else}}false{{end}}"
                 hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripID}}/filters/resorts/{{.Code}}{{else}}/filters/resorts/{{.Code}}{{end}}"
                 hx-target="#panel"
                 hx-swap="outerHTML">
@@ -59,6 +62,7 @@
         </button>
         {{else}}
         <button type="button"
+                aria-pressed="{{if .Enabled}}true{{else}}false{{end}}"
                 hx-post="{{if $.Scope.IsTrip}}/trips/{{$.Scope.TripID}}/filters/roomtypes/{{.Name}}{{else}}/filters/roomtypes/{{.Name}}{{end}}"
                 hx-target="#panel"
                 hx-swap="outerHTML">

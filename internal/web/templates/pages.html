@@ -2,10 +2,8 @@
 {{define "trips_page"}}<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {{template "head_meta"}}
   <title>lineleader — trips</title>
-  <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -22,10 +20,8 @@
 {{define "trip_page"}}<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {{template "head_meta"}}
   <title>lineleader — {{.Name}}</title>
-  <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -44,9 +40,24 @@
 {{define "site_nav"}}
 <div class="site-nav">
   <a class="site-nav-brand" href="/">LineLeader</a>
-  <nav class="site-nav-links">
-    <a href="/" class="{{if eq .Active "trips"}}active{{end}}">Trips</a>
-    <a href="/ledger" class="{{if eq .Active "ledger"}}active{{end}}">Ledger</a>
+  <nav class="site-nav-links" aria-label="Main">
+    <a href="/"{{if eq .Active "trips"}} aria-current="page"{{end}}>Trips</a>
+    <a href="/ledger"{{if eq .Active "ledger"}} aria-current="page"{{end}}>Ledger</a>
   </nav>
 </div>
 {{end}}
+
+{{/* head_meta is the <head> boilerplate shared by every full page. The app
+     sits behind a login, so it opts out of indexing rather than courting
+     it. color-scheme/theme-color let the browser chrome and native controls
+     match the OS light/dark preference before style.css even loads. The
+     favicon is an inline SVG so browsers stop requesting /favicon.ico. */}}
+{{define "head_meta"}}<meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Plan DVC trips against your points budget and track the points ledger.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f1f5f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e131a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d7fe0'/%3E%3Cpath d='M11 8v16h10' fill='none' stroke='%23fff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">{{end}}
