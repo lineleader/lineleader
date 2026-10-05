@@ -94,6 +94,14 @@
   --danger-tint: var(--red-100);
   --danger-ink:  var(--red-ink);
 
+  /* Text sitting ON a saturated fill (primary/brand/accent backgrounds).
+     Separate from the *-ink tokens, which are also used as text directly
+     on the surface: in dark mode the inks flip light, but text on a
+     bright fill must stay dark in both schemes. */
+  --on-primary: var(--orange-ink);
+  --on-brand:   var(--purple-ink);
+  --on-accent:  var(--yellow-ink);
+
   --focus-ring: oklch(72% 0.17 42 / 0.35);
 
   /* === Typography === */
@@ -135,6 +143,46 @@
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --dur-fast: 0.12s;
   --dur: 0.18s;
+
+  /* Tell the browser both schemes are supported, so native controls
+     (date pickers, selects, scrollbars, checkboxes) follow the OS theme. */
+  color-scheme: light dark;
+}
+
+/* Dark scheme — follows the OS preference, no toggle or JS. Only the
+   semantic aliases are re-pointed; every rule below reads those, so no
+   component needs its own dark override. Inks flip light (they double as
+   text-on-surface), tints flip dark, and the saturated fills keep their
+   dark --on-* text. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:        oklch(19% 0.02  255);
+    --surface:   oklch(23% 0.024 255);
+    --surface-2: oklch(28% 0.026 255);
+    --border:    oklch(36% 0.026 255);
+    --text:      oklch(94% 0.01  220);
+    --text-dim:  oklch(82% 0.016 230);
+    --text-mute: oklch(70% 0.02  240);
+
+    --primary-strong: var(--orange-300);
+    --primary-tint:   oklch(32% 0.07 40);
+    --primary-ink:    var(--orange-100);
+
+    --brand:      var(--purple-300);
+    --brand-tint: oklch(32% 0.07 266);
+    --brand-ink:  var(--purple-100);
+
+    --accent-tint: oklch(31% 0.06 95);
+    --accent-ink:  var(--yellow-300);
+
+    --danger:      oklch(70% 0.15 24);
+    --danger-tint: oklch(31% 0.07 24);
+    --danger-ink:  oklch(88% 0.06 25);
+
+    --shadow-sm:    0 1px 3px oklch(0% 0 0 / 0.35);
+    --shadow:       0 4px 16px oklch(0% 0 0 / 0.4);
+    --shadow-panel: 0 8px 32px oklch(0% 0 0 / 0.5);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -163,7 +211,9 @@ input {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 input:focus {
-  outline: none;
+  /* Transparent, not none: invisible normally (the box-shadow ring shows),
+     but forced-colors mode drops box-shadows and paints outlines. */
+  outline: 2px solid transparent;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
@@ -182,7 +232,7 @@ button {
 button:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 button:active { transform: translateY(0); box-shadow: none; }
 button:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
@@ -205,7 +255,7 @@ button:focus-visible {
 .bar .remaining {
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
-  color: var(--accent-ink);
+  color: var(--on-accent);
   background: var(--accent);
   padding: 0.3rem 0.7rem;
   border-radius: var(--radius-pill);
@@ -246,14 +296,14 @@ button:focus-visible {
 .btn-link:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .btn-link:active { transform: translateY(0); box-shadow: none; }
 .btn-link:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 /* "+ Add trip" — the single primary call to action on this view */
 .bar .actions button:last-of-type {
   background: var(--primary);
-  color: var(--primary-ink);
+  color: var(--on-primary);
   border-color: transparent;
 }
 
@@ -300,7 +350,7 @@ button:focus-visible {
    how .mode-btn.active uses --brand tint/ink for its own toggle state. */
 .trip-book {
   background: var(--primary);
-  color: var(--primary-ink);
+  color: var(--on-primary);
   border-color: transparent;
 }
 .trip-unbook {
@@ -335,6 +385,13 @@ button:focus-visible {
 .trip-new-form label { display: flex; align-items: center; gap: 0.4rem; color: var(--text-dim); font-weight: var(--fw-semibold); }
 .trip-form input,
 .trip-new-form input { width: 7.5rem; }
+/* Native date pickers need room for the full date plus the picker icon.
+   :where() keeps specificity equal to the rule above, so the phone-width
+   "width: 100%" override further down still wins. */
+.trip-form input:where([type="date"]),
+.trip-new-form input:where([type="date"]) { width: auto; }
+.trip-form input:where([type="number"]),
+.trip-new-form input:where([type="number"]) { width: 5rem; }
 
 /* Caution notice: the displayed budget only covers the trip window's first
    use year when the window spans more than one — not an error, just worth
@@ -399,7 +456,7 @@ button:focus-visible {
 .trip-summary .summary-dates { color: var(--text); white-space: nowrap; }
 .trip-summary .summary-room { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trip-summary .summary-points {
-  color: var(--accent-ink);
+  color: var(--on-accent);
   background: var(--accent);
   font-weight: var(--fw-bold);
   white-space: nowrap;
@@ -455,7 +512,7 @@ button:focus-visible {
   text-decoration: none;
   font-weight: var(--fw-regular);
 }
-.site-nav-links a.active { color: var(--text); font-weight: var(--fw-bold); text-decoration: underline; }
+.site-nav-links a[aria-current="page"] { color: var(--text); font-weight: var(--fw-bold); text-decoration: underline; }
 
 /* ---- Trip list (GET /) ----
    overflow-x lives on the card itself (not a separate wrapper — there isn't
@@ -493,7 +550,7 @@ button:focus-visible {
   cursor: pointer;
   list-style: none;
   background: var(--primary);
-  color: var(--primary-ink);
+  color: var(--on-primary);
   font-weight: var(--fw-semibold);
   border-radius: var(--radius-sm);
   padding: 0.4rem 0.85rem;
@@ -674,6 +731,7 @@ button:focus-visible {
   text-transform: uppercase;
   border-bottom-width: 2px;
 }
+.results-table th abbr { text-decoration: none; }
 /* COST column: right-aligned so figures line up (tabular-nums already
    applies table-wide via .results-table above). */
 .results-table td.cost { text-align: right; }
@@ -697,7 +755,7 @@ button:focus-visible {
 }
 .results-table tr.selected .select-btn {
   background: var(--brand);
-  color: var(--brand-ink);
+  color: var(--on-brand);
   border-color: transparent;
 }
 
@@ -739,7 +797,7 @@ button:focus-visible {
 .filter-mode-switch .mode-btn { font-size: var(--fs-sm); }
 .filter-mode-switch .mode-btn.active {
   background: var(--brand);
-  color: var(--brand-ink);
+  color: var(--on-brand);
   border-color: transparent;
 }
 .filter-list li button[disabled] {
@@ -780,6 +838,12 @@ button:focus-visible {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Cross-fade between full page loads (trip list ↔ trip ↔ ledger) the way
+   an SPA router would, with no router. Opt-in only when motion is OK. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;
@@ -796,6 +860,12 @@ button:focus-visible {
    table by column still benefits from real header cells. */
 .visually-hidden {
   position: absolute;
+  /* Pin to the containing block's corner: left at its static position, a
+     label inside a wide table's last column (the overflow-x scroll cards
+     aren't positioned) escapes the scroller and widens the whole page at
+     phone width. */
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   padding: 0;
@@ -943,7 +1013,7 @@ button:focus-visible {
 .ledger-nav a:hover {
   color: var(--text-dim);
 }
-.ledger-nav a.active {
+.ledger-nav a[aria-current="page"] {
   color: var(--text);
   font-weight: var(--fw-bold);
   text-decoration: underline;
@@ -1006,7 +1076,7 @@ button:focus-visible {
   cursor: pointer;
   list-style: none;
   background: var(--primary);
-  color: var(--primary-ink);
+  color: var(--on-primary);
   font-weight: var(--fw-semibold);
   border-radius: var(--radius-sm);
   padding: 0.4rem 0.85rem;

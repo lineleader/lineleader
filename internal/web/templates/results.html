@@ -14,15 +14,15 @@
     <table class="results-table">
       <thead>
         <tr>
-          <th></th>
-          <th>RESORT</th>
-          <th>ROOM TYPE</th>
-          <th>VIEW</th>
-          <th>CHECK-IN</th>
-          <th>CHECK-OUT</th>
-          <th>NIGHTS</th>
-          <th>PTS</th>
-          {{if .ShowCosts}}<th>COST</th>{{end}}
+          <th><span class="visually-hidden">Selected</span></th>
+          <th>Resort</th>
+          <th>Room type</th>
+          <th>View</th>
+          <th>Check-in</th>
+          <th>Check-out</th>
+          <th>Nights</th>
+          <th><abbr title="Points">Pts</abbr></th>
+          {{if .ShowCosts}}<th>Cost</th>{{end}}
         </tr>
       </thead>
       <tbody>
@@ -31,6 +31,8 @@
           <td>
             <button type="button"
                     class="select-btn"
+                    aria-pressed="{{if .Selected}}true{{else}}false{{end}}"
+                    aria-label="Select {{.Resort}} {{.RoomType}}, {{formatDate .CheckIn}} to {{formatDate .CheckOut}}"
                     hx-post="/trips/{{$.ID}}/stays/{{.RowIndex}}"
                     hx-target="#trip"
                     hx-swap="outerHTML">{{if .Selected}}✓{{else}}·{{end}}</button>
@@ -38,8 +40,8 @@
           <td>{{.Resort}}</td>
           <td>{{.RoomType}}</td>
           <td>{{viewOrDash .View}}</td>
-          <td>{{formatDate .CheckIn}}</td>
-          <td>{{formatDate .CheckOut}}</td>
+          <td><time datetime="{{formatDate .CheckIn}}">{{formatDate .CheckIn}}</time></td>
+          <td><time datetime="{{formatDate .CheckOut}}">{{formatDate .CheckOut}}</time></td>
           <td>{{.Nights}}</td>
           <td>{{.Points}}</td>
           {{if $.ShowCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</td>{{end}}

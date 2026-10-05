@@ -21,9 +21,9 @@
         hx-target="#trip"
         hx-swap="outerHTML">
     <label>Name <input name="name" type="text" value="{{.Name}}" autocomplete="off" required></label>
-    <label>From <input name="from" type="text" value="{{.StartLabel}}" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
-    <label>To <input name="to" type="text" value="{{.EndLabel}}" placeholder="YYYY-MM-DD" autocomplete="off" required></label>
-    <label>Min nights <input name="min_nights" type="text" value="{{.MinNights}}" autocomplete="off" required></label>
+    <label>From <input name="from" type="date" value="{{.StartLabel}}" required></label>
+    <label>To <input name="to" type="date" value="{{.EndLabel}}" required></label>
+    <label>Min nights <input name="min_nights" type="number" min="1" max="30" value="{{.MinNights}}" required></label>
     <button type="submit">Save</button>
   </form>
 
@@ -97,7 +97,7 @@
     {{end}}
   </dl>
   {{else}}
-  <p class="funding-short">Short by {{.Funding.ShortBy}} pts — "{{.Funding.ShortStayLabel}}" ({{formatDate .Funding.ShortCheckIn}}) can't be fully funded with the points currently in the ledger.</p>
+  <p class="funding-short">Short by {{.Funding.ShortBy}} pts — "{{.Funding.ShortStayLabel}}" (<time datetime="{{formatDate .Funding.ShortCheckIn}}">{{formatDate .Funding.ShortCheckIn}}</time>) can't be fully funded with the points currently in the ledger.</p>
   {{end}}
 </section>
 {{end}}
@@ -134,8 +134,8 @@
         <th>Nights</th>
         <th>Points</th>
         {{if .ShowCosts}}<th>Cost</th>{{end}}
-        <th></th>
-        <th></th>
+        <th>Status</th>
+        <th><span class="visually-hidden">Actions</span></th>
       </tr>
     </thead>
     <tbody>
@@ -144,8 +144,8 @@
         <td>{{.Resort}}</td>
         <td>{{.RoomType}}</td>
         <td>{{viewOrDash .View}}</td>
-        <td>{{formatDate .CheckIn}}</td>
-        <td>{{formatDate .CheckOut}}</td>
+        <td><time datetime="{{formatDate .CheckIn}}">{{formatDate .CheckIn}}</time></td>
+        <td><time datetime="{{formatDate .CheckOut}}">{{formatDate .CheckOut}}</time></td>
         <td>{{.Nights}}</td>
         <td>{{.Points}}</td>
         {{if $.ShowCosts}}<td class="cost">{{.CostLabel}}{{if .CostProjected}}<abbr class="est" title="Dues for this stay's use year are projected, not actual">*</abbr>{{end}}</td>{{end}}

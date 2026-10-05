@@ -54,7 +54,7 @@ func TestLedgerPageRenders(t *testing.T) {
 	got := body(t, resp)
 	for _, want := range []string{
 		"Points ledger", "id=\"ledger-body\"", "Recent activity", "+ Add entry",
-		`href="/ledger" class="active"`,
+		`href="/ledger" aria-current="page"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("page missing %q; got:\n%s", want, got)
@@ -92,7 +92,7 @@ func TestLedgerHistoryPageRenders(t *testing.T) {
 	for _, want := range []string{
 		"Points ledger", "id=\"ledger-body\"", "Per use year", "Original",
 		"Distribute next year", "Add entry",
-		`href="/ledger/history" class="active"`,
+		`href="/ledger/history" aria-current="page"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("history page missing %q; got:\n%s", want, got)
@@ -126,7 +126,7 @@ func TestLedgerContractsPageRenders(t *testing.T) {
 	got := body(t, resp)
 	for _, want := range []string{
 		"Points ledger", "id=\"ledger-body\"", "BoardWalk", "Add contract",
-		`href="/ledger/contracts" class="active"`,
+		`href="/ledger/contracts" aria-current="page"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("contracts page missing %q; got:\n%s", want, got)
@@ -1306,10 +1306,10 @@ func TestLedgerRecentActivityTableAlignsColumns(t *testing.T) {
 		// "&#43;" (its conservative text escaper, same as any other "+" in
 		// rendered ledger output). Allocation entries (Used == 0) do not
 		// render a funding line: their contract is already in their Desc.
-		`<tr><td class="recent-date">2026-04-01</td><td class="recent-desc">Alloc</td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
+		`<tr><td class="recent-date"><time datetime="2026-04-01">2026-04-01</time></td><td class="recent-desc">Alloc</td><td class="recent-delta">&#43;120</td><td class="cost"></td></tr>`,
 		// Usage row: same four <td>s, cost populated, plus funding line
 		// since it consumes points (Used > 0).
-		`<tr><td class="recent-date">2026-05-01</td><td class="recent-desc">Priced trip<span class="recent-funding">Point allocation · UY2026 · Current</span></td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
+		`<tr><td class="recent-date"><time datetime="2026-05-01">2026-05-01</time></td><td class="recent-desc">Priced trip<span class="recent-funding">Point allocation · UY2026 · Current</span></td><td class="recent-delta">-40</td><td class="cost">$556.12</td></tr>`,
 		// Spent-by-year row: year/pts/cost, same shape.
 		`<tr><td>2026</td><td class="spent-pts">40 pts</td><td class="cost">$556.12</td></tr>`,
 		// Visually-hidden column headers for screen readers.
