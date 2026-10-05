@@ -55,8 +55,9 @@
 
      Open Graph: a pasted link is unfurled by a logged-out crawler, which
      only ever sees the login page, so these describe the app generically
-     (no og:url/og:image — both must be absolute and the app doesn't know
-     its public host).
+     and og:url is always the site root. og:image must be an absolute URL;
+     /static/ is exempt from auth (see isAuthExempt) so crawlers can fetch
+     it. static/og.png is a 1200x630 card rendered once, not built.
 
      The font preload saves a round trip: the woff2 is otherwise only
      discovered after style.css is parsed. Speculation rules prerender a
@@ -75,7 +76,12 @@
   <meta property="og:site_name" content="LineLeader">
   <meta property="og:title" content="LineLeader">
   <meta property="og:description" content="Plan DVC trips against your points budget and track the points ledger.">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:url" content="https://lineleader.io/">
+  <meta property="og:image" content="https://lineleader.io/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="LineLeader: plan DVC trips against your points budget and track the points ledger.">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="preload" href="/static/fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/style.css">
   <script type="speculationrules">
