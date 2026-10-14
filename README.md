@@ -326,6 +326,35 @@ booked stay's points are already reflected in the ledger's `used(uy)`, and so
 already reduced `current`; subtracting them a second time would double-count,
 so booking a stay is designed to leave this number unchanged.
 
+### Importing already-booked trips
+
+Past reservations are usually already in the ledger as hand-reconciled usage
+entries (each with its contract, use year and tag). `dvc trips import` records
+the trip and its stays and **links each stay to those existing entries**
+instead of running the allocator — booking them through `BookTrip` would
+double-spend the points by posting a second set of entries. Booked-ness is
+derived from the links, so imported stays read as booked, and Unbook / Delete
+trip remove the linked entries like any other booked trip.
+
+```sh
+dvc trips import --file trips.json [--server URL] [--token TOKEN]
+```
+
+`trips.json` is an array of trips (`start_date`/`end_date` default to the
+stays' earliest check-in / latest check-out, `min_nights` to 1):
+
+```json
+[{"name": "Riviera March", "stays": [
+  {"resort": "Riviera Resort", "room_type": "Studio", "view": "Standard",
+   "check_in": "2025-03-01", "check_out": "2025-03-05",
+   "points": 80, "entry_ids": [12, 13]}]}]
+```
+
+Each stay's `entry_ids` must be existing `usage` entries not already linked to
+a stay, listed once, whose `used` points sum to the stay's `points`; otherwise
+the whole trip is rejected and nothing is written. The same operation is
+`POST /api/v1/trips/import` (one trip object, returns `201 {"id": N}`).
+
 ### Testing
 
 `internal/web`'s server hard-requires a ledger (`Options.Ledger` is never
