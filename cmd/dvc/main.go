@@ -27,6 +27,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "trips":
+		if err := runTrips(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		printUsage()
@@ -41,7 +46,8 @@ Usage:
   dvc import [--data-dir PATH] [--dir SCAN_DIR] [pdf-file...]
   dvc search --from DATE --to DATE --budget N [--min-nights N] [--data-dir PATH]
   dvc list   [--data-dir PATH]
-  dvc ledger <show|contracts|add|edit|delete|distribute> [--server URL] [--token TOKEN] [flags]`)
+  dvc ledger <show|contracts|add|edit|delete|distribute> [--server URL] [--token TOKEN] [flags]
+  dvc trips import --file trips.json [--server URL] [--token TOKEN]`)
 }
 
 // runImport parses one or more PDF point chart files and saves them as JSON.

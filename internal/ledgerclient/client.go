@@ -184,3 +184,15 @@ func (c *Client) Distribute(ctx context.Context) ([]Entry, error) {
 	}
 	return out, nil
 }
+
+// ImportTrip records an already-booked trip linked to existing ledger
+// entries (bypassing the point allocator) and returns the new trip's id.
+func (c *Client) ImportTrip(ctx context.Context, in ImportTripInput) (int64, error) {
+	var out struct {
+		ID int64 `json:"id"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/v1/trips/import", in, &out); err != nil {
+		return 0, err
+	}
+	return out.ID, nil
+}

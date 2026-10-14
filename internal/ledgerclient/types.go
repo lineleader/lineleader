@@ -84,3 +84,26 @@ type Summary struct {
 	Net          int  `json:"net"`
 	OverBorrowed bool `json:"over_borrowed"`
 }
+
+// ImportStayInput is one stay of an ImportTripInput. EntryIDs are the
+// existing ledger usage entries that paid for it.
+type ImportStayInput struct {
+	Resort   string  `json:"resort"`
+	RoomType string  `json:"room_type"`
+	View     string  `json:"view"`
+	CheckIn  string  `json:"check_in"`
+	CheckOut string  `json:"check_out"`
+	Points   int     `json:"points"`
+	EntryIDs []int64 `json:"entry_ids"`
+}
+
+// ImportTripInput is the request body of POST /api/v1/trips/import. Dates
+// are ISO (YYYY-MM-DD). StartDate/EndDate default server-side to the stays'
+// min check-in / max check-out; MinNights defaults to 1.
+type ImportTripInput struct {
+	Name      string            `json:"name"`
+	StartDate string            `json:"start_date,omitempty"`
+	EndDate   string            `json:"end_date,omitempty"`
+	MinNights int               `json:"min_nights,omitempty"`
+	Stays     []ImportStayInput `json:"stays"`
+}
