@@ -130,6 +130,7 @@ func NewServer(opts Options) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/ledger/contracts/{id}", apih.deleteContract)
 	mux.HandleFunc("GET /api/v1/ledger/summaries", apih.summaries)
 	mux.HandleFunc("POST /api/v1/ledger/distribute", apih.distribute)
+	mux.HandleFunc("POST /api/v1/trips/import", apih.importTrip)
 
 	if opts.AuthSecret == "" {
 		return mux

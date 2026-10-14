@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -362,4 +363,102 @@ func (h *apiHandlers) distribute(w http.ResponseWriter, r *http.Request) {
 		out[i] = entryDTOFrom(e)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// importTripRequestDTO is the wire shape of POST /api/v1/trips/import.
+type importTripRequestDTO struct {
+	Name      string                 `json:"name"`
+	StartDate string                 `json:"start_date"`
+	EndDate   string                 `json:"end_date"`
+	MinNights int                    `json:"min_nights"`
+	Stays     []importStayRequestDTO `json:"stays"`
+}
+
+type importStayRequestDTO struct {
+	Resort   string  `json:"resort"`
+	RoomType string  `json:"room_type"`
+	View     string  `json:"view"`
+	CheckIn  string  `json:"check_in"`
+	CheckOut string  `json:"check_out"`
+	Points   int     `json:"points"`
+	EntryIDs []int64 `json:"entry_ids"`
+}
+
+// importTrip handles POST /api/v1/trips/import: it records an already-booked
+// trip linked to existing ledger entries, bypassing the point allocator (see
+// ledger.ImportBookedTrip). Responds 201 {"id": N}.
+func (h *apiHandlers) importTrip(w http.ResponseWriter, r *http.Request) {
+	var dto importTripRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&dto); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if dto.Name == "" {
+		writeAPIError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if len(dto.Stays) == 0 {
+		writeAPIError(w, http.StatusBadRequest, "at least one stay is required")
+		return
+	}
+	trip := ledger.Trip{Name: dto.Name, MinNights: dto.MinNights}
+	if trip.MinNights == 0 {
+		trip.MinNights = 1
+	}
+	stays := make([]ledger.ImportedStay, len(dto.Stays))
+	var minIn, maxOut time.Time
+	for i, s := range dto.Stays {
+		in, err := time.Parse(ledger.DateLayout, s.CheckIn)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("stay %d: invalid check_in %q (want YYYY-MM-DD)", i+1, s.CheckIn))
+			return
+		}
+		out, err := time.Parse(ledger.DateLayout, s.CheckOut)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("stay %d: invalid check_out %q (want YYYY-MM-DD)", i+1, s.CheckOut))
+			return
+		}
+		if minIn.IsZero() || in.Before(minIn) {
+			minIn = in
+		}
+		if out.After(maxOut) {
+			maxOut = out
+		}
+		stays[i] = ledger.ImportedStay{
+			Stay: ledger.TripStay{
+				Resort: s.Resort, RoomType: s.RoomType, View: s.View,
+				CheckIn: in, CheckOut: out, Nights: int(out.Sub(in).Hours() / 24), Points: s.Points,
+			},
+			EntryIDs: s.EntryIDs,
+		}
+	}
+	trip.StartDate, trip.EndDate = minIn, maxOut
+	var err error
+	if dto.StartDate != "" {
+		if trip.StartDate, err = time.Parse(ledger.DateLayout, dto.StartDate); err != nil {
+			writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("invalid start_date %q (want YYYY-MM-DD)", dto.StartDate))
+			return
+		}
+	}
+	if dto.EndDate != "" {
+		if trip.EndDate, err = time.Parse(ledger.DateLayout, dto.EndDate); err != nil {
+			writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("invalid end_date %q (want YYYY-MM-DD)", dto.EndDate))
+			return
+		}
+	}
+
+	id, err := h.store.ImportBookedTrip(r.Context(), trip, stays)
+	if err != nil {
+		status := http.StatusInternalServerError
+		for _, known := range []error{ledger.ErrImportInvalid, ledger.ErrImportNoEntries, ledger.ErrImportEntryNotFound,
+			ledger.ErrImportEntryNotUsage, ledger.ErrImportEntryLinked, ledger.ErrImportDuplicateEntry, ledger.ErrImportPointsMismatch} {
+			if errors.Is(err, known) {
+				status = http.StatusBadRequest
+				break
+			}
+		}
+		writeAPIError(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
