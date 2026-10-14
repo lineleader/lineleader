@@ -28,7 +28,7 @@ name: lineleader-dev
 services:
   postgres:
     image: postgres:17-alpine
-    restart: unless-stopped
+    restart: "no"
     environment:
       POSTGRES_PASSWORD: dev
       POSTGRES_DB: lineleader
